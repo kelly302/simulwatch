@@ -102,7 +102,9 @@ views_* のソートは実施済み枠のみを対象にする。
 
 ## データモデル
 
-    Streamer   id, name, affiliation, channel_id, platform, icon_url, tier
+    Streamer   id, name, affiliation, channel_id, platform, icon_url, tier,
+               is_active, source_key, channel_title,
+               first_seen_at, last_listed_at, deactivated_at, updated_at
     Work       id, annict_id, anilist_id, title, title_kana,
                media (tv / movie / ova / web), season_name, series_id,
                episodes_count, image_url
@@ -110,12 +112,33 @@ views_* のソートは実施済み枠のみを対象にする。
                ※ 映画・単発は作らない
     WatchEvent id, streamer_id, video_id, title_raw, thumbnail_url, url,
                started_at, status (upcoming / live / completed),
-               is_members_only, view_count, view_count_fetched_at, detected_at
+               is_members_only, view_count, view_count_fetched_at, detected_at,
+               description_raw, scheduled_start_at, ended_at,
+               detect_source (title / description), detect_keyword,
+               found_via (rss / playlist / members_playlist / backfill),
+               archive_gone_at, last_checked_at, updated_at
     EventWork  watch_event_id, work_id, episode_id, confidence（多対多）
     Unresolved watch_event_id, extracted_text, reason, resolved_at
 
 集計値（views_max / views_total / events_count / streamers_count /
 first_event_at / latest_event_at）は日次バッチで作り直す。
+
+### Phase 1 で足した列の意味
+
+- `Streamer.is_active` 公式一覧に載っていて巡回する人。卒業・引退で 0（行と過去の枠は残す）
+- `Streamer.source_key` 公式サイト上の識別子（例 `nijisanji:kuzuha`）。Tier 2 は NULL
+- `WatchEvent.description_raw` extract と再判定のためだけに持つ。**公開しない**（メン限枠の本文を転載しない）
+- `WatchEvent.started_at` 実開始時刻。未開始なら予定時刻（`scheduled_start_at` にも別に持つ）
+- `WatchEvent.archive_gone_at` アーカイブが見られなくなった時刻。NULL でなければ一覧から消す。**行は消さない**
+- `WatchEvent.detect_source` / `detect_keyword` どの語で判定したか。語彙の調整に使う
+
+### 取得用の内部テーブル（公開しない）
+
+    videos_seen   巡回で見たすべての動画（ID・タイトル・判定結果・語彙のバージョン）。
+                  RSS の差分検知と、語彙を変えたときの再判定に使う。概要欄は持たない
+    crawl_state   チャンネルごとの巡回状態（RSS・playlistItems の最終取得、遡りの続きのページ）
+    quota_usage   API 呼び出しごとのクォータ消費（太平洋時間の日付で集計）
+    runs          ジョブの実行記録（ステップごとの件数とエラー）
 
 ### 間違えやすい点
 
@@ -133,6 +156,10 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
 - 予定枠と取得不可なメン限枠は再生数が欠損。NULL と 0 を区別し、
   views_* ソートの対象外にする。
 - 行の代表値は **views_max**。合計ではない（枠数の多さで有利になるため）。
+- **同時視聴枠の大半はメン限枠**（権利の都合）。Phase 1 の実データでは初回に見つかった枠の約8割がメン限だった。
+  メン限の動画は uploads プレイリストではなくメン限プレイリスト（`UUMO` + チャンネルIDの3文字目以降）に載るので、
+  そちらも巡回・遡りする。メン限枠の再生数は API でほぼ取れない（NULL）。
+- 予定枠の段階のメン限枠は uploads 側に載り、メン限プレイリストには載らない。タイトルの語（メン限・Membership Only など）で拾う。
 
 ## 取得パイプライン
 
@@ -153,6 +180,35 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
 
 - RSS は直近15件程度しか返さず、予定枠が載らないことがある。
   **予定枠の鮮度は API 側で担保する**。RSS を予定枠の検知に頼らない。
+
+実装上の分担（`config/crawl.yaml` で調整する）:
+
+    毎時 crawl:hourly  1. 全チャンネルの RSS（クォータ0）
+                       2. playlistItems をチャンネルの一部ずつ（各チャンネルを3時間ごと）
+                       3. 判定 → ヒットだけ videos.list → WatchEvent
+                       4. upcoming / live の枠を videos.list で取り直す（開始時刻・状態を上書き）
+    日次 roster        公式サイトと Tier 1 を同期、channels.list でアイコン更新
+    日次 crawl:daily   全チャンネルの uploads 先頭50件 ＋ メン限プレイリスト（UUMO…）
+                       ＋ 詳細を取り損ねたヒットの回収 ＋ 過去分の遡り（予算内でページを進める）
+    日次 refresh       全 WatchEvent の再生数・状態の取り直しとアーカイブ死活チェック
+
+### detect の実装ルール
+
+- 語彙・正規化は `config/detect.yaml`。語彙を変えると判定バージョンが変わり、次に見たときに再判定される。
+  `detect:rerun` で保存済みタイトルを API なしで再判定できる（概要欄は保存していないのでタイトルのみ）
+- 概要欄は行単位で見る。否定語（ご遠慮・禁止・NG など）や二次利用ルール（ガイドライン・切り抜き など）を含む行は無視する
+- 概要欄の**定型文**は無視する。同じチャンネルの動画のうち `template_min_repeats` 本以上に出る行
+  （チャンネル紹介・メンバー特典の一覧など）。実データでは概要欄ヒットの大半がこれだった
+- ライブ配信（プレミア公開を含む）でない動画は同時視聴枠にしない（切り抜き・通常投稿・Shorts）
+- is_members_only は「メン限プレイリスト（UUMO…）に載っている」か「タイトルにメン限の語がある」で立てる
+
+### アーカイブ消失の判定
+
+- videos.list に返ってこない、または privacyStatus が public 以外（限定公開・非公開）なら
+  `archive_gone_at` を立てて一覧から消す。行は消さない
+- 日次の refresh は消失済みの枠も見に行き、また見られるようになっていれば戻す
+- 1バッチ（10件以上）の半分超が欠けたら API 側の異常とみなして消失判定を見送る
+  （取得失敗時に既存データを消さない）
 
 同定に失敗した枠は黙って捨てず、**修正対象のエラーとして一覧できるようにする**。
 同時視聴が1件もない作品はページを作らない。
@@ -213,9 +269,56 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
 - それでも止まるようなら、Cloudflare Workers Cron から workflow_dispatch で
   起動する方式に切り替える。
 
+## 開発
+
+### ファイル構成
+
+    config/
+      detect.yaml       判定の語彙と正規化ルール
+      roster.yaml       Tier 1 の取得元（公式サイトのURL・日本の所属グループ・卒業の印）
+      crawl.yaml        巡回頻度・クォータ上限・遡りの予算
+    src/
+      cli.ts            コマンドの入口
+      shared/types.ts   ジョブとフロントで共有する型
+      lib/              設定・DB（マイグレーション）・HTTP・生レスポンス・クォータ・実行コンテキスト
+      youtube/          Data API のクライアントと RSS のパーサー
+      roster/           公式サイトからの一覧取得と同期
+      detect/           キーワード判定（純粋関数）
+      crawl/            巡回ジョブ（取得元・判定と保存・状態の取り直し）
+      report/           ローカル確認用のレポート
+    test/               node --test のテスト
+    data/               SQLite と生レスポンス（ローカル・コミットしない）
+
+### 実行方法
+
+Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのまま実行する。
+`.env.example` を `.env` にコピーして `YOUTUBE_API_KEY` を入れる（`.env.example` にはキーを書かない）。
+
+    npm install
+    npm run cli -- roster          # Tier 1 の同期
+    npm run cli -- crawl:hourly    # 毎時の巡回
+    npm run cli -- crawl:daily     # 日次の巡回と遡り
+    npm run cli -- refresh         # 再生数・状態の取り直しとアーカイブ死活チェック
+    npm run cli -- report:detect   # 判定結果、誤検出・取りこぼしの候補
+    npm run cli -- report:quota    # クォータ使用量
+    npm run cli -- detect:rerun    # 語彙を変えたあとの再判定（API なし）
+    npm test                       # テスト
+    npm run typecheck              # 型チェック
+
+- 各ジョブはステップ単位で失敗を記録して次へ進む。ジョブの終了コードは 0（後続のジョブを止めない）
+- 生レスポンスは `data/raw/<日付>/<run_id>.jsonl.gz` に1ジョブ1ファイルで保存する（APIキーは伏せる）。
+  日次ジョブは数百MBになるため、16MB ごとに gzip して追記する（メモリに溜めない）。
+  生レスポンスの保存に失敗しても DB の書き戻しは必ず行う
+
 ## 未確定（実装前に確認すること）
 
-- 現時点でなし。仕様に書いていない判断が必要になったら先に聞く
+- **複数のタレントが1つのチャンネルを共用している場合の扱い**。
+  holoAN（井月みちる・花園さやか・風白ゆき）が `@holoANroom` を共用している。
+  1チャンネル＝1配信者の前提が崩れるため、決まるまで登録しない（roster の結果に shared_channel として出る）
+- **毎時の playlistItems 順繰りの頻度**。Phase 1 の実データ（2026-09-23）では、予定枠40件がすべて
+  RSS に載っていた（uploads の先頭ページにも全件あった）。「RSS に予定枠が載らない」前提で
+  3時間ごとの順繰り（約1,950ユニット/日）を入れているが、減らすかどうかは未決定
+- 仕様に書いていない判断が必要になったら先に聞く
 
 ## 回答のルール
 

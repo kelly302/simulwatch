@@ -1,0 +1,43 @@
+# Tier 1 の取得元（各事務所の公式サイト）
+#
+# - 取得に失敗した事務所は前回の一覧をそのまま使う（卒業扱いにしない）
+# - 取得件数が min_count を下回ったら、サイト改修で抜き出しが壊れたとみなして失敗扱いにする
+
+nijisanji:
+  # 公式サイトのライバー一覧API（affiliation=nijisanji は日本の所属のみ）
+  list_url: "https://www.nijisanji.jp/api/livers?limit=300&orderKey=subscriber_count&order=desc&affiliation=nijisanji&locale=ja"
+  detail_url: "https://www.nijisanji.jp/talents/l/{slug}"
+  min_count: 100
+
+hololive:
+  group_url: "https://hololive.hololivepro.com/talents?gp={group}"
+  detail_url: "https://hololive.hololivepro.com/talents/{slug}/"
+  # 日本の所属グループ。EN（myth など）・ID（area15 など）・卒業生（alum）・スタッフは含めない
+  groups:
+    - gen-0
+    - 1stgen
+    - gen-2
+    - gamers
+    - gen-3
+    - gen-4
+    - gen-5
+    - holox
+    - regloss
+    - flow-glow
+    - asobi-mawari-tai
+    - holoan
+  # 名前にこれを含むタレントは巡回しない（卒業・活動終了・退職）
+  inactive_name_markers:
+    - 【卒業生】
+    - 【配信活動終了】
+    - 【退職】
+  # タレントページに載っている事務所の公式チャンネル（タレント本人のチャンネルと取り違えない）
+  exclude_channel_ids:
+    - UCJFZiqLMntJufDCHc6bQixg   # hololive ホロライブ - VTuber Group
+  min_count: 30
+
+vspo:
+  list_url: "https://vspo.jp/member/"
+  # メンバー一覧の li 要素に付くクラス。日本の所属だけを取る
+  japanese_class: "--japanese"
+  min_count: 15
