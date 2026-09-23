@@ -2,6 +2,7 @@ import type { Ctx } from "../lib/context.ts";
 import type { DetectSource, FoundVia } from "../shared/types.ts";
 import { detect, isMembersTitle, templateLines } from "../detect/detect.ts";
 import { classifyVideo } from "./classify.ts";
+import type { ClassifyOptions } from "./classify.ts";
 import { chunk } from "../youtube/api.ts";
 import { tx } from "../lib/db.ts";
 import { nowIso } from "../lib/time.ts";
@@ -167,12 +168,14 @@ export interface UpsertStats {
   events_updated: number;
   rejected_not_live: number;
   rejected_unavailable: number;
+  /** 詳細を取った時点の判定で当たらなくなった（語彙・ルールが変わった） */
+  rejected_by_current_rule: number;
   missing: number;
   unknown_channel: number;
 }
 
 export function emptyUpsertStats(): UpsertStats {
-  return { api_videos_requested: 0, events_inserted: 0, events_updated: 0, rejected_not_live: 0, rejected_unavailable: 0, missing: 0, unknown_channel: 0 };
+  return { api_videos_requested: 0, events_inserted: 0, events_updated: 0, rejected_not_live: 0, rejected_unavailable: 0, rejected_by_current_rule: 0, missing: 0, unknown_channel: 0 };
 }
 
 /** 判定でヒットした動画の詳細を取り、WatchEvent を作る・更新する */
@@ -195,13 +198,11 @@ export async function fetchAndUpsert(ctx: Ctx, pending: Map<string, PendingHit>,
     tx(db, () => {
       for (const v of items) {
         const p = pending.get(v.id)!;
-        const c = classifyVideo(v);
+        const c = classifyVideo(v, classifyOptions(ctx));
         if (c.kind === "not_live") {
-          if (ctx.detectCfg.reject.require_live) {
-            stats.rejected_not_live++;
-            markSeen.run("rejected", `not_live (${p.source}:${p.keyword})`, v.id);
-            continue;
-          }
+          stats.rejected_not_live++;
+          markSeen.run("rejected", `not_live (${p.source}:${p.keyword})`, v.id);
+          continue;
         }
         if (c.kind === "unavailable") {
           stats.rejected_unavailable++;
@@ -209,6 +210,20 @@ export async function fetchAndUpsert(ctx: Ctx, pending: Map<string, PendingHit>,
           continue;
         }
         if (c.kind !== "event") continue;
+        // 新しく作る枠は、取得したタイトル・概要欄を今の語彙で判定し直す。
+        // 以前の語彙でヒットして保留されていた動画（orphan）が古いルールのまま入らないようにする。
+        // 定型文の除外はここでは使えないが、除外を減らす方向にしか働かないので誤って落とすことはない
+        const known = p.keyword === "(known)";
+        if (!known) {
+          const again = detect({ title: c.title, description: c.description }, ctx.detectCfg);
+          if (!again.hit) {
+            stats.rejected_by_current_rule++;
+            markSeen.run("miss", `rule_changed (was ${p.source}:${p.keyword})`, v.id);
+            continue;
+          }
+          p.source = again.source;
+          p.keyword = again.keyword;
+        }
         const streamerId = streamerByChannel.get(c.channel_id);
         if (!streamerId) {
           stats.unknown_channel++;
@@ -231,6 +246,10 @@ export async function fetchAndUpsert(ctx: Ctx, pending: Map<string, PendingHit>,
 
 type EventFields = Extract<ReturnType<typeof classifyVideo>, { kind: "event" }>;
 
+export function classifyOptions(ctx: Ctx): ClassifyOptions {
+  return { allowNonLive: !ctx.detectCfg.reject.require_live };
+}
+
 /** WatchEvent の挿入・更新。更新時は取得できた値だけを上書きし、欠損で既存値を消さない */
 export function upsertEvent(ctx: Ctx, videoId: string, streamerId: number, c: EventFields, p: PendingHit | null, now: string): boolean {
   const { db } = ctx;
@@ -240,11 +259,11 @@ export function upsertEvent(ctx: Ctx, videoId: string, streamerId: number, c: Ev
     if (!p) return false;
     db.prepare(`
       INSERT INTO watch_events (streamer_id, video_id, title_raw, description_raw, thumbnail_url, url,
-        started_at, scheduled_start_at, ended_at, status, is_members_only, view_count, view_count_fetched_at,
+        started_at, started_at_source, scheduled_start_at, ended_at, status, is_members_only, view_count, view_count_fetched_at,
         detected_at, detect_source, detect_keyword, found_via, archive_gone_at, last_checked_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`).run(
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`).run(
       streamerId, videoId, c.title, c.description, c.thumbnail_url, `https://www.youtube.com/watch?v=${videoId}`,
-      c.started_at, c.scheduled_start_at, c.ended_at, c.status, members,
+      c.started_at, c.started_at_source, c.scheduled_start_at, c.ended_at, c.status, members,
       c.view_count, c.view_count === null ? null : now,
       now, p.source, p.keyword, p.via, now, now,
     );
@@ -256,6 +275,7 @@ export function upsertEvent(ctx: Ctx, videoId: string, streamerId: number, c: Ev
       title_raw = ?, description_raw = ?,
       thumbnail_url = COALESCE(?, thumbnail_url),
       started_at = COALESCE(?, started_at),
+      started_at_source = CASE WHEN ? IS NULL THEN started_at_source ELSE ? END,
       scheduled_start_at = COALESCE(?, scheduled_start_at),
       ended_at = COALESCE(?, ended_at),
       status = ?,
@@ -265,7 +285,8 @@ export function upsertEvent(ctx: Ctx, videoId: string, streamerId: number, c: Ev
       archive_gone_at = NULL,
       last_checked_at = ?, updated_at = ?
     WHERE id = ?`).run(
-    c.title, c.description, c.thumbnail_url, c.started_at, c.scheduled_start_at, c.ended_at, c.status, members,
+    c.title, c.description, c.thumbnail_url, c.started_at, c.started_at, c.started_at_source,
+    c.scheduled_start_at, c.ended_at, c.status, members,
     c.view_count, c.view_count, now, now, now, existing.id,
   );
   return false;

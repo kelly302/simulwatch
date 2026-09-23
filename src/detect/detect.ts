@@ -36,6 +36,7 @@ interface Compiled {
   titleExclude: Matcher[];
   descInclude: Matcher[];
   descExclude: Matcher[];
+  lineRequire: Matcher[];
   lineExclude: Matcher[];
   members: Matcher[];
   hints: Matcher[];
@@ -59,6 +60,7 @@ function compile(cfg: DetectConfig): Compiled {
       titleExclude: m(cfg.title.exclude),
       descInclude: m(cfg.description.include),
       descExclude: m(cfg.description.exclude),
+      lineRequire: m(cfg.description.line_require),
       lineExclude: m(cfg.description.line_exclude),
       members: m(cfg.members_only.title_include),
       hints: m(cfg.review_hints),
@@ -90,6 +92,8 @@ export function detect(input: DetectInput, cfg: DetectConfig): DetectResult {
       const dHit = firstMatch(c.descInclude, l);
       if (!dHit) continue;
       if (firstMatch(c.descExclude, l)) continue;
+      // その枠自体を指す語（今日・本日・今回 など）が同じ行に無ければヒットにしない
+      if (c.lineRequire.length > 0 && !firstMatch(c.lineRequire, l)) continue;
       if (firstMatch(c.lineExclude, l)) continue;
       return { hit: true, source: "description", keyword: dHit.raw };
     }

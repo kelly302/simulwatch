@@ -39,7 +39,15 @@ test("概要欄は行単位で見て、注意書きの行を無視する", () =>
   assert.equal(d("映画を観る", "ミラー配信OK").hit, false);
   assert.deepEqual(d("映画を観る", "今日は劇場版〇〇を同時視聴します！\nよろしく"), { hit: true, source: "description", keyword: "同時視聴" });
   // 英単語の中の ng / ok は否定語として扱わない
-  assert.equal(d("movie", "watchalong streaming tonight").hit, true);
+  assert.equal(d("movie", "今日は watchalong streaming").hit, true);
+});
+
+test("概要欄は、その枠自体を指す語（今日・本日・今回 など）がある行だけヒットにする", () => {
+  assert.equal(d("雑談", "10/19 お仕事あるので同時視聴おやすみ！").hit, false);
+  assert.equal(d("雑談", "🌟完全初見！コードギアス同時視聴再生リスト").hit, false);
+  assert.equal(d("雑談", "約５か月前にFateと出会い、皆と同時視聴してドハマりした").hit, false);
+  assert.equal(d("映画", "今日の同時視聴は「アダムス・ファミリー」").hit, true);
+  assert.equal(d("映画", "本日は過激なブラックジョークアニメ『サウスパーク』を同時視聴しよう！！").hit, true);
 });
 
 test("正規化は照合用。原文は変わらない", () => {
@@ -58,7 +66,8 @@ test("メン限の推定とヒント語", () => {
 
 test("概要欄の定型文（同じチャンネルで繰り返し出る行）は無視する", async () => {
   const { templateLines } = await import("../src/detect/detect.ts");
-  const boiler = "メンバー特典：メンバー限定配信、同時視聴";
+  // 「今日」を含むので line_require は通ってしまう。定型文の除外で落ちることを確かめる
+  const boiler = "メンバー特典：今日から入れるメン限で同時視聴やってます";
   const descs = [`ゲームします\n${boiler}`, `雑談\n${boiler}`, `歌枠\n${boiler}`, "今日は劇場版〇〇を同時視聴します！"];
   const tl = templateLines(descs, cfg);
   assert.equal(detect({ title: "【APEX】", description: descs[0]!, templateLines: tl }, cfg).hit, false);

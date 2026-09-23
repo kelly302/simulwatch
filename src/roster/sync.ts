@@ -116,8 +116,8 @@ async function syncOrg(
 
 /**
  * 複数のタレントが同じチャンネルを共用している（例: holoAN の @holoANroom）。
- * 1チャンネル = 1配信者の前提が崩れるため、扱いが決まるまで登録しない。
- * 該当エントリの channelId を外し、「チャンネルなし」と同じ扱いにする（既存なら現状維持）。
+ * 1配信者ではないので対象外とし、登録しない（ゲート1で決定）。
+ * 該当エントリの channelId を外し、「チャンネルなし」と同じ扱いにする。
  */
 export function markSharedChannels(entries: RosterEntry[]): Record<string, string[]> {
   const byChannel = new Map<string, RosterEntry[]>();

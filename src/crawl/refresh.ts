@@ -1,6 +1,6 @@
 import type { Ctx } from "../lib/context.ts";
 import { classifyVideo } from "./classify.ts";
-import { upsertEvent } from "./ingest.ts";
+import { upsertEvent, classifyOptions } from "./ingest.ts";
 import { chunk } from "../youtube/api.ts";
 import { tx } from "../lib/db.ts";
 import { nowIso } from "../lib/time.ts";
@@ -52,7 +52,7 @@ export async function refreshEvents(ctx: Ctx, scope: RefreshScope): Promise<Refr
       for (const id of ids) {
         const row = byVideo.get(id)!;
         const v = returned.get(id);
-        const c = v ? classifyVideo(v) : null;
+        const c = v ? classifyVideo(v, classifyOptions(ctx)) : null;
         if (!c || c.kind === "unavailable") {
           if (guard) {
             stats.gone_skipped_by_guard++;

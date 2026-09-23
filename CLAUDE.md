@@ -17,7 +17,8 @@
 
 **作品の同定は外部作品DBのIDを正とする。**
 
-枠タイトルからの抽出は自前、同定は Annict / AniList に任せる。
+枠タイトルからの抽出は自前、同定は外部DBに任せる。
+アニメは Annict（主軸）→ AniList（補完）、実写・特撮・海外作品は日本語版 Wikipedia で検索して Wikidata の ID に解決する。
 自前で作品マスタを育てようとしないこと。
 
 ## 確定している前提
@@ -26,17 +27,22 @@
 | --- | --- |
 | 公開範囲 | 一般公開する。リポジトリも公開 |
 | 登録 | 全自動。手登録・手動キュレーションはしない |
-| 作品同定 | Annict（主軸）＋AniList（補完）で作品IDに名寄せ |
+| 作品同定 | アニメ: Annict（主軸）→ AniList（補完）。実写・特撮・海外作品: 日本語版 Wikipedia の検索APIで候補を探し Wikidata の ID に解決（Wikidata 単体は表記ゆれに弱いので検索は Wikipedia 側）。**TMDb は使わない**（広告を載せるため商用扱い。tmdb_id のような列も作らない） |
+| 作品画像 | アニメは AniList の画像URLを参照する。**自前で保存しない**（規約のデータ溜め込み禁止）。実写・特撮・海外作品は画像を持たない（画像なしのカード表示を用意する） |
+| 広告 | 掲載する。YouTube デベロッパーポリシー III.G により、YouTube API のデータを含むページで広告を出すには YouTube 由来でない独立した価値のある情報が同じページに必要。**サムネを並べただけのページを作らず、作品情報や集計値を必ず併せて表示する** |
 | 有料API | 使わない。無料枠のみで完結させる |
 | 取得方式 | チャンネルRSS（毎時・クォータ0）＋ YouTube Data API（毎時の状態取得・日次の全巡回）の併用。詳細は「取得パイプライン」 |
 | 判定 | 枠タイトル・概要欄のキーワード判定 |
 | 名寄せ失敗 | unresolved として保持し、**エラーとして修正する**。捨てない |
 | 動画 | 再アップロード・埋め込み再生はしない。YouTubeへ送客する |
 | アーカイブなし | アーカイブが残っていない枠は一覧から消す |
-| 対象範囲 | Tier 1 = にじさんじ / ホロライブ / VSPO! の**日本の**所属チャンネル（約240人）。海外支部（NIJISANJI EN、hololive EN/ID、VSPO! EN）は含めない |
+| 対象範囲 | Tier 1 = にじさんじ / ホロライブ / VSPO! の**日本の**所属チャンネル（約240人）。海外支部（NIJISANJI EN、hololive EN/ID、VSPO! EN）は含めない。複数タレントの共用チャンネル（holoAN の @holoANroom など）は1配信者ではないので対象外 |
 | Tier 1 の取得元 | 各事務所の公式サイト。取得に失敗したら前回の一覧を保持する |
 | 卒業・引退 | 公式一覧から外れたら巡回を止める（is_active=false）。取得済みの枠はアーカイブが残る限り表示する |
-| シード拡張 | Tier 2 = 関心作品名からの逆引きでチャンネルを自動追加 |
+| シード拡張 | Tier 2 = 関心作品名からの逆引きでチャンネルを自動追加。**Phase 5（Phase 4 の公開後）に実装する** |
+| ライブでない同時視聴動画 | 除外しない（Twitch での同時視聴の再アップなど）。actualStartTime が無いので started_at は publishedAt で代用し、started_at_source に記録する |
+| 遠い先の予定枠 | 開始が30日以上先の予定枠は除外する（予定表代わりの枠）。行は残し、名寄せと公開の対象から外す |
+| 作品ではない同時視聴 | Direct・スポーツ・公式番組・初配信などは unresolved の中で「作品ではない」という別の理由に分け、抽出エラーと混ぜない。サイトには出さない |
 | 作品種別 | アニメ限定にしない。映画・実写・特撮も含める |
 | 話数の粒度 | 持つが必須にしない。映画・単発は Episode を作らない |
 | メン限枠 | 一覧に載せる。is_members_only でバッジ表示 |
@@ -98,6 +104,12 @@
 views_total / events_count / first_event_at は表示専用。ソートキーにしない。
 views_* のソートは実施済み枠のみを対象にする。
 
+**views_max が空（NULL）の行の並び**（メン限枠の再生数は API 仕様上取得できないため）:
+
+- views_max でのソート中、views_max が NULL の行は**逆順トグルに関係なく末尾**に置き、その中では latest_event_at の降順で並べる
+- NULL を「0」として扱わない（0回再生の公開枠と区別する）
+- トップのランキングは公開枠のみで決まる（意図どおり）
+
 「同時視聴した枠」のフィルターは5軸。所属 / 作品種別 / 放送年・放送期 / 期間 / メン限。
 
 ## データモデル
@@ -105,7 +117,7 @@ views_* のソートは実施済み枠のみを対象にする。
     Streamer   id, name, affiliation, channel_id, platform, icon_url, tier,
                is_active, source_key, channel_title,
                first_seen_at, last_listed_at, deactivated_at, updated_at
-    Work       id, annict_id, anilist_id, title, title_kana,
+    Work       id, annict_id, anilist_id, wikidata_id, title, title_kana,
                media (tv / movie / ova / web), season_name, series_id,
                episodes_count, image_url
     Episode    id, work_id, number, number_text, title
@@ -116,7 +128,8 @@ views_* のソートは実施済み枠のみを対象にする。
                description_raw, scheduled_start_at, ended_at,
                detect_source (title / description), detect_keyword,
                found_via (rss / playlist / members_playlist / backfill),
-               archive_gone_at, last_checked_at, updated_at
+               started_at_source (actual_start / scheduled_start / published_at),
+               archive_gone_at, excluded_at, excluded_reason, last_checked_at, updated_at
     EventWork  watch_event_id, work_id, episode_id, confidence（多対多）
     Unresolved watch_event_id, extracted_text, reason, resolved_at
 
@@ -128,8 +141,11 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
 - `Streamer.is_active` 公式一覧に載っていて巡回する人。卒業・引退で 0（行と過去の枠は残す）
 - `Streamer.source_key` 公式サイト上の識別子（例 `nijisanji:kuzuha`）。Tier 2 は NULL
 - `WatchEvent.description_raw` extract と再判定のためだけに持つ。**公開しない**（メン限枠の本文を転載しない）
-- `WatchEvent.started_at` 実開始時刻。未開始なら予定時刻（`scheduled_start_at` にも別に持つ）
+- `WatchEvent.started_at` 実開始時刻。未開始なら予定時刻（`scheduled_start_at` にも別に持つ）、ライブでない動画は公開日時
+- `WatchEvent.started_at_source` started_at にどの値を入れたか（`actual_start` / `scheduled_start` / `published_at`）
 - `WatchEvent.archive_gone_at` アーカイブが見られなくなった時刻。NULL でなければ一覧から消す。**行は消さない**
+- `WatchEvent.excluded_at` / `excluded_reason` 判定ルールの変更で同時視聴枠でなくなった時刻と理由（`detect_rule:<語彙のバージョン>`）。
+  NULL でなければ一覧から消す。**行は消さない**。ルールを戻して再び当たれば外れる
 - `WatchEvent.detect_source` / `detect_keyword` どの語で判定したか。語彙の調整に使う
 
 ### 取得用の内部テーブル（公開しない）
@@ -168,7 +184,7 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
     2. crawl     追跡対象チャンネルを巡回（検索APIより低コスト）
     3. detect    タイトル・概要欄から同時視聴枠を判定
     4. extract   作品名・話数の候補文字列を切り出す
-    5. resolve   Annict / AniList に照会して作品ID・話数を確定
+    5. resolve   Annict / AniList（アニメ）、Wikipedia → Wikidata（実写・特撮・海外作品）に照会して作品ID・話数を確定
     6. publish   解決済みのみ作品ページに反映
     7. refresh   再生数の取り直しと集計値の再生成、アーカイブ死活チェック
 
@@ -178,13 +194,15 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
           予定枠と LIVE の状態は API で取得する
     日次  playlistItems で全チャンネルを巡回し、RSS の取りこぼしを回収する
 
-- RSS は直近15件程度しか返さず、予定枠が載らないことがある。
-  **予定枠の鮮度は API 側で担保する**。RSS を予定枠の検知に頼らない。
+- RSS は直近15件程度しか返さない。予定枠は RSS にも載る（2026-09-23 の実データで予定枠40件すべて）。
+  当初の「RSS に予定枠が載らない」という前提はゲート1で撤回した。
+- それでも**予定枠の鮮度は API 側でも担保する**。毎時の playlistItems 順繰りは各チャンネル12時間ごとに縮小して残す。
+  浮いた予算（約1,500ユニット/日）は Tier 2（Phase 5）用に確保する。
 
 実装上の分担（`config/crawl.yaml` で調整する）:
 
     毎時 crawl:hourly  1. 全チャンネルの RSS（クォータ0）
-                       2. playlistItems をチャンネルの一部ずつ（各チャンネルを3時間ごと）
+                       2. playlistItems をチャンネルの一部ずつ（各チャンネルを12時間ごと）
                        3. 判定 → ヒットだけ videos.list → WatchEvent
                        4. upcoming / live の枠を videos.list で取り直す（開始時刻・状態を上書き）
     日次 roster        公式サイトと Tier 1 を同期、channels.list でアイコン更新
@@ -196,10 +214,14 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
 
 - 語彙・正規化は `config/detect.yaml`。語彙を変えると判定バージョンが変わり、次に見たときに再判定される。
   `detect:rerun` で保存済みタイトルを API なしで再判定できる（概要欄は保存していないのでタイトルのみ）
-- 概要欄は行単位で見る。否定語（ご遠慮・禁止・NG など）や二次利用ルール（ガイドライン・切り抜き など）を含む行は無視する
+- 概要欄は行単位で見る。**その枠自体を指す語（今日・本日・今回・この配信 など、`line_require`）を含む行だけ**をヒットにする。
+  否定語（ご遠慮・禁止・NG など）や二次利用ルール（ガイドライン・切り抜き など）を含む行は無視する
+- 詳細を取って WatchEvent を作る時点で、取得したタイトル・概要欄を今の語彙で判定し直す（古いルールでヒットした保留分が入らないように）
+- `detect:rerun` は既存の WatchEvent も判定し直し、当たらなくなった枠は `excluded_at` を立てて外す（行は消さない）
 - 概要欄の**定型文**は無視する。同じチャンネルの動画のうち `template_min_repeats` 本以上に出る行
   （チャンネル紹介・メンバー特典の一覧など）。実データでは概要欄ヒットの大半がこれだった
-- ライブ配信（プレミア公開を含む）でない動画は同時視聴枠にしない（切り抜き・通常投稿・Shorts）
+- ライブ配信でない動画も同時視聴枠にする（`reject.require_live: false`）。Twitch での同時視聴の再アップがあるため。
+  started_at は publishedAt で代用し、`started_at_source = published_at` と記録する
 - is_members_only は「メン限プレイリスト（UUMO…）に載っている」か「タイトルにメン限の語がある」で立てる
 
 ### アーカイブ消失の判定
@@ -269,6 +291,14 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
 - それでも止まるようなら、Cloudflare Workers Cron から workflow_dispatch で
   起動する方式に切り替える。
 
+### 外部APIの利用条件
+
+- **AniList**: 月の収益が150ドル未満なら商用でも無料。**150ドルを超えたら商用ライセンスが必要**になる。
+  広告収益を確認し、超えそうになったら対応すること
+- **TMDb は使わない**（広告を載せるため商用扱いになる）
+- **YouTube**: 広告を出すページには YouTube 由来でない独立した価値のある情報（作品情報・集計値）を必ず置く（デベロッパーポリシー III.G）。
+  再生数は30日以内に取り直す（日次の refresh で満たす）
+
 ## 開発
 
 ### ファイル構成
@@ -302,6 +332,7 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- report:detect   # 判定結果、誤検出・取りこぼしの候補
     npm run cli -- report:quota    # クォータ使用量
     npm run cli -- detect:rerun    # 語彙を変えたあとの再判定（API なし）
+    npm run cli -- detect:fetch    # 再判定で新たにヒットした動画の詳細取得
     npm test                       # テスト
     npm run typecheck              # 型チェック
 
@@ -312,13 +343,15 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
 
 ## 未確定（実装前に確認すること）
 
-- **複数のタレントが1つのチャンネルを共用している場合の扱い**。
-  holoAN（井月みちる・花園さやか・風白ゆき）が `@holoANroom` を共用している。
-  1チャンネル＝1配信者の前提が崩れるため、決まるまで登録しない（roster の結果に shared_channel として出る）
-- **毎時の playlistItems 順繰りの頻度**。Phase 1 の実データ（2026-09-23）では、予定枠40件がすべて
-  RSS に載っていた（uploads の先頭ページにも全件あった）。「RSS に予定枠が載らない」前提で
-  3時間ごとの順繰り（約1,950ユニット/日）を入れているが、減らすかどうかは未決定
-- 仕様に書いていない判断が必要になったら先に聞く
+- 現時点でなし。仕様に書いていない判断が必要になったら先に聞く
+
+## フェーズ
+
+    Phase 1  取得基盤（済）
+    Phase 2  名寄せ（extract / resolve / EventWork / Unresolved）       ← ゲート2で止まる
+    Phase 3  集計と UI（5画面、画面ごとの JSON）
+    Phase 4  公開と定期実行（Actions・R2・Pages）
+    Phase 5  Tier 2（作品名からの逆引きでチャンネルを追加する discover）。Phase 4 の公開後に着手
 
 ## 回答のルール
 

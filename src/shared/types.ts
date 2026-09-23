@@ -8,6 +8,11 @@ export type EventStatus = "upcoming" | "live" | "completed";
 export type DetectSource = "title" | "description";
 /** 動画をどの経路で最初に見つけたか */
 export type FoundVia = "rss" | "playlist" | "members_playlist" | "backfill";
+/**
+ * started_at に入れた値の出どころ。
+ * actual_start: 実開始 / scheduled_start: 予定時刻（未開始など）/ published_at: 公開日時（ライブでない再アップなど）
+ */
+export type StartedAtSource = "actual_start" | "scheduled_start" | "published_at";
 
 export const AFFILIATIONS: readonly Affiliation[] = ["nijisanji", "hololive", "vspo", "other"];
 
@@ -47,8 +52,9 @@ export interface WatchEvent {
   description_raw: string | null;
   thumbnail_url: string | null;
   url: string;
-  /** 実開始時刻。未開始なら予定時刻 */
+  /** 実開始時刻。未開始なら予定時刻、ライブでない動画は公開日時 */
   started_at: string | null;
+  started_at_source: StartedAtSource | null;
   scheduled_start_at: string | null;
   ended_at: string | null;
   status: EventStatus;
@@ -62,6 +68,9 @@ export interface WatchEvent {
   found_via: FoundVia;
   /** アーカイブが見られなくなった時刻。NULL でなければ一覧から消す（行は残す） */
   archive_gone_at: string | null;
+  /** 判定ルールの変更で同時視聴枠でなくなった時刻と理由。NULL でなければ一覧から消す（行は残す） */
+  excluded_at: string | null;
+  excluded_reason: string | null;
   last_checked_at: string | null;
   updated_at: string;
 }

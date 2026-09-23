@@ -12,7 +12,12 @@ export interface DetectFieldConfig {
 export interface DetectConfig {
   normalize: { nfkc: boolean; lowercase: boolean; strip_chars: string };
   title: DetectFieldConfig;
-  description: DetectFieldConfig & { enabled: boolean; line_exclude: string[]; template_min_repeats: number };
+  description: DetectFieldConfig & {
+    enabled: boolean;
+    line_require: string[];
+    line_exclude: string[];
+    template_min_repeats: number;
+  };
   reject: { require_live: boolean };
   members_only: { title_include: string[] };
   review_hints: string[];
@@ -37,6 +42,7 @@ export interface CrawlConfig {
   quota: { daily_limit: number; stop_at: number; per_run: Record<string, number> };
   rss: { url: string };
   hourly: { playlist_scan_interval_hours: number; playlist_scan_page_size: number };
+  upcoming: { max_days_ahead: number };
   daily: { playlist_page_size: number; members_playlist: boolean };
   backfill: { enabled: boolean; max_units_per_run: number; since: string | null };
   refresh: { max_missing_ratio: number; min_batch_for_ratio: number };

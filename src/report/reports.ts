@@ -3,6 +3,7 @@ import type { DetectConfig } from "../lib/config.ts";
 import { detect, reviewHints } from "../detect/detect.ts";
 import { tx } from "../lib/db.ts";
 import { quotaDay } from "../lib/time.ts";
+import { farFutureCutoff } from "../lib/events.ts";
 
 // ローカルで状況を確認するためのレポート。ゲートの報告にも使う。
 
@@ -28,9 +29,13 @@ export function detectReport(db: DB, cfg: DetectConfig, limit: number): string {
   out.push(table(q(`SELECT CASE WHEN detect_note LIKE 'not_live%' THEN 'not_live（ライブ配信でない）' ELSE detect_note END AS reason,
     COUNT(*) AS n FROM videos_seen WHERE detect_result = 'rejected' GROUP BY reason ORDER BY n DESC`)));
 
-  out.push("\n■ WatchEvent");
+  out.push("\n■ WatchEvent（excluded = 判定ルールで外した枠、far_future = 30日以上先の予定枠）");
+  const cutoff = farFutureCutoff(30);
   out.push(table(q(`SELECT status, COUNT(*) AS n, SUM(is_members_only) AS members, SUM(archive_gone_at IS NOT NULL) AS gone,
-    SUM(view_count IS NULL) AS views_null FROM watch_events GROUP BY status`)));
+    SUM(excluded_at IS NOT NULL) AS excluded,
+    SUM(status = 'upcoming' AND COALESCE(scheduled_start_at, started_at) >= ?) AS far_future,
+    SUM(view_count IS NULL) AS views_null FROM watch_events GROUP BY status`, cutoff)));
+  out.push(table(q("SELECT COALESCE(started_at_source, '(未設定)') AS started_at_source, COUNT(*) AS n FROM watch_events GROUP BY 1")));
   out.push(table(q("SELECT detect_source, detect_keyword, COUNT(*) AS n FROM watch_events GROUP BY detect_source, detect_keyword ORDER BY n DESC")));
   out.push(table(q("SELECT found_via, COUNT(*) AS n, SUM(status='upcoming') AS upcoming FROM watch_events GROUP BY found_via")));
   out.push(table(q("SELECT s.affiliation, COUNT(*) AS events, COUNT(DISTINCT e.streamer_id) AS streamers FROM watch_events e JOIN streamers s ON s.id = e.streamer_id GROUP BY s.affiliation")));
@@ -81,14 +86,21 @@ export function quotaReport(db: DB, days: number): string {
 }
 
 /**
- * 語彙を変えたあと、過去に見た動画のタイトルで再判定する（API を使わない）。
- * 概要欄は保存していないので、概要欄による判定はここでは再現しない。
- * 新たにヒットしたものは 'hit' にしておき、日次ジョブが詳細を取りに行く。
- * ヒットしなくなった既存の WatchEvent は消さずに件数だけ報告する。
+ * 語彙・判定ルールを変えたあとに再判定する（API を使わない）。
+ *
+ * 1. 過去に見た動画（videos_seen）をタイトルで再判定する。概要欄は保存していないので概要欄の判定は再現しない。
+ *    新たにヒットしたものは 'hit' にしておき、detect:fetch（または日次ジョブ）が詳細を取りに行く
+ * 2. 「ライブ配信でない」で除外していた動画は、require_live が false なら 'hit' に戻す
+ * 3. 既存の WatchEvent をタイトルと保存済みの概要欄で再判定する。当たらなくなった枠は
+ *    行を消さずに excluded_at を立てて外す。ルールを戻して再び当たれば外した印を消す
  */
 export function rerunDetect(db: DB, cfg: DetectConfig): Record<string, number> {
-  const r = { checked: 0, new_hits: 0, still_miss: 0, new_title_excluded: 0, events_no_longer_hit: 0 };
-  // ライブでない・非公開などの除外は語彙と無関係なので再判定しない
+  const r = {
+    checked: 0, new_hits: 0, still_miss: 0, new_title_excluded: 0,
+    not_live_restored: 0, events_checked: 0, events_excluded: 0, events_restored: 0,
+  };
+  const now = new Date().toISOString();
+  // ライブでない・非公開などの除外は語彙と無関係なので、ここでは再判定しない（2 で別に扱う）
   const rows = db
     .prepare(`SELECT video_id, title, detect_result FROM videos_seen
       WHERE detect_version != ? AND (detect_result = 'miss' OR detect_note LIKE 'title_exclude:%')`)
@@ -109,8 +121,38 @@ export function rerunDetect(db: DB, cfg: DetectConfig): Record<string, number> {
         upd.run("miss", null, cfg.version, row.video_id);
       }
     }
+
+    if (!cfg.reject.require_live) {
+      // detect_note は "not_live (title:同時視聴)" の形。括弧の中が元の判定根拠
+      const nl = db.prepare("SELECT video_id, detect_note FROM videos_seen WHERE detect_note LIKE 'not_live%'").all() as { video_id: string; detect_note: string }[];
+      for (const row of nl) {
+        const basis = row.detect_note.match(/\((.*)\)/)?.[1] ?? "title:";
+        upd.run("hit", basis, cfg.version, row.video_id);
+        r.not_live_restored++;
+      }
+    }
+
+    const evs = db
+      .prepare("SELECT id, title_raw, description_raw, excluded_reason FROM watch_events WHERE excluded_at IS NULL OR excluded_reason LIKE 'detect_rule%'")
+      .all() as { id: number; title_raw: string; description_raw: string | null; excluded_reason: string | null }[];
+    const exclude = db.prepare("UPDATE watch_events SET excluded_at = ?, excluded_reason = ?, updated_at = ? WHERE id = ?");
+    const restore = db.prepare("UPDATE watch_events SET excluded_at = NULL, excluded_reason = NULL, detect_source = ?, detect_keyword = ?, updated_at = ? WHERE id = ?");
+    const retag = db.prepare("UPDATE watch_events SET detect_source = ?, detect_keyword = ? WHERE id = ?");
+    for (const e of evs) {
+      r.events_checked++;
+      const d = detect({ title: e.title_raw, description: e.description_raw }, cfg);
+      if (d.hit) {
+        if (e.excluded_reason) {
+          restore.run(d.source, d.keyword, now, e.id);
+          r.events_restored++;
+        } else {
+          retag.run(d.source, d.keyword, e.id);
+        }
+      } else if (!e.excluded_reason) {
+        exclude.run(now, `detect_rule:${cfg.version}`, now, e.id);
+        r.events_excluded++;
+      }
+    }
   });
-  const evs = db.prepare("SELECT title_raw FROM watch_events WHERE detect_source = 'title'").all() as { title_raw: string }[];
-  for (const e of evs) if (!detect({ title: e.title_raw, description: null }, cfg).hit) r.events_no_longer_hit++;
   return r;
 }

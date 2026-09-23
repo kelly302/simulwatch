@@ -111,6 +111,14 @@ const MIGRATIONS: string[] = [
   ALTER TABLE crawl_state ADD COLUMN members_backfill_page_token TEXT;
   ALTER TABLE crawl_state ADD COLUMN members_backfill_done INTEGER NOT NULL DEFAULT 0;
   `,
+  // 3: ゲート1の判断
+  //    - started_at にどの値を入れたか（ライブでない再アップは公開日時で代用する）
+  //    - 判定ルールの変更で同時視聴枠でなくなった枠を、行を消さずに外す
+  `
+  ALTER TABLE watch_events ADD COLUMN started_at_source TEXT;
+  ALTER TABLE watch_events ADD COLUMN excluded_at TEXT;
+  ALTER TABLE watch_events ADD COLUMN excluded_reason TEXT;
+  `,
 ];
 
 export function openDb(path: string = DB_PATH): DB {
