@@ -26,6 +26,7 @@
 | 項目 | 決定 |
 | --- | --- |
 | 公開範囲 | 一般公開する。リポジトリも公開 |
+| 規模 | 配信者 約240人、同時視聴枠は過去分を含めて約6,000（2026-09 時点）。**作品は数千件規模**（当初の想定「100〜300件」から改めた）。2026-09 の初回名寄せで、重複を除いた作品名の候補が4,351、うち3,380が1回しか出てこない。企業勢の同時視聴は単発の映画が中心で、作品の種類はロングテールになる |
 | 登録 | 全自動。手登録・手動キュレーションはしない |
 | 作品同定 | アニメ: Annict（主軸）→ AniList（補完）。実写・特撮・海外作品: 日本語版 Wikipedia の検索APIで候補を探し Wikidata の ID に解決（Wikidata 単体は表記ゆれに弱いので検索は Wikipedia 側）。**TMDb は使わない**（広告を載せるため商用扱い。tmdb_id のような列も作らない） |
 | 作品画像 | アニメは AniList の画像URLを参照する。**自前で保存しない**（規約のデータ溜め込み禁止）。実写・特撮・海外作品は画像を持たない（画像なしのカード表示を用意する） |
@@ -119,7 +120,8 @@ views_* のソートは実施済み枠のみを対象にする。
                first_seen_at, last_listed_at, deactivated_at, updated_at
     Work       id, annict_id, anilist_id, wikidata_id, title, title_kana,
                media (tv / movie / ova / web), season_name, series_id,
-               episodes_count, image_url
+               episodes_count, image_url, mal_id, release_year, source,
+               created_at, updated_at
     Episode    id, work_id, number, number_text, title
                ※ 映画・単発は作らない
     WatchEvent id, streamer_id, video_id, title_raw, thumbnail_url, url,
@@ -130,8 +132,12 @@ views_* のソートは実施済み枠のみを対象にする。
                found_via (rss / playlist / members_playlist / backfill),
                started_at_source (actual_start / scheduled_start / published_at),
                archive_gone_at, excluded_at, excluded_reason, last_checked_at, updated_at
-    EventWork  watch_event_id, work_id, episode_id, confidence（多対多）
-    Unresolved watch_event_id, extracted_text, reason, resolved_at
+    EventWork  watch_event_id, work_id, episode_id, confidence（多対多）,
+               id, match_method, extracted_text, rule_version, created_at
+    Unresolved watch_event_id, extracted_text, reason, resolved_at,
+               id, detail, rule_version, created_at, updated_at
+               reason = no_candidate（作品名を切り出せない）/ not_found（照会でヒットしない）/
+                        ambiguous（候補が複数）/ not_a_work（作品ではない）/ error（照会エラー・次回再試行）
 
 集計値（views_max / views_total / events_count / streamers_count /
 first_event_at / latest_event_at）は日次バッチで作り直す。
@@ -148,6 +154,14 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
   NULL でなければ一覧から消す。**行は消さない**。ルールを戻して再び当たれば外れる
 - `WatchEvent.detect_source` / `detect_keyword` どの語で判定したか。語彙の調整に使う
 
+### Phase 2 で足した列の意味
+
+- `Work.source` 同定した照会先（annict / anilist / wikidata）。`image_url` は AniList の画像URLで、参照するだけで保存しない
+- `Work.mal_id` MyAnimeList の ID。Annict と AniList の同じ作品を1行にまとめるのに使う
+- `Work.season_name` Annict・AniList は `2022-autumn`、Wikidata は年だけ（`2022`）。`series_id` は `annict:<id>` / `wikidata:<Qid>`
+- `EventWork.match_method` 同定のしかた（`annict:exact`、`wikipedia:suffix` など）。`extracted_text` は一致した区間。誤同定の調査に使う
+- `Unresolved` は1枠1行。あとで同定できたら `resolved_at` を立てる（行は残す）。`detail` に試した区間と候補を JSON で持つ
+
 ### 取得用の内部テーブル（公開しない）
 
     videos_seen   巡回で見たすべての動画（ID・タイトル・判定結果・語彙のバージョン）。
@@ -155,6 +169,8 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
     crawl_state   チャンネルごとの巡回状態（RSS・playlistItems の最終取得、遡りの続きのページ）
     quota_usage   API 呼び出しごとのクォータ消費（太平洋時間の日付で集計）
     runs          ジョブの実行記録（ステップごとの件数とエラー）
+    event_resolution  枠ごとの名寄せの処理状態（どのルールのバージョンで処理したか）
+    resolve_cache     外部作品DBへの照会結果のキャッシュ（30日）。ルールを直して再処理するときに同じ照会を繰り返さない
 
 ### 間違えやすい点
 
@@ -240,6 +256,41 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
 - unresolved は R2 の JSON に出力し、**ローカルの CLI** で一覧・件数・頻出パターンを確認する。
 - GitHub Issues への自動起票はしない。公開サイトにも出さない。
 
+### 名寄せ（extract / resolve）の実装ルール
+
+**方針: 取りこぼしより誤同定のほうが害が大きい。** ルールは `config/extract.yaml`。変えたら `resolve --all` で再処理する。
+
+extract（タイトルから区間を切り出す。照会しない純粋関数）:
+
+- 括弧（【】〖〗など）・ノイズ語（同時視聴・メン限・初見 など）・「｜」「／」・装飾記号を区切りにして、タイトルを**区間**に分ける
+- 半角の「/」と単独の空白では区切らない（Fate/Apocrypha、「ジョジョの奇妙な冒険 第3部 …」の先頭だけを切り出して誤同定しないため）
+- 配信者名・所属を含む括弧は捨てる。『』「」〈〉の中身は優先の区間にする
+- 区間の端の語（を見る・続き・アニメ など、`trim_words`）だけを外す。端にしか効かないので作品名の中の語は壊さない
+- 話数は「第7話～第12話」「16~20話」「Ep17」「第壱話」を読む。「全八話」（全話数）と「#10」（配信の回数）は話数にしない
+- `not_a_work` の語（Direct・競馬・大会・初配信・ボイス など）があれば照会せず「作品ではない」にする。作品名を巻き込む語は入れない（「ダービー」は「ウマ娘 プリティーダービー」を巻き込む）
+
+resolve（区間を外部DBに照会して作品を決める）:
+
+- 枠ごとの候補は「段」に分ける: 括弧（『』「」など）の中身 → 括弧の外の区間 → 小区間 → 概要欄。
+  **前の段で作品が決まれば、後の段は照会も採用もしない**（括弧で決まった枠の「王覇山軍」「ぺこ」のような決まり文句を照会しない・採用しない）。
+  照会は段ごとに全枠まとめて行い、全文検索は最初の2段だけで使う
+- 1つの区間の照会の順: Annict → AniList → 日本語版 Wikipedia の記事名 → Wikipedia の全文検索。前で決まらなかったときだけ次へ
+- Annict・AniList は区間そのままで照会し、一致しなかった区間だけ表記ゆれ用の検索語（先頭の語・先頭4文字）を足して照会し直す
+  （Annict は部分一致なので「進撃の巨人 Season3」はそのままでは0件、「進撃の巨人」なら全シーズンが出る）
+- **区間の照合キーが作品名（原題・英題・ローマ字・別名）と完全一致したときだけ採用する**。部分一致は採用しない
+  （「鋼の錬金術師FA」を「鋼の錬金術師」(2003) にしない）。照合キーは記号・空白を落とし、期・シーズンの表記をそろえたもの
+- 同名の作品が複数あれば、タイトルの「劇場版・映画」の有無で映画かテレビかを選ぶ。それでも決まらなければ ambiguous
+- Wikipedia は、Wikidata の P31 が作品クラス（映画・テレビ番組シリーズ・テレビアニメ など、`work_classes`）の記事だけを採用する。
+  漫画・小説・フランチャイズ・曖昧さ回避・記事の節へのリダイレクトは採用しない。
+  区間の記事が作品でなければ「区間 (映画)」などの記事を試す（「国宝」→「国宝 (映画)」）
+- 話数は、作品が1つに決まり映画でないときだけ Episode に紐付ける。Annict の作品は Annict の話の表記（number_text）を使う
+- Annict で同定した作品には、MyAnimeList の ID で AniList を引いて AniList の ID と画像URLを付ける
+- MyAnimeList の ID で行をまとめるのは、照会先をまたぐとき（Annict の作品と AniList の作品）だけ。
+  **同じ MyAnimeList の ID を持つ別作品がある**（Annict の「劇場総集編ぼっち・ざ・ろっく！ Re:」と「Re:Re:」）ので、
+  その ID を持つ作品が複数あるときはまとめず、画像も付けない。Annict・AniList・Wikidata の ID がどちらにも付いていて違う行は決してまとめない
+- どの枠にも付いていない作品（ルールの変更で付け替わったもの）は消す（外部DBから作り直せる派生データ）
+- 照会エラー（一時的なサーバーエラーが続いたもの）は `error` として残し、次の `resolve` で再試行する
+
 ## ルール
 
 - **壊れる前提で設計する。** 1ステップが失敗しても他を止めない
@@ -306,7 +357,8 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
     config/
       detect.yaml       判定の語彙と正規化ルール
       roster.yaml       Tier 1 の取得元（公式サイトのURL・日本の所属グループ・卒業の印）
-      crawl.yaml        巡回頻度・クォータ上限・遡りの予算
+      crawl.yaml        巡回頻度・クォータ上限・遡りの予算・HTTP（User-Agent と照会先ごとの間隔）
+      extract.yaml      名寄せのルール（作品ではない語・ノイズ語・前後の語・Wikidata の作品クラス）
     src/
       cli.ts            コマンドの入口
       shared/types.ts   ジョブとフロントで共有する型
@@ -315,6 +367,7 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
       roster/           公式サイトからの一覧取得と同期
       detect/           キーワード判定（純粋関数）
       crawl/            巡回ジョブ（取得元・判定と保存・状態の取り直し）
+      resolve/          名寄せ（extract・照合・Annict / AniList / Wikipedia のクライアント・保存）
       report/           ローカル確認用のレポート
     test/               node --test のテスト
     data/               SQLite と生レスポンス（ローカル・コミットしない）
@@ -322,7 +375,8 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
 ### 実行方法
 
 Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのまま実行する。
-`.env.example` を `.env` にコピーして `YOUTUBE_API_KEY` を入れる（`.env.example` にはキーを書かない）。
+`.env.example` を `.env` にコピーして `YOUTUBE_API_KEY` と `ANNICT_TOKEN` を入れる（`.env.example` にはキーを書かない）。
+`ANNICT_TOKEN` が無ければ AniList と Wikipedia だけで名寄せする。
 
     npm install
     npm run cli -- roster          # Tier 1 の同期
@@ -333,6 +387,15 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- report:quota    # クォータ使用量
     npm run cli -- detect:rerun    # 語彙を変えたあとの再判定（API なし）
     npm run cli -- detect:fetch    # 再判定で新たにヒットした動画の詳細取得
+    npm run cli -- resolve         # 名寄せ（未処理と照会エラーの枠）
+    npm run cli -- resolve --all   # ルールを直したあとの再処理（照会はキャッシュを使う）
+    npm run cli -- resolve --reason not_found   # 理由を絞って再処理
+    npm run cli -- extract:test "【同時視聴】…"  # 切り出しの確認（照会しない）
+    npm run cli -- resolve:summary   # 件数・成功率・理由別
+    npm run cli -- unresolved:stats  # 理由別の頻出パターン
+    npm run cli -- unresolved:list --reason not_found
+    npm run cli -- unresolved:export # data/unresolved.json（R2 に置くファイル）
+    npm run cli -- resolve:audit     # 誤同定の疑い
     npm test                       # テスト
     npm run typecheck              # 型チェック
 

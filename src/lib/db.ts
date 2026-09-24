@@ -119,6 +119,84 @@ const MIGRATIONS: string[] = [
   ALTER TABLE watch_events ADD COLUMN excluded_at TEXT;
   ALTER TABLE watch_events ADD COLUMN excluded_reason TEXT;
   `,
+  // 4: 名寄せ（Phase 2）
+  `
+  -- 作品。同定は外部DBのIDを正とする（Annict / AniList / Wikidata）。自前で作品マスタを育てない
+  CREATE TABLE works (
+    id              INTEGER PRIMARY KEY,
+    annict_id       INTEGER UNIQUE,
+    anilist_id      INTEGER UNIQUE,
+    wikidata_id     TEXT UNIQUE,
+    title           TEXT NOT NULL,
+    title_kana      TEXT,
+    media           TEXT,                -- tv / movie / ova / web（不明は NULL）
+    season_name     TEXT,                -- "2022-autumn"（Annict・AniList）/ "2022"（Wikidata は年のみ）
+    series_id       TEXT,                -- "annict:<id>" / "wikidata:<Qid>"
+    episodes_count  INTEGER,
+    image_url       TEXT,                -- AniList の画像URL（参照のみ。自前で保存しない）
+    mal_id          INTEGER,
+    release_year    INTEGER,
+    source          TEXT NOT NULL,       -- 同定した照会先 annict / anilist / wikidata
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+  );
+
+  -- 話。映画・単発は作らない
+  CREATE TABLE episodes (
+    id           INTEGER PRIMARY KEY,
+    work_id      INTEGER NOT NULL REFERENCES works(id),
+    number       REAL,
+    number_text  TEXT NOT NULL,
+    title        TEXT
+  );
+  CREATE UNIQUE INDEX episodes_work_number ON episodes(work_id, number);
+
+  -- 枠と作品（と話）の多対多
+  CREATE TABLE event_works (
+    id              INTEGER PRIMARY KEY,
+    watch_event_id  INTEGER NOT NULL REFERENCES watch_events(id),
+    work_id         INTEGER NOT NULL REFERENCES works(id),
+    episode_id      INTEGER REFERENCES episodes(id),
+    confidence      REAL NOT NULL,
+    match_method    TEXT NOT NULL,       -- 例 annict:exact / wikipedia:suffix
+    extracted_text  TEXT NOT NULL,       -- 一致した区間
+    rule_version    TEXT NOT NULL,
+    created_at      TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX event_works_uniq ON event_works(watch_event_id, work_id, IFNULL(episode_id, 0));
+  CREATE INDEX event_works_work ON event_works(work_id);
+
+  -- 同定できなかった枠。1枠1行。あとで同定できたら resolved_at を立てる（行は残す）
+  CREATE TABLE unresolved (
+    id              INTEGER PRIMARY KEY,
+    watch_event_id  INTEGER NOT NULL UNIQUE REFERENCES watch_events(id),
+    extracted_text  TEXT,
+    reason          TEXT NOT NULL,       -- no_candidate / not_found / ambiguous / not_a_work / error
+    detail          TEXT,                -- JSON（試した区間・候補など）
+    rule_version    TEXT NOT NULL,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
+    resolved_at     TEXT
+  );
+  CREATE INDEX unresolved_reason ON unresolved(reason);
+
+  -- 枠ごとの名寄せの処理状態（どのルールで処理したか）
+  CREATE TABLE event_resolution (
+    watch_event_id  INTEGER PRIMARY KEY REFERENCES watch_events(id),
+    status          TEXT NOT NULL,       -- resolved / unresolved
+    rule_version    TEXT NOT NULL,
+    processed_at    TEXT NOT NULL
+  );
+
+  -- 外部作品DBへの照会結果のキャッシュ。ルールを直して再処理するときに同じ照会を繰り返さない
+  CREATE TABLE resolve_cache (
+    source      TEXT NOT NULL,
+    query       TEXT NOT NULL,
+    response    TEXT NOT NULL,
+    fetched_at  TEXT NOT NULL,
+    PRIMARY KEY (source, query)
+  );
+  `,
 ];
 
 export function openDb(path: string = DB_PATH): DB {

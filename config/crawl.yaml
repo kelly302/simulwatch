@@ -59,4 +59,10 @@ http:
     "www.nijisanji.jp": 500
     "hololive.hololivepro.com": 500
     "vspo.jp": 500
-  user_agent: "Mozilla/5.0 (compatible; doji-shicho-matome/0.1)"
+    # 名寄せの照会先。AniList は 90回/分（混雑時は30回/分に下がる）を超えない
+    "api.annict.com": 1000
+    "graphql.anilist.co": 2100
+    "ja.wikipedia.org": 1000
+    "www.wikidata.org": 1000
+  # 連絡先（リポジトリのURL）を必ず入れる。Wikipedia / Wikidata は連絡先の無い User-Agent を 429 で弾く
+  user_agent: "Mozilla/5.0 (compatible; simulwatch/0.1; +https://github.com/kelly302/simulwatch)"

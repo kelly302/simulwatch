@@ -39,6 +39,9 @@ export function createCtx(job: string): Ctx {
   const key = process.env.YOUTUBE_API_KEY;
   const yt = key ? new YouTubeApi(http, quota, key) : null;
   if (!yt) log.warn("YOUTUBE_API_KEY が未設定のため、YouTube Data API を使うステップは飛ばします");
+  // 前のジョブがプロセスごと止まった（セッション切れ・強制終了）と、実行記録が running のまま残る。6時間を過ぎたものは中断として閉じる
+  db.prepare("UPDATE runs SET status = 'aborted', finished_at = ? WHERE status = 'running' AND started_at < ?")
+    .run(nowIso(), new Date(Date.now() - 6 * 3_600_000).toISOString());
   db.prepare("INSERT INTO runs (id, job, started_at, status) VALUES (?, ?, ?, 'running')").run(runId, job, nowIso());
   return {
     db, http, raw, quota, yt,
