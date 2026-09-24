@@ -22,12 +22,15 @@ export interface WorkCandidate {
   episodesCount: number | null;
   imageUrl: string | null;
   seriesId: string | null;
+  /** Wikidata の作品がアニメ（P31 がアニメのクラス）か。アニメなら期の表記で照合する */
+  isAnime?: boolean;
 }
 
-export type UnresolvedReason = "no_candidate" | "not_found" | "ambiguous" | "not_a_work" | "error";
+export type UnresolvedReason = "no_candidate" | "unidentifiable" | "not_found" | "ambiguous" | "not_a_work" | "error";
 
 export const UNRESOLVED_REASON_LABEL: Record<UnresolvedReason, string> = {
   no_candidate: "作品名を切り出せない",
+  unidentifiable: "同時視聴だが作品を特定できない",
   not_found: "照会でヒットしない",
   ambiguous: "候補が複数あり決められない",
   not_a_work: "作品ではない",

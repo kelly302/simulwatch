@@ -73,6 +73,12 @@ not_a_work:
   - プレイオフ
   - グランドファイナル
   - grandfinal
+  - エキシビションマッチ
+  - "re:(^|[^a-z])masters([^a-z]|$)"   # 「VALORANT Masters Shanghai」
+  - "re:(^|[^a-z])cr ?cup([^a-z]|$)"
+  - pokemonpresents
+  - pokémonpresents
+  - "re:(^|[^a-z])pll([^a-z]|$)"       # FF14 のプロデューサーレターLIVE
   - オールスター
   - playoffs
   # 事務所・配信者自身のコンテンツ
@@ -101,6 +107,16 @@ not_a_work:
   - 発表会
   - 総会
   - asmr
+
+# not_a_work の語に当たっても、作品名だと明示された括弧（「映画「さがす」」「アニメ『かくしごと』」）があれば、
+# その括弧の中身だけを照会する。作品に当たれば同定し、当たらなければ「作品ではない」のまま。
+# not_a_work の語はハッシュタグの中では見ない（「#ロボ子生放送」の「生放送」）
+not_a_work_quote_override: "(映画|アニメ|劇場版|ドラマ)\\s*[「『]"
+
+# 企画名・番組名（作品名ではない）。区間がこれを含めば作品名の候補にしない。
+# 作品名がほかに見つからなければ「同時視聴だが作品を特定できない」にする（作品ではない、とは分ける）
+program_names:
+  - おはすず          # 七瀬すず菜の「おはすず日曜日（拡大版）」。ニチアサの作品は概要欄に列挙される
 
 # 区間の区切りに使わず、区間からも外さない「タグの括弧」。中身が tag_words を含む区間は捨てる
 # 角括弧 [ ] は作品名の一部に使われる（「Fate/stay night [Unlimited Blade Works]」）のでタグの括弧に入れない
@@ -232,6 +248,9 @@ trim_words:
   - 番外編
   - 本日の
   - 今日の
+  - 本日は
+  - 今日は
+  - 今回は
   - 字幕
   - 吹替
   - を
@@ -266,6 +285,30 @@ season_qualifiers:
   - "^完結編"
   - "^r[0-9]$"
 
+# タイトルの期・部の表記（NFKC・小文字にしたタイトルに当てる正規表現）。tag の $1 は1つ目の捕獲（漢数字も読む）。
+# 期（kind: season）: タイトルにあれば、その期を持たない作品には同定しない（アニメのDBは期ごとに別作品のため）。
+#   suffixes は「区間 + 期の表記」で作品名を作り直して照合するときの、照合キーの末尾
+# 部（kind: part）: 作品名に部の表記が無いことが多い（ジョジョ）。部が特定できなければ同定しない
+title_markers:
+  - { kind: season, re: "第?([0-9一二三四五六七八九十]+)\\s*期(?!生|間|限|待|目|末|中|的)", tag: "s$1", suffixes: ["season$1"] }
+  - { kind: season, re: "(?:season|シーズン)\\s*([0-9]+)", tag: "s$1", suffixes: ["season$1"] }
+  - { kind: season, re: "(?<![0-9])([0-9]{1,2})(?:st|nd|rd|th)\\s*(?:season|シーズン)", tag: "s$1", suffixes: ["season$1"] }
+  - { kind: season, re: "第([0-9]+)シーズン", tag: "s$1", suffixes: ["season$1"] }
+  - { kind: season, re: "(?:^|[^a-z0-9])r([2-9])(?:[^a-z0-9]|$)", tag: "s$1", suffixes: ["r$1", "season$1"] }
+  - { kind: season, re: "(?:the\\s*)?final\\s*season|ファイナルシーズン", tag: "final", suffixes: ["thefinalseason", "finalseason"] }
+  - { kind: season, re: "(?:^|[^a-z])after(?!\\s*(?:talk|life|party|dark|glow))(?:[^a-z]|$)|アフターストーリー", tag: "after", suffixes: ["afterstory"] }
+  - { kind: season, re: "完結編", tag: "完結編", suffixes: ["完結編"] }
+  - { kind: part, re: "第([0-9一二三四五六七八九十]+)部", tag: "p$1" }
+  - { kind: part, re: "(?:^|[^a-z])part\\s*([0-9]+)", tag: "p$1" }
+
+# 概要欄の作品名の列挙（「A、B、Cを見ます」）。読点で2つ以上並べ、末尾がこの動詞の行を作品名の列挙として切り出す。
+# 行の末尾の記号は作品名の一部のことがある（「キミとアイドルプリキュア♪」）ので、動詞の後ろの絵文字・記号だけを外す
+description_list_verbs:
+  - 見ます
+  - 観ます
+  - 視聴します
+  - みます
+
 # 照合用の正規化
 match_normalize:
   # 取り除く記号（全角は NFKC で半角になってから適用）
@@ -276,8 +319,15 @@ match_normalize:
     - "第(\\d+)期"
     - "(\\d+)期"
     - "season(\\d+)"
+    - "第(\\d+)シーズン"
     - "シーズン(\\d+)"
-    - "(\\d+)(?:st|nd|rd|th)season"
+    # 数字の前に数字があれば期の番号にしない（「機動戦士ガンダム00 2nd season」の「00」を吸い込んで season002 にしない）
+    - "(?<![0-9])(\\d{1,2})(?:st|nd|rd|th)season"
+    - "(?<![0-9])(\\d{1,2})(?:st|nd|rd|th)シーズン"
+  # 見た目が同じで別の文字を寄せる（ギリシャ文字のゼータ「Ζ」とラテン文字の「Z」。「機動戦士Ζガンダム」）
+  fold_chars:
+    "ζ": "z"
+    "Ζ": "z"
 
 # 照会先ごとの設定
 annict:

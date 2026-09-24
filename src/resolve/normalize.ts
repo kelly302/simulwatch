@@ -32,6 +32,8 @@ function seasonRes(cfg: ExtractConfig): RegExp[] {
  */
 export function matchKey(s: string, cfg: ExtractConfig): string {
   let t = s.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+  const fold = cfg.match_normalize.fold_chars;
+  if (fold) t = [...t].map((ch) => fold[ch] ?? ch).join("");
   for (const re of seasonRes(cfg)) t = t.replace(re, "season$1");
   const strip = stripSet(cfg);
   return [...t].filter((ch) => !strip.has(ch)).join("");

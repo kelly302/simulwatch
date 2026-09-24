@@ -11,7 +11,8 @@ import type { ResolveOptions } from "./resolve/resolve.ts";
 import { loadExtractConfig } from "./resolve/config.ts";
 import { extract } from "./resolve/extract.ts";
 import { resolveSummary, unresolvedStats, unresolvedList, exportUnresolved, resolveAudit } from "./report/resolve.ts";
-import { seasonSample } from "./report/sample.ts";
+import { seasonSample, unresolvedSample } from "./report/sample.ts";
+import { seriesReport } from "./report/series.ts";
 import type { UnresolvedReason } from "./resolve/types.ts";
 
 // 使い方: npm run cli -- <command> [options]
@@ -42,6 +43,8 @@ const HELP = `
   resolve:audit   誤同定の疑いがある同定を並べる [--limit N]
   resolve:sample  期の取り違えの検証用に、複数期のシリーズの枠を抽出して確認表を書き出す（data/review/）
                   [--n 60] [--seed S]。確認表の先頭に母集団・抽出・判定基準を書く
+  unresolved:sample 未同定を理由ごとに抽出して分類用の確認表を書き出す（data/review/） [--reason not_found] [--n 100] [--seed S]
+  resolve:series  視聴系列（同じ配信者が同じ作品の系統を続けて観た枠）の件数と、期を決められる枠の件数
 
 環境変数:
   YOUTUBE_API_KEY  YouTube Data API のキー（.env に書けば自動で読む）
@@ -86,6 +89,13 @@ async function main(): Promise<number> {
     "refresh": { job: "daily", run: refreshAll },
     "detect:fetch": { job: "daily", run: fetchOrphans },
     "resolve": { job: "resolve", run: resolveJob },
+    "resolve:series": {
+      job: "report",
+      run: async (ctx) => {
+        const r = await runStep(ctx, "resolve:series", () => seriesReport(ctx, loadExtractConfig()));
+        if (r) console.log(r);
+      },
+    },
     "resolve:sample": {
       job: "report",
       run: async (ctx) => {
@@ -135,6 +145,9 @@ async function main(): Promise<number> {
       return 0;
     case "unresolved:export":
       console.log(exportUnresolved(openDb()));
+      return 0;
+    case "unresolved:sample":
+      console.log(unresolvedSample(openDb(), values.reason ?? "not_found", { n: Number(values.n ?? 100), seed: values.seed ?? "nf-1" }));
       return 0;
     case "resolve:audit":
       console.log(resolveAudit(openDb(), loadExtractConfig(), limit ?? 30));

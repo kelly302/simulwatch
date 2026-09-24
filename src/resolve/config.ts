@@ -15,7 +15,15 @@ export interface ExtractConfig {
   trim_words: string[];
   stop_segments: string[];
   season_qualifiers: string[];
-  match_normalize: { strip_chars: string; season_patterns: string[] };
+  /** not_a_work に当たっても、作品名だと明示された括弧があればその中身を照会する（正規表現） */
+  not_a_work_quote_override?: string;
+  /** 企画名・番組名（作品名ではない） */
+  program_names?: string[];
+  /** タイトルの期・部の表記 */
+  title_markers?: { kind: "season" | "part"; re: string; tag: string; suffixes?: string[] }[];
+  /** 概要欄の作品名の列挙の末尾の動詞 */
+  description_list_verbs?: string[];
+  match_normalize: { strip_chars: string; season_patterns: string[]; fold_chars?: Record<string, string> };
   annict: { batch_size: number; per_query: number };
   anilist: { batch_size: number };
   wikipedia: {
@@ -29,7 +37,7 @@ export interface ExtractConfig {
 }
 
 /** リゾルバの処理を変えたら上げる。設定ファイルと合わせて再処理の要否を判断する */
-export const RESOLVER_CODE_VERSION = 2;
+export const RESOLVER_CODE_VERSION = 3;
 
 export function loadExtractConfig(): ExtractConfig {
   const raw = readFileSync(join(ROOT, "config", "extract.yaml"), "utf8");

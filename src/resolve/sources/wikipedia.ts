@@ -165,9 +165,21 @@ export class WikipediaClient {
   private async fetchEntities(ids: string[], out: Map<string, EntityInfo>): Promise<void> {
     let batch = ids;
     for (let attempt = 0; attempt < 10 && batch.length > 0; attempt++) {
-      const j = (await this.getJson(WD, { action: "wbgetentities", ids: batch.join("|"), props: "claims|labels", languages: "ja" })) as {
-        entities?: Record<string, WdEntity & { missing?: string }>; error?: { code: string; id?: string; info?: string };
-      };
+      let j: { entities?: Record<string, WdEntity & { missing?: string }>; error?: { code: string; id?: string; info?: string } };
+      try {
+        j = (await this.getJson(WD, { action: "wbgetentities", ids: batch.join("|"), props: "claims|labels", languages: "ja" })) as typeof j;
+      } catch (e) {
+        // 通信エラー・タイムアウト（再試行しても落ちたもの）: 半分に分けて呼び直し、1件でも落ちる項目は failedQids に入れる
+        this.errors.push(String(e).slice(0, 300));
+        if (batch.length === 1) {
+          this.failedQids.add(batch[0]!);
+          return;
+        }
+        const half = Math.ceil(batch.length / 2);
+        await this.fetchEntities(batch.slice(0, half), out);
+        await this.fetchEntities(batch.slice(half), out);
+        return;
+      }
       if (j.error) {
         const bad = j.error.id;
         if (j.error.code === "no-such-entity" && bad && batch.includes(bad)) {

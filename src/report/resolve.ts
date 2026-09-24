@@ -17,7 +17,9 @@ function table(rows: Record<string, unknown>[]): string {
   return [line(cols), line(w.map((n) => "-".repeat(n))), ...rows.map((r) => line(cols.map((c) => String(r[c] ?? ""))))].join("\n");
 }
 
-const OPEN = "u.resolved_at IS NULL";
+// 一覧に出ない枠（判定ルールで外した・アーカイブが消えた）は数えない
+const OPEN = "u.resolved_at IS NULL AND u.watch_event_id IN (SELECT id FROM watch_events WHERE excluded_at IS NULL AND archive_gone_at IS NULL)";
+const ACTIVE = "watch_event_id IN (SELECT id FROM watch_events WHERE excluded_at IS NULL AND archive_gone_at IS NULL)";
 
 /** 頻出パターンの集計キー。数字をまとめ、照合キーでそろえる */
 function patternKey(text: string | null, cfg: ExtractConfig): string {
@@ -28,8 +30,8 @@ function patternKey(text: string | null, cfg: ExtractConfig): string {
 export function resolveSummary(db: DB): string {
   const out: string[] = [];
   const q = (sql: string, ...p: (string | number)[]) => db.prepare(sql).all(...p) as Record<string, unknown>[];
-  const total = (db.prepare("SELECT COUNT(*) AS n FROM event_resolution").get() as { n: number }).n;
-  const resolved = (db.prepare("SELECT COUNT(*) AS n FROM event_resolution WHERE status = 'resolved'").get() as { n: number }).n;
+  const total = (db.prepare(`SELECT COUNT(*) AS n FROM event_resolution WHERE ${ACTIVE}`).get() as { n: number }).n;
+  const resolved = (db.prepare(`SELECT COUNT(*) AS n FROM event_resolution WHERE status = 'resolved' AND ${ACTIVE}`).get() as { n: number }).n;
   const naw = (db.prepare(`SELECT COUNT(*) AS n FROM unresolved u WHERE ${OPEN} AND reason = 'not_a_work'`).get() as { n: number }).n;
   out.push("■ 名寄せの結果");
   out.push(`  処理した枠 ${total} / 同定 ${resolved} / 未同定 ${total - resolved}（うち作品ではない ${naw}）`);
@@ -41,7 +43,7 @@ export function resolveSummary(db: DB): string {
   }))));
   out.push("\n■ 同定の方法（EventWork の枠数）");
   out.push(table(q(`SELECT match_method, COUNT(DISTINCT watch_event_id) AS events, ROUND(AVG(confidence), 2) AS confidence
-    FROM event_works GROUP BY match_method ORDER BY events DESC`)));
+    FROM event_works WHERE ${ACTIVE} GROUP BY match_method ORDER BY events DESC`)));
   out.push("\n■ 作品");
   out.push(table(q(`SELECT source, COALESCE(media, '?') AS media, COUNT(*) AS works, SUM(image_url IS NOT NULL) AS with_image
     FROM works GROUP BY source, media ORDER BY works DESC`)));

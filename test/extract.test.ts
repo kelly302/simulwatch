@@ -99,3 +99,49 @@ test("括弧（『』「」）の中の全角スラッシュでは区切らな�
 test("配信者タグの括弧の中の『』は作品名の候補にしない", () => {
   assert.deepEqual(segs("同時視聴【にじさんじ 4th Anniversary「FANTASIA」DAY1】を観る！！！【白雪 巴/にじさんじ】").filter((x) => x === "FANTASIA"), []);
 });
+
+test("「〜と見る」の相手・読み仮名の括弧・異体字セレクタ・話数の付かない丸数字", () => {
+  const subs = (t: string) => extract(t, cfg).segments.flatMap((s) => s.subs.map((x) => x.text));
+  assert.ok(subs("【同時視聴】最終回！医療従事者と見るアンナチュラル9話&10話").includes("アンナチュラル"));
+  assert.ok(subs("【同時視聴】下僕とハリーポッターみる").includes("ハリーポッター"));
+  assert.ok(subs("【 王覇山軍🚩メン限/同時視聴 】「 刃牙（バキ） 」第23話～第26話").includes("刃牙"));
+  // 「┊︎」の後ろの U+FE0E を区間に残さない
+  assert.ok(segs("【 王覇山軍🚩メン限/同時視聴 】「 チェンソーマン┊︎第12話（終） 」").includes("チェンソーマン"));
+  // 「⑪」は配信の回数、「⑰話」は話数
+  assert.ok(segs("同時視聴 | 魔法騎士レイアース⑪（第二部） | アニメ同時視聴の会").every((s) => !/11/.test(s)));
+  assert.deepEqual(eps("ダンジョン飯！⑰話～⑳話　見るよー"), [17, 18, 19, 20]);
+});
+
+test("話数の位置: 話数の直前の区間を記録する（アイカツ！オンパレード）", () => {
+  const e = extract("【アイカツ！同時視聴会】オンパレード同時視聴【27話＆1話】", cfg);
+  const order = e.layout.map((x) => (x.t === "ep" ? `ep${x.g}` : x.t === "seg" ? x.key : "cnt"));
+  assert.deepEqual(order, [matchKey("アイカツ!", cfg), matchKey("オンパレード", cfg), "ep0", "ep1"]);
+});
+
+test("作品ではない語はハッシュタグの中も見る。作品名だと明示された括弧があれば括弧だけ照会する", () => {
+  // 大会名・イベント名はハッシュタグに書かれることが多い
+  assert.ok(extract("【#日本ダービー】そろそろ一旦勝たん？ 予想＆同時視聴【にじさんじ/ローレン・イロアス】", cfg).notAWork);
+  const v = extract("メン限│今月のボイス＆映画「さがす」同時視聴✨【綺沙良/にじさんじ】", cfg);
+  assert.ok(v.notAWork);
+  assert.equal(v.notAWorkQuoteOnly, true);
+  assert.equal(extract("Nintendo Direct 2026.9.9 同時視聴", cfg).notAWorkQuoteOnly, false);
+});
+
+test("企画名は作品名の候補にしない。概要欄の作品名の列挙を切り出す（末尾の♪は残す）", () => {
+  const e = extract("【ニチアサ同時視聴】おはすず日曜日拡大版 10月13日（日）【七瀬すず菜/にじさんじ】", cfg);
+  assert.deepEqual(e.segments, []);
+  assert.equal(e.programs.length, 1);
+  const d = extractFromDescription(
+    "おはすず日曜日通常配信の後は・・・ニチアサ同時視聴👀\nキミとアイドルプリキュア♪、仮面ライダーガヴ、ナンバーワン戦隊ゴジュウジャーを見ます✨",
+    ["今日", "を見ます"], cfg,
+  );
+  assert.deepEqual(d.map((s) => s.text), ["キミとアイドルプリキュア♪", "仮面ライダーガヴ", "ナンバーワン戦隊ゴジュウジャー"]);
+  // 1つだけの「〜を見ます」は列挙にしない
+  assert.deepEqual(extractFromDescription("今日はみんなの反応を見ます", ["今日", "を見ます"], cfg), []);
+});
+
+test("ハッシュタグは候補として別に持つ（配信者名・所属のタグは除く）", () => {
+  const e = extract("【同時視聴】アニメ #人外教室 13話を著者と見ようよ！【来栖夏芽/にじさんじ】", cfg);
+  assert.deepEqual(e.hashtags.map((s) => s.text), ["人外教室"]);
+  assert.deepEqual(extract("【同時視聴】超かぐや姫！【#輪堂千速 / #hololivedev_is】", cfg).hashtags.map((s) => s.text), ["輪堂千速"]);
+});

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../lib/context.ts";
+import type { DB } from "../lib/db.ts";
 import { activeEventSql, farFutureCutoff } from "../lib/events.ts";
 import { DATA_DIR } from "../lib/paths.ts";
 import type { ExtractConfig } from "../resolve/config.ts";
@@ -226,4 +227,62 @@ export async function seasonSample(ctx: Ctx, cfg: ExtractConfig, opts: { n: numb
   const path = join(dir, `season-sample-${opts.seed}.md`);
   writeFileSync(path, out.join("\n"), "utf8");
   return `母集団 ${events.length} 枠（作品 ${qualifying.size} 件）から ${picked.length} 件を抽出 → ${path}`;
+}
+
+const UNRESOLVED_PROCEDURE = (p: { reason: string; seed: string; n: number; population: number; dbState: string }) => `# 未同定（${p.reason}）の抽出と分類
+
+## 手順
+
+- **母集団**: 一覧に出る枠のうち、未同定の理由が ${p.reason} のもの（${p.population} 枠）。除いたものはない
+- **抽出**: sha256(シード + ":" + video_id) の昇順で先頭 ${p.n} 件。シード「${p.seed}」
+- **DB の状態**: ${p.dbState}
+- **枠ごとに並べた項目**: タイトル全文・切り出した区間と小区間・概要欄の区間・ハッシュタグ・照会の注記（Wikipedia の記事が作品でない など）・
+  概要欄のうち「今日・本日・を見ます」などその枠を指す語を含む行（最大3行。ローカルの確認用で、公開しない）
+- **分類の基準**（抽出の前に決めたもの。1件に1つ）:
+  - A 機械的に救える（作品名が書かれていて外部DBにその作品があり、規則の追加で一致させられる）
+    - A1 切り出し（区切り・前後の語・括弧・記号の扱い）
+    - A2 表記ゆれ（空白・長音・記号・大文字小文字・全角半角で完全一致しない）
+    - A3 期・部・話数の表記（「3期」「第2部」を作品名の一部と区別できていない）
+    - A4 作品ではない語（not_a_work）・企画名（program_names）・検出の誤りの語彙で分類し直せる（同定はしないが分母から外れる）
+  - B 別名の辞書があれば救える（略称・通称・英題の略: 「シュタゲ」「UBW」）。外部DBの別名にあれば機械的、なければ原理的に難しい
+  - C 原理的に無理
+    - C1 作品名が書かれていない（「ニチアサ」「映画」だけ・企画名だけ）
+    - C2 作品名はあるが外部DB（Annict・AniList・Wikipedia）に無い（配信者の企画・YouTube の番組・舞台・ゲームの映像 など）
+    - C3 同名の別作品と区別できない（年・種別の手がかりが無い）
+  - 判断がつかない: 外部DBにあるかどうか確かめられなかったもの
+- 外部DBにあるかどうかは、照会の注記（記事が漫画・フランチャイズ など）と、作品名を知っている範囲で判断した。確かめられなかったものは「判断がつかない」にする
+`;
+
+/** 未同定を理由ごとに抽出して、分類用の確認表を書き出す */
+export function unresolvedSample(db: DB, reason: string, opts: { n: number; seed: string }): string {
+  const rows = db.prepare(`SELECT e.video_id, e.title_raw, e.description_raw, u.extracted_text, u.detail, s.name AS streamer
+    FROM unresolved u JOIN watch_events e ON e.id = u.watch_event_id JOIN streamers s ON s.id = e.streamer_id
+    WHERE u.resolved_at IS NULL AND u.reason = ? AND e.archive_gone_at IS NULL AND e.excluded_at IS NULL`).all(reason) as Record<string, string | null>[];
+  const byVideo = new Map(rows.map((r) => [String(r.video_id), r]));
+  const picked = sampleOrder(opts.seed, [...byVideo.keys()]).slice(0, opts.n);
+  const lastRun = db.prepare("SELECT id, finished_at FROM runs WHERE job = 'resolve' AND status IN ('ok','partial') ORDER BY started_at DESC LIMIT 1")
+    .get() as { id: string; finished_at: string } | undefined;
+  const dbState = lastRun ? `最後の名寄せ ${lastRun.id}（${jst(lastRun.finished_at)} 終了）の結果` : "名寄せの実行記録なし";
+  const out = [UNRESOLVED_PROCEDURE({ reason, seed: opts.seed, n: opts.n, population: rows.length, dbState }), "## 確認表\n"];
+  const self = /(今日|本日|今回|この配信|この枠|を見ます|を観ます)/;
+  picked.forEach((vid, i) => {
+    const r = byVideo.get(vid)!;
+    const d = r.detail ? (JSON.parse(String(r.detail)) as Record<string, unknown>) : {};
+    const list = (x: unknown) => (Array.isArray(x) && x.length ? x.join(" ／ ") : "なし");
+    out.push(`### ${i + 1}. ${vid}　${r.streamer}`);
+    out.push(`- タイトル: ${r.title_raw}`);
+    out.push(`- 区間: ${list(d.segments)}　小区間: ${list(d.subs)}`);
+    out.push(`- 概要欄の区間: ${list(d.description)}　ハッシュタグ: ${list(d.hashtags)}`);
+    const notes = d.notes && typeof d.notes === "object" ? Object.entries(d.notes as Record<string, string>).map(([k, v]) => `${k} → ${v}`) : [];
+    out.push(`- 注記: ${notes.length ? notes.join(" ／ ") : "なし"}`);
+    const lines = String(r.description_raw ?? "").split(/\r?\n/).map((l) => l.trim()).filter((l) => l && self.test(l)).slice(0, 3);
+    out.push(`- 概要欄の行: ${lines.length ? lines.map((l) => l.slice(0, 90)).join(" ／ ") : "なし"}`);
+    out.push("- 分類: ");
+    out.push("");
+  });
+  const dir = join(DATA_DIR, "review");
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `unresolved-${reason}-${opts.seed}.md`);
+  writeFileSync(path, out.join("\n"), "utf8");
+  return `母集団 ${rows.length} 枠から ${picked.length} 件を抽出 → ${path}`;
 }

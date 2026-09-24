@@ -2,12 +2,14 @@ import type { ExtractConfig } from "./config.ts";
 import type { WorkCandidate, Media } from "./types.ts";
 import type { PageInfo, EntityInfo } from "./sources/wikipedia.ts";
 import { matchKey } from "./normalize.ts";
+import { suffixTag } from "./markers.ts";
 
 // 照会結果から作品を決める（純粋関数）。取りこぼしより誤同定のほうが害が大きいので、
 // 区間の照合キーが作品名（原題・英題・別名）のどれかと完全に一致したときだけ採用する。
 
 export type MatchResult =
-  | { kind: "match"; work: WorkCandidate; method: string }
+  /** weak: 原題（Annict の作品名・AniList の native）ではなく、英題・ローマ字だけで一致した */
+  | { kind: "match"; work: WorkCandidate; method: string; weak?: boolean }
   | { kind: "ambiguous"; works: WorkCandidate[]; method: string }
   | { kind: "none"; note?: string };
 
@@ -44,7 +46,13 @@ export function matchByTitle(key: string, candidates: WorkCandidate[], hintText:
   for (const w of candidates) if (!uniq.has(w.sourceKey)) uniq.set(w.sourceKey, w);
   const all = [...uniq.values()];
   const keys = (w: WorkCandidate) => w.titles.map((t) => matchKey(t, cfg));
+  // 原題（titles[0]）での一致を優先し、英題・ローマ字だけの一致は弱い根拠として印を付ける。
+  // Annict は1期の英題がシリーズの総称になっている（「Fate/Zero 1stシーズン」の英題が「Fate/Zero」）
+  const primary = (w: WorkCandidate) => (w.titles[0] ? matchKey(w.titles[0], cfg) : "");
   let equal = all.filter((w) => keys(w).includes(key));
+  const strong = equal.filter((w) => primary(w) === key);
+  let weak = equal.length > 0 && strong.length === 0;
+  if (strong.length > 0) equal = strong;
   let method = "exact";
 
   // 区間の末尾に公開年が付いている（「ダイの大冒険(2020)」）: 年を外した作品名で照合し、公開年で選ぶ
@@ -52,7 +60,9 @@ export function matchByTitle(key: string, candidates: WorkCandidate[], hintText:
   if (equal.length === 0 && ym) {
     const [, base, yearStr] = ym;
     const year = Number(yearStr);
-    equal = all.filter((w) => keys(w).some((k) => k === base || YEAR_SUFFIX.test(k.slice(base!.length)) && k.startsWith(base!)) && w.releaseYear === year);
+    const byYear = (ks: string[]) => ks.some((k) => k === base || YEAR_SUFFIX.test(k.slice(base!.length)) && k.startsWith(base!));
+    equal = all.filter((w) => byYear(keys(w)) && w.releaseYear === year);
+    weak = equal.length > 0 && !equal.some((w) => byYear([primary(w)]));
     method = "exact+year";
   }
   if (equal.length === 0) return { kind: "none" };
@@ -65,10 +75,11 @@ export function matchByTitle(key: string, candidates: WorkCandidate[], hintText:
     if (remakes.length > 0) return { kind: "ambiguous", works: [...equal, ...remakes], method: "remake" };
   }
 
-  if (equal.length === 1) return { kind: "match", work: equal[0]!, method };
+  const w8 = weak ? { weak: true } : {};
+  if (equal.length === 1) return { kind: "match", work: equal[0]!, method, ...w8 };
   const want: Media = MOVIE_HINT.test(hintText) ? "movie" : "tv";
   const byMedia = equal.filter((w) => w.media === want);
-  if (byMedia.length === 1) return { kind: "match", work: byMedia[0]!, method: `${method}+${want}` };
+  if (byMedia.length === 1) return { kind: "match", work: byMedia[0]!, method: `${method}+${want}`, ...w8 };
   return { kind: "ambiguous", works: equal, method };
 }
 
@@ -111,7 +122,29 @@ export function wikidataCandidate(p: PageInfo, e: EntityInfo, cfg: ExtractConfig
     episodesCount: null,
     imageUrl: null,
     seriesId: e.series ? `wikidata:${e.series}` : null,
+    isAnime: e.p31.some((c) => cfg.wikipedia.anime_classes.includes(c)),
   };
+}
+
+/**
+ * 区間の照合キーに期の表記を足した作品名の候補（「ウマ娘プリティーダービー」+「season2」→ Season 2 の作品）。
+ * 期のタグ（s2・final・after など）ごとに、候補の作品名のうち「区間 + 期の表記」と一致するものを集める。
+ * タイトルに期の表記がある枠だけが使う（照会結果はタイトルによらず区間ごとに持つため、ここではタグごとに全部持つ）
+ */
+export function seasonVariants(key: string, candidates: WorkCandidate[], cfg: ExtractConfig): Map<string, WorkCandidate[]> {
+  const out = new Map<string, WorkCandidate[]>();
+  for (const w of candidates) {
+    for (const t of w.titles) {
+      const k = matchKey(t, cfg);
+      if (k.length <= key.length || !k.startsWith(key)) continue;
+      const tag = suffixTag(k.slice(key.length), cfg);
+      if (!tag) continue;
+      const list = out.get(tag) ?? [];
+      if (!list.some((x) => x.sourceKey === w.sourceKey)) list.push(w);
+      out.set(tag, list);
+    }
+  }
+  return out;
 }
 
 /** Wikipedia で試す記事名（区間そのもの・曖昧さ回避の接尾辞付き・「(曖昧さ回避)」の記事） */
