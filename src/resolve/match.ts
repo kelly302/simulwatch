@@ -134,7 +134,8 @@ export function wikidataCandidate(p: PageInfo, e: EntityInfo, cfg: ExtractConfig
 export function seasonVariants(key: string, candidates: WorkCandidate[], cfg: ExtractConfig): Map<string, WorkCandidate[]> {
   const out = new Map<string, WorkCandidate[]>();
   for (const w of candidates) {
-    for (const t of w.titles) {
+    // 原題だけで見る（Annict の英題・ローマ字は期の表記が当てにならない）
+    for (const t of w.titles.slice(0, 1)) {
       const k = matchKey(t, cfg);
       if (k.length <= key.length || !k.startsWith(key)) continue;
       const tag = suffixTag(k.slice(key.length), cfg);

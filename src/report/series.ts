@@ -132,7 +132,7 @@ export async function seriesReport(ctx: Ctx, cfg: ExtractConfig): Promise<string
       const tags = [...x.mk.season.keys(), ...x.mk.part];
       if (tags.length) {
         const hit = seasons.findIndex((s) => {
-          const wm = workMarkers(s.titles, cfg);
+          const wm = workMarkers(s.titles.slice(0, 1), cfg);
           return tags.every((t) => (t === "s1" ? ![...wm.season.keys()].some((k) => k !== "s1") : wm.season.has(t) || wm.part.has(t)));
         });
         if (hit >= 0) { counts.marker++; return hit; }

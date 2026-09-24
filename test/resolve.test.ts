@@ -216,3 +216,15 @@ test("同名の別作品で保留になったとき、タイトルの「アニ�
   const l = plan("【 メン限同時視聴 】ゆるキャン△（実写のほう）");
   assert.deepEqual(pick(l, new Map<string, Outcome>([["ゆるキャン△", amb]])).picked.map((x) => x.work.sourceKey), ["wikidata:Q1"]);
 });
+
+test("同名の作品で保留になっても、同じ枠の英題の区間がどちらかに当たっていれば選ぶ（日常 / NICHIJOU）", () => {
+  const p = plan("【#3】日常 同時視聴 / NICHIJOU watching party【ホロライブ/大空スバル】");
+  const anime = { ...work(1, "日常"), media: "tv" as const, titles: ["日常", "Nichijou"], releaseYear: 2011 };
+  const film = { ...work(2, "日常 (映画)"), source: "wikidata" as const, sourceKey: "wikidata:Q1", annictId: null, releaseYear: 2006 };
+  const segs = p.ex.segments.map((x) => x.text);
+  const r = pick(p, new Map<string, Outcome>([
+    [segs[0]!, { kind: "ambiguous", works: [anime, film], method: "同名の別作品（公開年が違う）", source: "annict" }],
+    [segs[1]!, { ...match(anime), weak: true } as Outcome],
+  ]));
+  assert.deepEqual(r.picked.map((x) => x.work.sourceKey), ["annict:1"]);
+});

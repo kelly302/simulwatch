@@ -430,6 +430,13 @@ export function yearIn(text: string | undefined): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/**
+ * 期・部の表記を見る作品名。原題（Annict の作品名・AniList の native・Wikidata の日本語ラベル）だけ。
+ * Annict の英題・ローマ字は期・部の表記が当てにならない（「スターダストクルセイダース」のローマ字が「… 2nd Season」、
+ * 「ストーンオーシャン 第3期」のローマ字が「… Part 3」）
+ */
+const primaryTitle = (w: WorkCandidate): string[] => w.titles.slice(0, 1);
+
 /** アニメのDBの作品か（期ごとに別作品として登録されている。Wikidata のアニメの記事も含める） */
 const isAnimeWork = (w: WorkCandidate) => w.source !== "wikidata" || !!w.isAnime;
 
@@ -442,12 +449,12 @@ const isAnimeWork = (w: WorkCandidate) => w.source !== "wikidata" || !!w.isAnime
  */
 function partProblem(title: Markers, w: WorkCandidate, cands: WorkCandidate[], cfg: ExtractConfig): string | null {
   if (title.part.size === 0) return null;
-  const wm = workMarkers(w.titles, cfg);
+  const wm = workMarkers(primaryTitle(w), cfg);
   const wkeys = w.titles.map((t) => matchKey(t, cfg));
   for (const p of title.part) {
     if (wm.part.has(p)) continue;
     const others = cands.filter((c) => c.sourceKey !== w.sourceKey);
-    if (others.some((c) => workMarkers(c.titles, cfg).part.has(p))) return `タイトルの部「${p}」は別の作品`;
+    if (others.some((c) => workMarkers(primaryTitle(c), cfg).part.has(p))) return `タイトルの部「${p}」は別の作品`;
     const subtitled = others.some((c) => c.titles.some((t) => {
       const k = matchKey(t, cfg);
       return k.length >= 2 && wkeys.some((x) => x.length > k.length && x.startsWith(k));
@@ -483,6 +490,27 @@ export function pick(
       strong.add(o.work.sourceKey);
       if (o.work.malId) strong.add(`mal:${o.work.malId}`);
     }
+  }
+  // 同じ枠のほかの区間で当たった作品（英題だけの一致も含む）。同名の作品で保留になったとき、どちらかを選ぶ手がかりにする（和英併記）
+  const anyMatched = new Map<string, number>();
+  for (const tier of list) for (const { text } of tier) {
+    const o = outcomes.get(text);
+    if (o?.kind !== "match") continue;
+    for (const k of [o.work.sourceKey, ...(o.work.malId ? [`mal:${o.work.malId}`] : [])]) anyMatched.set(k, (anyMatched.get(k) ?? 0) + 1);
+  }
+  const otherMatched = (x: WorkCandidate) => anyMatched.has(x.sourceKey) || (!!x.malId && anyMatched.has(`mal:${x.malId}`));
+  const byOtherSegment = (o: Outcome & { kind: "ambiguous" }): WorkCandidate | null => {
+    const hit = [...new Map(o.works.filter(otherMatched).map((x) => [x.malId ? `mal:${x.malId}` : x.sourceKey, x] as const)).values()];
+    return hit.length === 1 ? hit[0]! : null;
+  };
+  // 和英併記で選べる保留の作品は、原題の一致と同じく英題の区間を裏付ける（「日常 同時視聴 / NICHIJOU」）
+  for (const tier of list) for (const { text } of tier) {
+    const o = outcomes.get(text);
+    if (o?.kind !== "ambiguous") continue;
+    const x = byOtherSegment(o);
+    if (!x) continue;
+    strong.add(x.sourceKey);
+    if (x.malId) strong.add(`mal:${x.malId}`);
   }
   const reject = (text: string, w: WorkCandidate, why: string) => {
     notes[text] = `${why}: ${w.title}`;
@@ -542,7 +570,7 @@ export function pick(
         if (!viaSeason && seasonHint && seasonHint !== text && !text.includes(seasonHint)) { reject(text, w, `別の期の可能性（「${seasonHint}」）`); continue; }
         // タイトルに期の表記があるのに、作品がその期でない（アニメのDBは期ごとに別作品。Wikidata の実写作品は全シーズンで1つなので見ない）
         if (isAnimeWork(w)) {
-          const why = seasonConflict(titleMk, workMarkers(w.titles, cfg));
+          const why = seasonConflict(titleMk, workMarkers(primaryTitle(w), cfg));
           if (why) { reject(text, w, why); continue; }
         }
         // タイトルに部の表記があるのに、作品の部が特定できない（「ジョジョの奇妙な冒険 第3部」を第1部に付けない）
@@ -577,9 +605,9 @@ export function pick(
         // 同名の別作品で保留になったとき、タイトルに手がかりがあれば選ぶ
         //   話数付き → アニメのテレビシリーズ（「ゴールデンカムイ 8話から」）
         //   「アニメ」→ アニメの作品、「実写」→ アニメ以外の作品（「アラジン（実写のほう）」）、区間の年 → その年の作品（「グリンチ (2000)」）
-        let chosen: WorkCandidate | null = null;
-        let how = "";
-        if (o.method === "同名の別作品（公開年が違う）") {
+        let chosen: WorkCandidate | null = byOtherSegment(o);
+        let how = chosen ? "exact+bilingual" : "";
+        if (!chosen && o.method === "同名の別作品（公開年が違う）") {
           const body = plan.target.title_raw.replace(/[※＊*][^【】〖〗]*/g, "");
           const series = o.works.filter((x) => x.source !== "wikidata" && x.media !== "movie");
           const anime = o.works.filter((x) => isAnimeWork(x));
@@ -592,9 +620,11 @@ export function pick(
           else if (byYear.length === 1) { chosen = byYear[0]!; how = "exact+year"; }
         }
         if (chosen) {
-          const why = seasonConflict(titleMk, workMarkers(chosen.titles, cfg));
+          const why = seasonConflict(titleMk, workMarkers(primaryTitle(chosen), cfg));
           if (why) { reject(text, chosen, why); continue; }
-          if (!picked.has(chosen.sourceKey)) picked.set(chosen.sourceKey, { work: chosen, method: `${chosen.source === "wikidata" ? "wikipedia" : o.source}:${how}`, from, text });
+          const same = [...picked.values()].find((p) => p.work.sourceKey === chosen!.sourceKey || (!!chosen!.malId && p.work.malId === chosen!.malId));
+          if (same) (same.also ??= []).push({ text, ...(item.parent ? { parent: item.parent } : {}) });
+          else picked.set(chosen.sourceKey, { work: chosen, method: `${chosen.source === "wikidata" ? "wikipedia" : o.source}:${how}`, from, text });
         } else ambiguous.push(o);
       } else if (o.kind === "none") {
         if (o.error) errors.push(o.error);
