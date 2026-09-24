@@ -13,6 +13,9 @@ const WORK_FIELDS = `
   seriesList(first: 1) { nodes { annictId } }
 `;
 
+// シリーズの作品を並べるときの項目。Series.works は edges.item で取る（works.nodes は Annict 側で HTTP 500 になる）
+const SERIES_WORK_FIELDS = "annictId title titleKana titleEn titleRo media seasonName seasonYear episodesCount malAnimeId";
+
 interface AnnictWork {
   annictId: number;
   title: string;
@@ -121,6 +124,41 @@ export class AnnictClient {
         out.set(q, works);
       }
       works = [];
+    }
+    return out;
+  }
+
+  /**
+   * 作品が属するシリーズの全作品（自分を含む）。同定の検証（期の取り違えの確認）で、ほかの期を並べるのに使う。
+   * シリーズに入っていない作品は空の配列
+   */
+  async seriesWorks(annictIds: number[]): Promise<Map<number, WorkCandidate[]>> {
+    const out = new Map<number, WorkCandidate[]>();
+    const todo: number[] = [];
+    for (const id of new Set(annictIds)) {
+      const c = this.cache.get<WorkCandidate[]>("annict_series", String(id));
+      if (c) out.set(id, c);
+      else todo.push(id);
+    }
+    for (let i = 0; i < todo.length; i += 10) {
+      const batch = todo.slice(i, i + 10);
+      const data = await this.gql<{
+        searchWorks: { nodes: { annictId: number; seriesList: { nodes: { works: { edges: { item: AnnictWork }[] } }[] } }[] };
+      }>(
+        `query($ids: [Int!]) {
+          searchWorks(annictIds: $ids, first: 10) {
+            nodes { annictId seriesList(first: 5) { nodes { works(first: 100) { edges { item { ${SERIES_WORK_FIELDS} } } } } } }
+          }
+        }`,
+        { ids: batch },
+      );
+      const got = new Map(data.searchWorks.nodes.map((n) => [n.annictId, n.seriesList.nodes.flatMap((s) => s.works.edges.map((e) => e.item))]));
+      for (const id of batch) {
+        const seen = new Set<number>();
+        const ws = (got.get(id) ?? []).filter((w) => !seen.has(w.annictId) && seen.add(w.annictId)).map(annictToCandidate);
+        this.cache.set("annict_series", String(id), ws);
+        out.set(id, ws);
+      }
     }
     return out;
   }

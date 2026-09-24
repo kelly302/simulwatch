@@ -11,6 +11,7 @@ import type { ResolveOptions } from "./resolve/resolve.ts";
 import { loadExtractConfig } from "./resolve/config.ts";
 import { extract } from "./resolve/extract.ts";
 import { resolveSummary, unresolvedStats, unresolvedList, exportUnresolved, resolveAudit } from "./report/resolve.ts";
+import { seasonSample } from "./report/sample.ts";
 import type { UnresolvedReason } from "./resolve/types.ts";
 
 // 使い方: npm run cli -- <command> [options]
@@ -39,6 +40,8 @@ const HELP = `
   unresolved:list   未同定の一覧 [--reason R] [--limit N]
   unresolved:export 未同定を data/unresolved.json に書き出す（R2 に置くファイル）
   resolve:audit   誤同定の疑いがある同定を並べる [--limit N]
+  resolve:sample  期の取り違えの検証用に、複数期のシリーズの枠を抽出して確認表を書き出す（data/review/）
+                  [--n 60] [--seed S]。確認表の先頭に母集団・抽出・判定基準を書く
 
 環境変数:
   YOUTUBE_API_KEY  YouTube Data API のキー（.env に書けば自動で読む）
@@ -58,6 +61,8 @@ async function main(): Promise<number> {
       all: { type: "boolean" },
       reason: { type: "string" },
       video: { type: "string" },
+      n: { type: "string" },
+      seed: { type: "string" },
     },
   });
   const cmd = positionals[0];
@@ -81,6 +86,14 @@ async function main(): Promise<number> {
     "refresh": { job: "daily", run: refreshAll },
     "detect:fetch": { job: "daily", run: fetchOrphans },
     "resolve": { job: "resolve", run: resolveJob },
+    "resolve:sample": {
+      job: "report",
+      run: async (ctx) => {
+        const r = await runStep(ctx, "resolve:sample", () =>
+          seasonSample(ctx, loadExtractConfig(), { n: Number(values.n ?? 60), seed: values.seed ?? "season-1" }));
+        if (r) console.log(r);
+      },
+    },
   };
 
   if (cmd && JOBS[cmd]) {
