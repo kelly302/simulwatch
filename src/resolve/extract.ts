@@ -22,8 +22,11 @@ export interface Segment {
   /** 照合キー */
   key: string;
   from: "quote" | "title" | "description";
-  /** 区間が一致しなかったときに試す小区間（「！」や「＆」で分けたもの）。部分的なので確度は下がる */
-  subs: { text: string; key: string }[];
+  /**
+   * 区間が一致しなかったときに試す小区間。部分的なので確度は下がる。
+   * kind: multi は「＆」「×」「+」で分けたもの（複数作品になりうる）、alt は「！」や和英併記で分けたもの（同じ作品の言い換え）
+   */
+  subs: { text: string; key: string; kind: "multi" | "alt" }[];
 }
 
 export interface Extracted {
@@ -175,22 +178,50 @@ function makeSegment(raw: string, from: Segment["from"], cfg: ExtractConfig): Se
   const key = matchKey(text, cfg);
   if (key.length < 2 || stop.has(key) || /^\d+$/.test(key)) return null;
   // 「！」「？」、複数作品の区切り（＆ & ×）、全角空白・連続空白で分けた小区間
-  const subs: { text: string; key: string }[] = [];
+  const subs: { text: string; key: string; kind: "multi" | "alt" }[] = [];
   const seen = new Set([key]);
-  for (const piece of text.split(/[!！?？]+|\s{2,}|　|[&＆×＋+]|、|\//)) {
-    const pt = trimSegment(piece.trim(), cfg);
+  const add = (raw: string, kind: "multi" | "alt") => {
+    const pt = trimSegment(raw.trim(), cfg);
     const pk = matchKey(pt, cfg);
-    if (pk.length < 3 || stop.has(pk) || seen.has(pk) || /^\d+$/.test(pk)) continue;
+    if (pk.length < 3 || stop.has(pk) || seen.has(pk) || /^\d+$/.test(pk)) return;
     seen.add(pk);
-    subs.push({ text: pt, key: pk });
+    subs.push({ text: pt, key: pk, kind });
+  };
+  // 「/」は作品名に含まれる（Fate/Zero、アベンジャーズ/インフィニティ・ウォー）ので、
+  // 和英併記（片側が英字だけ、もう片側が日本語）のときだけ、分ける前の形に加えて両側も小区間にする
+  // （「カンフーハッスル/Kung Fu Hustle」）。判定は「！」などで分けたあとの小区間ごとに行う
+  const bilingual = (p: string) => {
+    const halves = p.split("/").map((x) => x.trim());
+    return (
+      halves.length === 2 &&
+      halves.every((x) => x.length >= 2) &&
+      halves.some((x) => /^[\x20-\x7E]+$/.test(x)) &&
+      halves.some((x) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(x))
+    );
+  };
+  // 「＆」「×」「+」は複数作品の区切り（「仮面ライダーセイバー＆キラメイジャー」）
+  const multi = text.split(/[&＆×＋+]/);
+  for (const m of multi) {
+    const kindOf = multi.length > 1 ? "multi" : "alt";
+    for (const piece of m.split(/[!！?？]+|\s{2,}|　|、/)) {
+      const p = trimSegment(piece.trim(), cfg);
+      add(p, kindOf);
+      if (bilingual(p)) for (const half of p.split("/")) add(half, "alt");
+    }
   }
   return { text, key, from, subs };
 }
 
 export function extract(title: string, cfg: ExtractConfig): Extracted {
   const c = compile(cfg);
-  // 構造上の区切り（全角スラッシュなど）は NFKC の前に印を付ける（NFKC で「／」が「/」になり作品名の「/」と区別できなくなるため）
-  let t = title.replace(STRUCT_SEPARATORS, MARK).normalize("NFKC").replace(EMOJI, " ");
+  // 構造上の区切り（全角スラッシュなど）は NFKC の前に印を付ける（NFKC で「／」が「/」になり作品名の「/」と区別できなくなるため）。
+  // ただし作品名を括る括弧（『』「」など）の中は区切らない（「シビル・ウォー／キャプテン・アメリカ」「HELP／復讐島」）
+  const quoteRe = new RegExp(cfg.quote_brackets.map(([o, cl]) => `${escapeRe(o)}[^${escapeRe(o)}${escapeRe(cl)}]*${escapeRe(cl)}`).join("|"), "g");
+  let t = title
+    .replace(quoteRe, (m) => m.replace(/／/g, "/").replace(/[｜|┊┆⋮︙✦✧ˎˊ˗▶▷◀◁​]/g, " "))
+    .replace(STRUCT_SEPARATORS, MARK)
+    .normalize("NFKC")
+    .replace(EMOJI, " ");
 
   const naw = c.notAWork.find((m) => m.test(spacedKey(title)));
 
@@ -199,6 +230,16 @@ export function extract(title: string, cfg: ExtractConfig): Extracted {
   for (const re of NOISE_PATTERNS) t = t.replace(re, MARK);
   t = t.replace(HASHTAG, MARK);
 
+  // タグの括弧: 配信者名・所属を含むものは中身ごと捨て、それ以外は中身を区間にする。
+  // 作品名の括弧より先に処理する（【にじさんじ 4th Anniversary「FANTASIA」】の中の「FANTASIA」を作品名の候補にしない）
+  for (const [open, close] of cfg.tag_brackets) {
+    const o = escapeRe(open.normalize("NFKC"));
+    const cl = escapeRe(close.normalize("NFKC"));
+    t = t.replace(new RegExp(`${o}([^${o}${cl}]*)${cl}`, "g"), (_m, inner: string) => {
+      const k = spacedKey(inner);
+      return c.tagWords.some((w) => w.test(k)) ? MARK : `${MARK}${inner}${MARK}`;
+    });
+  }
   // 作品名を括る括弧: 中身を優先の区間にする（本文にも区切り付きで残す）
   const quoted: string[] = [];
   for (const [open, close] of cfg.quote_brackets) {
@@ -207,15 +248,6 @@ export function extract(title: string, cfg: ExtractConfig): Extracted {
     t = t.replace(new RegExp(`${o}([^${o}${cl}]*)${cl}`, "g"), (_m, inner: string) => {
       quoted.push(inner);
       return `${MARK}${inner}${MARK}`;
-    });
-  }
-  // タグの括弧: 配信者名・所属を含むものは捨て、それ以外は中身を区間にする
-  for (const [open, close] of cfg.tag_brackets) {
-    const o = escapeRe(open.normalize("NFKC"));
-    const cl = escapeRe(close.normalize("NFKC"));
-    t = t.replace(new RegExp(`${o}([^${o}${cl}]*)${cl}`, "g"), (_m, inner: string) => {
-      const k = spacedKey(inner);
-      return c.tagWords.some((w) => w.test(k)) ? MARK : `${MARK}${inner}${MARK}`;
     });
   }
   // ノイズ語を区切りに置き換える（区間の中に残ったものも含めて）

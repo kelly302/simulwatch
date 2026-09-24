@@ -57,6 +57,14 @@ export class Http {
     return this.request("GET", url, undefined, opts);
   }
 
+  /** フォームを POST する（MediaWiki API 用。GET だと記事名をまとめたときに URL が長すぎて 414 になる） */
+  postForm(url: string, params: Record<string, string>, opts: RequestOptions = {}): Promise<HttpResult> {
+    return this.request("POST", url, new URLSearchParams(params).toString(), {
+      ...opts,
+      headers: { "content-type": "application/x-www-form-urlencoded", ...opts.headers },
+    });
+  }
+
   /** JSON を POST する（GraphQL 用） */
   postJson(url: string, body: unknown, opts: RequestOptions = {}): Promise<HttpResult> {
     return this.request("POST", url, JSON.stringify(body), {

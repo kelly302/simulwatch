@@ -9,7 +9,7 @@ import type { Extracted, Segment, EpisodeRef } from "./extract.ts";
 import { extract, extractFromDescription } from "./extract.ts";
 import { matchKey } from "./normalize.ts";
 import type { MatchResult } from "./match.ts";
-import { matchByTitle, decideWikipedia, decideWikipediaSearch, wikipediaTitlesFor } from "./match.ts";
+import { matchByTitle, decideWikipedia, decideWikipediaSearch, wikipediaTitlesFor, usableAnimeCandidate, isShortLatin, baseTitle } from "./match.ts";
 import { ResolveCache } from "./cache.ts";
 import { AnnictClient } from "./sources/annict.ts";
 import type { AnnictEpisode } from "./sources/annict.ts";
@@ -41,6 +41,7 @@ interface Target {
   video_id: string;
   title_raw: string;
   description_raw: string | null;
+  started_at: string | null;
 }
 
 export type Outcome = MatchResult & { source?: string; error?: string };
@@ -118,13 +119,14 @@ class Resolver {
       { name: "anilist", search: (qs) => this.anilist.search(qs) },
     ];
     for (const stage of stages) {
-      if (!stage.search || pending().length === 0) continue;
-      const ts = pending();
+      // 英数字だけの短い区間はアニメのDBでは同定しない（照会もしない）
+      const ts = pending().filter((t) => !isShortLatin(keyOf.get(t)!));
+      if (!stage.search || ts.length === 0) continue;
       try {
         const first = await stage.search(ts);
         const retry: string[] = [];
         for (const t of ts) {
-          const r = matchByTitle(keyOf.get(t)!, first.get(t) ?? [], texts.get(t)!, this.cfg);
+          const r = matchByTitle(keyOf.get(t)!, (first.get(t) ?? []).filter(usableAnimeCandidate), texts.get(t)!, this.cfg);
           if (r.kind !== "none") out.set(t, { ...r, source: stage.name });
           else if (searchQueries(t).length > 1) retry.push(t);
         }
@@ -132,7 +134,7 @@ class Resolver {
           const extra = new Map(retry.map((t) => [t, searchQueries(t).slice(1)]));
           const second = await stage.search([...extra.values()].flat());
           for (const t of retry) {
-            const cands = [...(first.get(t) ?? []), ...extra.get(t)!.flatMap((q) => second.get(q) ?? [])];
+            const cands = [...(first.get(t) ?? []), ...extra.get(t)!.flatMap((q) => second.get(q) ?? [])].filter(usableAnimeCandidate);
             const r = matchByTitle(keyOf.get(t)!, cands, texts.get(t)!, this.cfg);
             if (r.kind !== "none") out.set(t, { ...r, source: stage.name });
           }
@@ -140,6 +142,34 @@ class Resolver {
       } catch (e) {
         this.errors.push(`${stage.name}: ${errorMessage(e)}`);
         for (const t of ts) if (!out.has(t)) stageError.set(t, `${stage.name}: ${errorMessage(e)}`);
+      }
+    }
+
+    // アニメのDBで当たった区間も Wikipedia で照合する。同名で公開年が2年以上離れた作品（実写映画など）があれば決めない
+    // （「シャザム！」が Annict の1990年のテレビ作品に当たっていた）
+    const animeMatched = [...out.entries()].filter(([, o]) => o.kind === "match" && o.source !== "wikipedia").map(([t]) => t);
+    if (animeMatched.length) {
+      try {
+        const pages = await this.wikipedia.pages(animeMatched.flatMap((t) => wikipediaTitlesFor(t, this.cfg)));
+        const ents = await this.wikipedia.entities([...pages.values()].map((p) => p.qid).filter((q): q is string => !!q));
+        for (const t of animeMatched) {
+          const o = out.get(t)!;
+          if (o.kind !== "match") continue;
+          const w = decideWikipedia(t, pages, ents, this.cfg);
+          if (w.kind !== "match") continue;
+          // 照合の相手はアニメ以外の作品（実写映画など）だけ。アニメの記事は同じ作品の別の粒度（シリーズ全体など）のことが多い
+          const p31 = ents.get(w.work.wikidataId ?? "")?.p31 ?? [];
+          if (p31.some((c) => this.cfg.wikipedia.anime_classes.includes(c))) continue;
+          const a = o.work.releaseYear;
+          const b = w.work.releaseYear;
+          // 同名のアニメ以外の作品（実写映画など）と、公開年が1年以上違うか種別（テレビ/映画）が違えば別作品の可能性がある
+          // （『カラオケ行こ！』は2024年の実写映画と2025年のアニメ）
+          if ((a && b && Math.abs(a - b) >= 1) || (o.work.media && w.work.media && o.work.media !== w.work.media)) {
+            out.set(t, { kind: "ambiguous", works: [o.work, w.work], method: "同名の別作品（公開年が違う）", source: o.source });
+          }
+        }
+      } catch (e) {
+        this.errors.push(`wikipedia cross-check: ${errorMessage(e)}`);
       }
     }
 
@@ -153,6 +183,7 @@ class Resolver {
         for (const t of ts) {
           const r = decideWikipedia(t, pages, ents, this.cfg);
           if (r.kind !== "none") out.set(t, { ...r, source: "wikipedia" });
+          else if (wikipediaTitlesFor(t, this.cfg).some((x) => this.wikipedia.failedTitles.has(x))) stageError.set(t, "wikipedia: 照会エラー");
           else if (this.touchesFailed(wikipediaTitlesFor(t, this.cfg), pages)) stageError.set(t, "wikidata: 一時的なエラー");
           else if (r.note) wpNotes.set(t, r.note);
         }
@@ -167,12 +198,27 @@ class Resolver {
       const ts = pending().filter((t) => keyOf.get(t)!.length >= 3);
       try {
         const found = new Map<string, string[]>();
-        for (const t of ts) found.set(t, await this.wikipedia.search(t));
-        const pages = await this.wikipedia.pages([...found.values()].flat());
-        const ents = await this.wikipedia.entities([...pages.values()].map((p) => p.qid).filter((q): q is string => !!q));
         for (const t of ts) {
-          const r = decideWikipediaSearch(keyOf.get(t)!, found.get(t) ?? [], pages, ents, this.cfg);
+          // 1語の検索が落ちても他の語は続ける（落ちた語だけ「照会エラー」にして次回に回す）
+          try {
+            found.set(t, await this.wikipedia.search(t));
+          } catch (e) {
+            stageError.set(t, `wikipedia search: ${errorMessage(e)}`);
+          }
+        }
+        // 検索で当たりうる記事と、その括弧を外した記事・「(曖昧さ回避)」の記事も引く。
+        // 「スパイダーマン (東映)」のような限定の括弧付き記事は、同名の曖昧さ回避ページがあれば決めない
+        const hitTitles = [...found.values()].flat();
+        const bases = [...new Set(hitTitles.filter((x) => baseTitle(x) !== x).map(baseTitle))];
+        const pages = await this.wikipedia.pages([...hitTitles, ...bases, ...bases.map((b) => `${b} (曖昧さ回避)`)]);
+        const ents = await this.wikipedia.entities([...pages.values()].map((p) => p.qid).filter((q): q is string => !!q));
+        const disambiguated = new Set(
+          bases.filter((b) => pages.get(b)?.disambiguation || (pages.get(`${b} (曖昧さ回避)`) && !pages.get(`${b} (曖昧さ回避)`)!.missing)),
+        );
+        for (const t of ts) {
+          const r = decideWikipediaSearch(keyOf.get(t)!, found.get(t) ?? [], pages, ents, this.cfg, disambiguated);
           if (r.kind !== "none") out.set(t, { ...r, source: "wikipedia" });
+          else if ((found.get(t) ?? []).some((x) => this.wikipedia.failedTitles.has(x))) stageError.set(t, "wikipedia: 照会エラー");
           else if (this.touchesFailed(found.get(t) ?? [], pages)) stageError.set(t, "wikidata: 一時的なエラー");
         }
       } catch (e) {
@@ -192,7 +238,7 @@ class Resolver {
 
 function loadTargets(ctx: Ctx, opts: ResolveOptions): Target[] {
   const cutoff = farFutureCutoff(ctx.crawlCfg.upcoming.max_days_ahead);
-  const base = `SELECT e.id, e.video_id, e.title_raw, e.description_raw FROM watch_events e
+  const base = `SELECT e.id, e.video_id, e.title_raw, e.description_raw, e.started_at FROM watch_events e
     LEFT JOIN event_resolution er ON er.watch_event_id = e.id
     LEFT JOIN unresolved u ON u.watch_event_id = e.id AND u.resolved_at IS NULL
     WHERE ${activeEventSql("e")}`;
@@ -238,6 +284,13 @@ export interface ResolveStats {
   rule_version: string;
 }
 
+/** pick の中で照合キーを作るための設定。resolveEvents が差し込む */
+let planCfg: ExtractConfig | null = null;
+function cfgOf(_plan: Plan): ExtractConfig {
+  if (!planCfg) planCfg = loadExtractConfig();
+  return planCfg;
+}
+
 export interface Plan {
   target: Target;
   ex: Extracted;
@@ -259,37 +312,129 @@ interface Picked {
  *   3: 概要欄のその枠を指す行の括弧の中身
  * 括弧で作品が決まった枠では、括弧の外の区間（「王覇山軍」「ぺこ」など配信者の決まり文句）を照会も採用もしない。
  */
-function tiers(plan: Plan): { text: string; from: Picked["from"] }[][] {
+interface TierItem {
+  text: string;
+  from: Picked["from"];
+  /** 小区間の分け方。multi は複数作品になりうる、alt は同じ作品の言い換え */
+  kind?: "multi" | "alt";
+  /** 小区間の元の区間 */
+  parent?: string;
+}
+
+function tiers(plan: Plan): TierItem[][] {
   const quote = plan.ex.segments.filter((s) => s.from === "quote");
   const title = plan.ex.segments.filter((s) => s.from !== "quote");
   return [
     quote.map((s) => ({ text: s.text, from: s.from })),
     title.map((s) => ({ text: s.text, from: s.from })),
-    plan.ex.segments.flatMap((s) => s.subs.map((x) => ({ text: x.text, from: "sub" as const }))),
+    plan.ex.segments.flatMap((s) => s.subs.map((x) => ({ text: x.text, from: "sub" as const, kind: x.kind, parent: s.text }))),
     plan.desc.map((s) => ({ text: s.text, from: "description" as const })),
   ];
 }
 
-export function pick(plan: Plan, outcomes: Map<string, Outcome>): { picked: Picked[]; ambiguous: Outcome[]; errors: string[]; notes: Record<string, string> } {
-  const picked = new Map<string, Picked>();
+const MOVIE_WORDS = /劇場版|映画|the ?movie/i;
+
+/** 映画の枠かどうか。「※映画のネタバレ禁止」のような注意書きの中の「映画」は見ない */
+export function looksLikeMovieEvent(title: string): boolean {
+  const body = title.replace(/[※＊*][^【】〖〗]*/g, "").replace(/(劇場版|映画)の?ネタバレ/g, "");
+  return MOVIE_WORDS.test(body);
+}
+
+const SEASON_MONTH: Record<string, number> = { winter: 1, spring: 4, summer: 7, autumn: 10 };
+
+/** 作品の放送開始の目安（放送期の最初の月の1日）。放送期が分からなければ null */
+export function releaseStart(w: WorkCandidate): number | null {
+  const m = w.seasonName?.match(/^(\d{4})-(winter|spring|summer|autumn)$/);
+  if (!m) return null;
+  return Date.UTC(Number(m[1]), SEASON_MONTH[m[2]!]! - 1, 1);
+}
+
+export function pick(
+  plan: Plan,
+  outcomes: Map<string, Outcome>,
+  seasonQualifiers: RegExp[] = [],
+): { picked: Picked[]; ambiguous: Outcome[]; errors: string[]; notes: Record<string, string> } {
   const ambiguous: Outcome[] = [];
   const errors: string[] = [];
   const notes: Record<string, string> = {};
-  for (const tier of tiers(plan)) {
-    for (const { text, from } of tier) {
+  const eventYear = plan.target.started_at ? Number(plan.target.started_at.slice(0, 4)) : null;
+  const maxEpisode = plan.ex.episodes.length ? Math.max(...plan.ex.episodes.map((e) => e.number)) : null;
+  // 同じタイトルに、期・続編だけを示す区間があるか（「二期」「The Final Season」など）
+  const allTexts = plan.ex.segments.flatMap((s) => [s.text, ...s.subs.map((x) => x.text)]);
+  const seasonHint = allTexts.find((t) => seasonQualifiers.some((re) => re.test(t.normalize("NFKC").toLowerCase().replace(/[\s!！?？・:：\-]/g, ""))));
+  const reject = (text: string, w: WorkCandidate, why: string) => {
+    notes[text] = `${why}: ${w.title}`;
+    ambiguous.push({ kind: "ambiguous", works: [w], method: why });
+  };
+  const list = tiers(plan);
+  for (let k = 0; k < list.length; k++) {
+    const picked = new Map<string, Picked>();
+    const altTaken = new Set<string>();
+    for (const item of list[k]!) {
+      const { text, from } = item;
       const o = outcomes.get(text);
       if (!o) continue;
       if (o.kind === "match") {
-        if (!picked.has(o.work.sourceKey)) picked.set(o.work.sourceKey, { work: o.work, method: `${o.source}:${o.method}`, from, text });
-      } else if (o.kind === "ambiguous") ambiguous.push(o);
-      else {
+        const w = o.work;
+        // 枠より後に公開された作品は観られない（リメイク・別シーズンの取り違え）。
+        // 放送期（2025-summer など）が分かれば月まで見る。先行上映があるので1か月の余裕を残す
+        if (eventYear && w.releaseYear && w.releaseYear > eventYear) { reject(text, w, `公開年${w.releaseYear}が枠の年${eventYear}より後`); continue; }
+        const start = releaseStart(w);
+        if (start && plan.target.started_at && Date.parse(plan.target.started_at) < start - 31 * 86_400_000) {
+          reject(text, w, `放送期${w.seasonName}より前の枠`);
+          continue;
+        }
+        // 期・続編を示す区間があるのに、シリーズ名だけの区間で当たった（その区間自身が期を含むなら問題ない）
+        if (seasonHint && seasonHint !== text && !text.includes(seasonHint)) { reject(text, w, `別の期の可能性（「${seasonHint}」）`); continue; }
+        // 話数が作品の話数を超えている（別の期・通し番号）
+        if (maxEpisode && w.episodesCount && w.media !== "movie" && maxEpisode > w.episodesCount) { reject(text, w, `話数${maxEpisode}が作品の話数${w.episodesCount}を超える`); continue; }
+        // タイトルに「映画・劇場版」があるのにテレビ作品に当たった
+        if (looksLikeMovieEvent(plan.target.title_raw) && w.media === "tv") { reject(text, w, "映画の枠がテレビ作品に当たった"); continue; }
+        // 舞台版は外部作品DBに無いので、どの作品にも同定しない（「舞台「鬼滅の刃」」がアニメ1期に当たっていた）
+        if (/舞台/.test(plan.target.title_raw)) { reject(text, w, "舞台の枠"); continue; }
+        // タイトルに「実写」があるのにアニメのDBの作品に当たった（「魔女の宅急便（実写）」が1989年のアニメ映画に当たっていた）
+        if (/実写/.test(plan.target.title_raw) && w.source !== "wikidata") { reject(text, w, "実写の枠がアニメ作品に当たった"); continue; }
+        // 言い換えの小区間（「！」や和英併記で分けたもの）は、同じ元の区間から最初に当たった1つだけ
+        if (item.kind === "alt" && item.parent) {
+          if (altTaken.has(item.parent)) continue;
+          altTaken.add(item.parent);
+        }
+        if (!picked.has(w.sourceKey)) picked.set(w.sourceKey, { work: w, method: `${o.source}:${o.method}`, from, text });
+      } else if (o.kind === "ambiguous") {
+        // アニメのテレビ作品と同名の実写作品が並んだとき、話数付きの枠ならアニメのシリーズを選ぶ（「ゴールデンカムイ 8話から」）
+        const series = o.works.filter((w) => w.source !== "wikidata" && w.media !== "movie");
+        if (o.method === "同名の別作品（公開年が違う）" && plan.ex.episodes.length > 0 && series.length === 1) {
+          const w = series[0]!;
+          if (!picked.has(w.sourceKey)) picked.set(w.sourceKey, { work: w, method: `${o.source}:exact+episodes`, from, text });
+        } else ambiguous.push(o);
+      } else {
         if (o.error) errors.push(o.error);
         if (o.note) notes[text] = o.note;
       }
     }
-    if (picked.size > 0) break;
+    if (picked.size === 0) continue;
+    let ps = [...picked.values()];
+    // 括弧の外の区間で、短い区間（照合キー4文字以下）だけが当たり、同じ段にもっと長い区間がある。
+    // 決まり文句の短い語が同名の作品に当たっている可能性が高い（「劇場版のZガンダム…3作目！！！ラスト！」の「ラスト」）
+    // 小区間の段では、言い換えの小区間（「！」などで分けたもの）だけが対象。「＆」で分けた複数作品（「ギャバン」）は対象外
+    if (k === 1 || k === 2) {
+      const keyLen = (t: string) => matchKey(t, cfgOf(plan)).length;
+      const items = list[k]!;
+      const longest = Math.max(...items.map((x) => keyLen(x.text)), ...items.map((x) => (x.parent ? keyLen(x.parent) : 0)));
+      const isAltOrTitle = (p: Picked) => k === 1 || items.some((x) => x.text === p.text && x.kind === "alt");
+      const short = ps.filter((p) => isAltOrTitle(p) && keyLen(p.text) <= 4 && longest > keyLen(p.text) * 2);
+      for (const p of short) reject(p.text, p.work, "短い区間がより長い区間を差し置いて当たった");
+      ps = ps.filter((p) => !short.includes(p));
+      if (ps.length === 0) continue;
+    }
+    // 括弧の外の区間で別々の作品が当たったら決めない（長さや位置では選ばない。「R2」と英題の「1期」が並ぶ例があった）
+    if (k === 1 && new Set(ps.map((p) => p.text)).size > 1) {
+      ambiguous.push({ kind: "ambiguous", works: ps.map((p) => p.work), method: "複数の区間が別々の作品に当たった" });
+      return { picked: [], ambiguous, errors, notes };
+    }
+    return { picked: ps, ambiguous, errors, notes };
   }
-  return { picked: [...picked.values()], ambiguous, errors, notes };
+  return { picked: [], ambiguous, errors, notes };
 }
 
 export async function resolveEvents(ctx: Ctx, opts: ResolveOptions): Promise<ResolveStats> {
@@ -323,7 +468,8 @@ export async function resolveEvents(ctx: Ctx, opts: ResolveOptions): Promise<Res
   }
 
   // 話数を紐付けるテレビ作品の話の一覧（Annict）
-  const decisions = plans.map((p) => ({ plan: p, ...pick(p, outcomes) }));
+  const seasonQualifiers = cfg.season_qualifiers.map((x) => new RegExp(x));
+  const decisions = plans.map((p) => ({ plan: p, ...pick(p, outcomes, seasonQualifiers) }));
   const annictEpisodes = new Map<number, AnnictEpisode[]>();
   if (r.annict) {
     const ids = decisions
@@ -437,6 +583,6 @@ export async function resolveEvents(ctx: Ctx, opts: ResolveOptions): Promise<Res
   stats.works_total = (ctx.db.prepare("SELECT COUNT(*) AS n FROM works").get() as { n: number }).n;
   stats.requests = { annict: r.annict?.requests ?? 0, anilist: r.anilist.requests, wikipedia: r.wikipedia.requests };
   stats.cache = { hits: r.cache.hits, misses: r.cache.misses };
-  stats.source_errors = r.errors.slice(0, 20);
+  stats.source_errors = [...r.errors, ...r.wikipedia.errors].map((e) => e.slice(0, 200)).slice(0, 20);
   return stats;
 }

@@ -39,7 +39,8 @@ export function anilistToCandidate(m: AniMedia): WorkCandidate {
     malId: m.idMal,
     title: m.title.native ?? m.title.romaji ?? m.title.english ?? String(m.id),
     titleKana: null,
-    titles: [m.title.native, m.title.romaji, m.title.english, ...(m.synonyms ?? [])].filter((x): x is string => !!x),
+    // 別名（synonyms）では照合しない。「SP」「GGO」のような略称や一般語が入っていて誤同定の原因になる
+    titles: [m.title.native, m.title.romaji, m.title.english].filter((x): x is string => !!x),
     media: m.format ? FORMAT[m.format] ?? null : null,
     seasonName: year ? (season ? `${year}-${season}` : String(year)) : null,
     releaseYear: year,
@@ -69,13 +70,13 @@ export class AniListClient {
     return j.data as T;
   }
 
-  /** 検索語ごとの候補（上位10件） */
+  /** 検索語ごとの候補（上位10件）。キャッシュは生の応答で持ち、変換は読み出すときに行う（変換のルールを変えても照会し直さない） */
   async search(queries: string[]): Promise<Map<string, WorkCandidate[]>> {
     const out = new Map<string, WorkCandidate[]>();
     const todo: string[] = [];
     for (const q of new Set(queries)) {
-      const c = this.cache.get<WorkCandidate[]>("anilist", q);
-      if (c) out.set(q, c);
+      const c = this.cache.get<AniMedia[]>("anilist_raw", q);
+      if (c) out.set(q, c.map(anilistToCandidate));
       else todo.push(q);
     }
     for (let i = 0; i < todo.length; i += this.batchSize) {
@@ -90,8 +91,9 @@ export class AniListClient {
         .join("\n");
       const data = await this.gql<Record<string, { media: AniMedia[] } | null>>(`query(${decl}) { ${body} }`, vars);
       batch.forEach((q, k) => {
-        const ws = (data[`a${k}`]?.media ?? []).map(anilistToCandidate);
-        this.cache.set("anilist", q, ws);
+        const raw = data[`a${k}`]?.media ?? [];
+        this.cache.set("anilist_raw", q, raw);
+        const ws = raw.map(anilistToCandidate);
         out.set(q, ws);
       });
     }

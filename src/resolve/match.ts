@@ -14,26 +14,62 @@ export type MatchResult =
 const MOVIE_HINT = /劇場版|映画|the ?movie|ムービー/i;
 
 /**
+ * アニメのDB（Annict・AniList）の候補として使えるか。
+ * 種別が無い作品（Annict の OTHER、AniList の MUSIC など）と、放送年が無い作品（未公開の企画）には同定しない。
+ * 例: Annict の「原神」（アニメ化企画。ゲームのミラー配信が当たっていた）、AniList の「ただいま。」（音楽作品）
+ */
+export function usableAnimeCandidate(c: WorkCandidate): boolean {
+  if (c.source === "wikidata") return true;
+  return c.media !== null && c.releaseYear !== null;
+}
+
+/**
+ * 英数字だけの短い区間（4文字以下）はアニメのDBで同定しない。
+ * 「Fate」「Zero」「SP」「REC」のような一般語・略称が、同名の無関係なアニメに一致してしまうため。
+ */
+export function isShortLatin(key: string): boolean {
+  return /^[a-z0-9]{1,4}$/.test(key);
+}
+
+/**
  * 候補のうち、作品名が区間と完全一致するものを選ぶ。
  * 同名の作品が複数あるとき（リメイク・テレビと劇場版など）は、タイトルに「劇場版・映画」があれば映画、無ければテレビを選ぶ。
  * それでも1つに決まらなければ ambiguous（誤同定するより unresolved に回す）。
  */
+/** 作品名の末尾の公開年（「(2020)」「(2020年版)」「(2020年)」。照合キーでは括弧が落ちている） */
+const YEAR_SUFFIX = /^(19|20)\d{2}(年版|年)?$/;
+
 export function matchByTitle(key: string, candidates: WorkCandidate[], hintText: string, cfg: ExtractConfig): MatchResult {
-  const seen = new Set<string>();
-  const equal: WorkCandidate[] = [];
-  for (const w of candidates) {
-    if (seen.has(w.sourceKey)) continue;
-    if (w.titles.some((t) => matchKey(t, cfg) === key)) {
-      seen.add(w.sourceKey);
-      equal.push(w);
-    }
+  const uniq = new Map<string, WorkCandidate>();
+  for (const w of candidates) if (!uniq.has(w.sourceKey)) uniq.set(w.sourceKey, w);
+  const all = [...uniq.values()];
+  const keys = (w: WorkCandidate) => w.titles.map((t) => matchKey(t, cfg));
+  let equal = all.filter((w) => keys(w).includes(key));
+  let method = "exact";
+
+  // 区間の末尾に公開年が付いている（「ダイの大冒険(2020)」）: 年を外した作品名で照合し、公開年で選ぶ
+  const ym = key.match(/^(.+?)((?:19|20)\d{2})$/);
+  if (equal.length === 0 && ym) {
+    const [, base, yearStr] = ym;
+    const year = Number(yearStr);
+    equal = all.filter((w) => keys(w).some((k) => k === base || YEAR_SUFFIX.test(k.slice(base!.length)) && k.startsWith(base!)) && w.releaseYear === year);
+    method = "exact+year";
   }
   if (equal.length === 0) return { kind: "none" };
-  if (equal.length === 1) return { kind: "match", work: equal[0]!, method: "exact" };
+
+  // リメイク: 「X」で当たっても、年付きの同名作品（「X (2020)」）が別にあれば、どちらか決められない
+  if (method === "exact") {
+    const remakes = all.filter(
+      (w) => !equal.includes(w) && keys(w).some((k) => k.startsWith(key) && YEAR_SUFFIX.test(k.slice(key.length))),
+    );
+    if (remakes.length > 0) return { kind: "ambiguous", works: [...equal, ...remakes], method: "remake" };
+  }
+
+  if (equal.length === 1) return { kind: "match", work: equal[0]!, method };
   const want: Media = MOVIE_HINT.test(hintText) ? "movie" : "tv";
   const byMedia = equal.filter((w) => w.media === want);
-  if (byMedia.length === 1) return { kind: "match", work: byMedia[0]!, method: `exact+${want}` };
-  return { kind: "ambiguous", works: equal, method: "exact" };
+  if (byMedia.length === 1) return { kind: "match", work: byMedia[0]!, method: `${method}+${want}` };
+  return { kind: "ambiguous", works: equal, method };
 }
 
 /** Wikidata の P31 が作品クラスなら media（tv/movie/ova/web）を返す。作品でなければ null */
@@ -78,9 +114,18 @@ export function wikidataCandidate(p: PageInfo, e: EntityInfo, cfg: ExtractConfig
   };
 }
 
-/** Wikipedia で試す記事名（区間そのものと、曖昧さ回避の接尾辞付き） */
+/** Wikipedia で試す記事名（区間そのもの・曖昧さ回避の接尾辞付き・「(曖昧さ回避)」の記事） */
 export function wikipediaTitlesFor(text: string, cfg: ExtractConfig): string[] {
-  return [text, ...cfg.wikipedia.title_suffixes.map((s) => `${text}${s}`)];
+  return [text, ...cfg.wikipedia.title_suffixes.map((s) => `${text}${s}`), `${text} (曖昧さ回避)`];
+}
+
+const FILM_SUFFIX = " (映画)";
+
+/** 同名の記事が複数ある（区間の記事が曖昧さ回避ページ、または「区間 (曖昧さ回避)」の記事がある） */
+export function hasDisambiguation(text: string, pages: Map<string, PageInfo>): boolean {
+  const exact = pages.get(text);
+  const dab = pages.get(`${text} (曖昧さ回避)`);
+  return !!exact?.disambiguation || (!!dab && !dab.missing);
 }
 
 /**
@@ -101,7 +146,11 @@ export function decideWikipedia(
   for (const suffix of cfg.wikipedia.title_suffixes) {
     const p = pages.get(`${text}${suffix}`);
     if (isWorkPage(p, entities, cfg)) {
-      return { kind: "match", work: wikidataCandidate(p!, entities.get(p!.qid!)!, cfg), method: "suffix" };
+      const w = wikidataCandidate(p!, entities.get(p!.qid!)!, cfg);
+      // 同名の記事が複数あるとき、「(映画)」以外の接尾辞の記事では決めない（「スパイダーマン (テレビドラマ)」は1978年の東映版）。
+      // 「X (映画)」は Wikipedia の慣例で同名の映画が1本のときの記事名（複数あれば「X (2002年の映画)」）なので、映画の中では一意
+      if (suffix !== FILM_SUFFIX && hasDisambiguation(text, pages)) return { kind: "ambiguous", works: [w], method: "suffix+disambiguation" };
+      return { kind: "match", work: w, method: "suffix" };
     }
   }
   let note: string | undefined;
@@ -121,16 +170,20 @@ export function decideWikipediaSearch(
   pages: Map<string, PageInfo>,
   entities: Map<string, EntityInfo>,
   cfg: ExtractConfig,
+  disambiguated: Set<string> = new Set(),
 ): MatchResult {
   const works = new Map<string, WorkCandidate>();
+  let qualified = false;
   for (const t of titles) {
     if (matchKey(baseTitle(t), cfg) !== key) continue;
     const p = pages.get(t);
     if (!isWorkPage(p, entities, cfg)) continue;
     const w = wikidataCandidate(p!, entities.get(p!.qid!)!, cfg);
     works.set(w.sourceKey, w);
+    // 「スパイダーマン (東映)」のような限定の括弧付き記事で、同名の曖昧さ回避ページがある（「X (映画)」は映画の中で一意なので除く）
+    if (baseTitle(t) !== t && !t.endsWith(FILM_SUFFIX) && disambiguated.has(baseTitle(t))) qualified = true;
   }
   if (works.size === 0) return { kind: "none" };
-  if (works.size === 1) return { kind: "match", work: [...works.values()][0]!, method: "search" };
-  return { kind: "ambiguous", works: [...works.values()], method: "search" };
+  if (works.size === 1 && !qualified) return { kind: "match", work: [...works.values()][0]!, method: "search" };
+  return { kind: "ambiguous", works: [...works.values()], method: qualified ? "search+disambiguation" : "search" };
 }

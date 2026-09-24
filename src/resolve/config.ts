@@ -14,12 +14,14 @@ export interface ExtractConfig {
   noise_words: string[];
   trim_words: string[];
   stop_segments: string[];
+  season_qualifiers: string[];
   match_normalize: { strip_chars: string; season_patterns: string[] };
   annict: { batch_size: number; per_query: number };
   anilist: { batch_size: number };
   wikipedia: {
     title_suffixes: string[];
     work_classes: Record<string, "tv" | "movie" | "ova" | "web">;
+    anime_classes: string[];
     not_work_classes: Record<string, string>;
   };
   /** ルールのバージョン（ファイル内容とリゾルバのコードバージョンのハッシュ） */
@@ -27,7 +29,7 @@ export interface ExtractConfig {
 }
 
 /** リゾルバの処理を変えたら上げる。設定ファイルと合わせて再処理の要否を判断する */
-export const RESOLVER_CODE_VERSION = 1;
+export const RESOLVER_CODE_VERSION = 2;
 
 export function loadExtractConfig(): ExtractConfig {
   const raw = readFileSync(join(ROOT, "config", "extract.yaml"), "utf8");

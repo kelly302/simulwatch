@@ -80,3 +80,22 @@ test("概要欄からは、その枠を指す行の括弧の中身だけを候�
   const d = "今日の同時視聴は「アダムス・ファミリー」です\n先週は『別の映画』を観ました";
   assert.deepEqual(extractFromDescription(d, ["今日", "本日"], cfg).map((s) => s.text), ["アダムス・ファミリー"]);
 });
+
+test("「/」で分けるのは和英併記のときだけ（Fate/Zero は分けない）", () => {
+  const subsOf = (t: string) => extract(t, cfg).segments.flatMap((s) => s.subs.map((x) => x.text));
+  const f = subsOf("【同時視聴】Fate/Zeroみんなで観よう！！ぺこ！");
+  assert.ok(f.includes("Fate/Zero"));
+  assert.ok(!f.includes("Fate") && !f.includes("Zero"));
+  const k = subsOf("【メン限】「カンフーハッスル/Kung Fu Hustle」同時視聴 ほか");
+  assert.ok(k.includes("カンフーハッスル") && k.includes("Kung Fu Hustle"));
+});
+
+test("括弧（『』「」）の中の全角スラッシュでは区切らない", () => {
+  assert.equal(segs("【メン限】『シビル・ウォー／キャプテン・アメリカ』 同時視聴する 2023.6.10")[0], "シビル・ウォー/キャプテン・アメリカ");
+  // 括弧の外の全角スラッシュは区切り
+  assert.deepEqual(segs("【同時視聴】ハリー・ポッターと秘密の部屋／Harry Potter and the Chamber of Secrets"), ["ハリー・ポッターと秘密の部屋", "Harry Potter and the Chamber of Secrets"]);
+});
+
+test("配信者タグの括弧の中の『』は作品名の候補にしない", () => {
+  assert.deepEqual(segs("同時視聴【にじさんじ 4th Anniversary「FANTASIA」DAY1】を観る！！！【白雪 巴/にじさんじ】").filter((x) => x === "FANTASIA"), []);
+});

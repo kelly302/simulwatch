@@ -80,3 +80,29 @@ test("Wikipedia 全文検索: 括弧を外した記事名が完全一致する�
   assert.equal(decideWikipediaSearch(k("ザ・ハント"), [titles[0]!, "ハント"], pages, ents, cfg).kind, "match");
   assert.equal(baseTitle("告白 (2010年の映画)"), "告白");
 });
+
+test("Wikipedia: 同名の曖昧さ回避ページがあれば、接尾辞の付いた記事では決めない（スパイダーマン → 1978年の東映版にしない）", () => {
+  const pages = new Map([
+    ["スパイダーマン", page("スパイダーマン", { qid: "Q1" })],
+    ["スパイダーマン (テレビドラマ)", page("スパイダーマン (テレビドラマ)", { qid: "Q2" })],
+    ["スパイダーマン (曖昧さ回避)", page("スパイダーマン (曖昧さ回避)", { qid: "Q3", disambiguation: true })],
+  ]);
+  const ents = new Map([["Q1", ent("Q1", ["Q15632617"])], ["Q2", ent("Q2", ["Q5398426"])]]);
+  assert.equal(decideWikipedia("スパイダーマン", pages, ents, cfg).kind, "ambiguous");
+  // 「(映画)」の記事は、曖昧さ回避ページがあっても決めてよい（映画の中では一意の記事名）
+  const pages2 = new Map([
+    ["国宝", page("国宝", { qid: "Q1" })],
+    ["国宝 (映画)", page("国宝 (映画)", { qid: "Q2" })],
+    ["国宝 (曖昧さ回避)", page("国宝 (曖昧さ回避)", { qid: "Q9", disambiguation: true })],
+  ]);
+  const ents2 = new Map([["Q1", ent("Q1", ["Q1139795"])], ["Q2", ent("Q2", ["Q11424"])]]);
+  assert.equal(decideWikipedia("国宝", pages2, ents2, cfg).kind, "match");
+});
+
+test("リメイク: 年付きの同名作品があれば決めない。区間に年が付いていればその年の作品を選ぶ", () => {
+  const w1991 = { ...work(1, "ドラゴンクエスト ダイの大冒険"), releaseYear: 1991 };
+  const w2020 = { ...work(2, "ドラゴンクエスト ダイの大冒険 (2020年版)"), releaseYear: 2020 };
+  assert.equal(matchByTitle(k("ドラゴンクエスト ダイの大冒険"), [w1991, w2020], "", cfg).kind, "ambiguous");
+  const r = matchByTitle(k("ドラゴンクエスト ダイの大冒険(2020"), [w1991, w2020], "", cfg);
+  assert.equal(r.kind === "match" && r.work.annictId, 2);
+});

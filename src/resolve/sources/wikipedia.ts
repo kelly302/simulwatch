@@ -32,10 +32,8 @@ export interface EntityInfo {
   series: string | null;
 }
 
-function url(base: string, params: Record<string, string>): string {
-  const u = new URL(base);
-  for (const [k, v] of Object.entries({ format: "json", formatversion: "2", ...params })) u.searchParams.set(k, v);
-  return u.toString();
+function form(params: Record<string, string>): Record<string, string> {
+  return { format: "json", formatversion: "2", ...params };
 }
 
 /** MediaWiki の記事名に使えない文字を含むか */
@@ -45,28 +43,32 @@ export function isValidTitle(t: string): boolean {
 
 /** MediaWiki API の一時的なサーバーエラー（200 で本文にエラーが入って返る）。少し待てば通ることが多い */
 function isTransient(code: string): boolean {
-  return code.startsWith("internal_api_error") || code === "maxlag" || code === "ratelimited" || code === "readonly";
+  return code.startsWith("internal_api_error") || code === "maxlag" || code === "ratelimited" || code === "readonly"
+    || code === "cirrussearch-too-busy-error" || code === "toomanyrequests";
 }
 
 export class WikipediaClient {
   private readonly http: Http;
   private readonly cache: ResolveCache;
   requests = 0;
+  /** 照会に失敗した記事名（1回の照会ごと）。これを使う区間は「照会エラー」にして次回に回す */
+  readonly failedTitles = new Set<string>();
+  readonly errors: string[] = [];
 
   constructor(http: Http, cache: ResolveCache) {
     this.http = http;
     this.cache = cache;
   }
 
-  /** GET して JSON を返す。一時的なサーバーエラーは待って再試行し、それ以外のエラーは投げる */
-  private async getJson(u: string): Promise<Record<string, unknown>> {
+  /** POST して JSON を返す。一時的なサーバーエラーは待って再試行し、それ以外のエラーはそのまま返す */
+  private async getJson(base: string, params: Record<string, string>): Promise<Record<string, unknown>> {
     for (let attempt = 0; ; attempt++) {
       this.requests++;
-      const res = await this.http.get(u);
+      const res = await this.http.postForm(base, form(params));
       const j = JSON.parse(res.body) as Record<string, unknown> & { error?: { code: string; info?: string; id?: string } };
       if (!j.error) return j;
-      if (isTransient(j.error.code) && attempt < 3) {
-        await new Promise((r) => setTimeout(r, 3000 * (attempt + 1)));
+      if (isTransient(j.error.code) && attempt < 4) {
+        await new Promise((r) => setTimeout(r, 5000 * (attempt + 1)));
         continue;
       }
       return j;
@@ -88,11 +90,17 @@ export class WikipediaClient {
     }
     for (let i = 0; i < todo.length; i += 50) {
       const batch = todo.slice(i, i + 50);
-      const j = await this.getJson(
-        url(WP, { action: "query", titles: batch.join("|"), redirects: "1", prop: "pageprops", ppprop: "wikibase_item|disambiguation" }),
-      );
-      if (j.error) throw new Error(`Wikipedia: ${JSON.stringify(j.error).slice(0, 200)}`);
-      const q = (j.query ?? {}) as Record<string, any>;
+      // 1回の照会が落ちても他の回は続ける。落ちた回の記事名は failedTitles に入れ、その区間だけ「照会エラー」にする
+      let q: Record<string, any>;
+      try {
+        const j = await this.getJson(WP, { action: "query", titles: batch.join("|"), redirects: "1", prop: "pageprops", ppprop: "wikibase_item|disambiguation" });
+        if (j.error) throw new Error(`Wikipedia: ${JSON.stringify(j.error).slice(0, 200)}`);
+        q = (j.query ?? {}) as Record<string, any>;
+      } catch (e) {
+        for (const t of batch) this.failedTitles.add(t);
+        this.errors.push(String(e).slice(0, 300));
+        continue;
+      }
       const normalized = new Map<string, string>((q.normalized ?? []).map((n: { from: string; to: string }) => [n.from, n.to]));
       const redirects = new Map<string, { to: string; tofragment?: string }>(
         (q.redirects ?? []).map((r: { from: string; to: string; tofragment?: string }) => [r.from, r]),
@@ -125,7 +133,7 @@ export class WikipediaClient {
   async search(text: string, limit = 5): Promise<string[]> {
     const c = this.cache.get<string[]>("wp_search", text);
     if (c) return c;
-    const j = await this.getJson(url(WP, { action: "query", list: "search", srsearch: text, srlimit: String(limit), srnamespace: "0" }));
+    const j = await this.getJson(WP, { action: "query", list: "search", srsearch: text, srlimit: String(limit), srnamespace: "0" });
     if (j.error) throw new Error(`Wikipedia: ${JSON.stringify(j.error).slice(0, 200)}`);
     const titles = (((j.query as { search?: { title: string }[] } | undefined)?.search ?? []) as { title: string }[]).map((s) => s.title);
     this.cache.set("wp_search", text, titles);
@@ -157,7 +165,7 @@ export class WikipediaClient {
   private async fetchEntities(ids: string[], out: Map<string, EntityInfo>): Promise<void> {
     let batch = ids;
     for (let attempt = 0; attempt < 10 && batch.length > 0; attempt++) {
-      const j = (await this.getJson(url(WD, { action: "wbgetentities", ids: batch.join("|"), props: "claims|labels", languages: "ja" }))) as {
+      const j = (await this.getJson(WD, { action: "wbgetentities", ids: batch.join("|"), props: "claims|labels", languages: "ja" })) as {
         entities?: Record<string, WdEntity & { missing?: string }>; error?: { code: string; id?: string; info?: string };
       };
       if (j.error) {
