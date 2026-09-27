@@ -106,3 +106,8 @@ test("リメイク: 年付きの同名作品があれば決めない。区間に
   const r = matchByTitle(k("ドラゴンクエスト ダイの大冒険(2020"), [w1991, w2020], "", cfg);
   assert.equal(r.kind === "match" && r.work.annictId, 2);
 });
+
+test("リメイク: 年のあとに分割の表記が付く同名作品（「(2022) part1」）があれば決めない", () => {
+  const cands = [work(1, "BASTARD!! -暗黒の破壊神-", "ova"), work(2, "BASTARD!! -暗黒の破壊神- (2022) part1", "web")];
+  assert.equal(matchByTitle(matchKey("BASTARD!! -暗黒の破壊神-", cfg), cands, "", cfg).kind, "ambiguous");
+});

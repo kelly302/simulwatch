@@ -31,9 +31,13 @@ function seasonRes(cfg: ExtractConfig): RegExp[] {
  * 例: 「進撃の巨人 Season 3」「進撃の巨人 3期」→ "進撃の巨人season3"
  */
 export function matchKey(s: string, cfg: ExtractConfig): string {
-  let t = s.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+  // BOM・ゼロ幅の文字は落とす（Wikidata のラベルに BOM が混じる。「\uFEFF亜人」）
+  // \u7D75\u6587\u5B57\u3082\u843D\u3068\u3059\uFF08\u300C\u3086\u308B\u304D\u3083\u3093\u0394\uD83C\uDFD5\u300D\uFF09
+  let t = s.normalize("NFKC").toLowerCase().replace(/[\s\uFEFF\u200B-\u200D\u2060\uFE0E\uFE0F]+|\p{Extended_Pictographic}/gu, "");
   const fold = cfg.match_normalize.fold_chars;
   if (fold) t = [...t].map((ch) => fold[ch] ?? ch).join("");
+  // ひらがなをカタカナに寄せる（「ゆるきゃん」と「ゆるキャン」）
+  if (cfg.match_normalize.fold_kana) t = t.replace(/[\u3041-\u3096]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) + 0x60));
   for (const re of seasonRes(cfg)) t = t.replace(re, "season$1");
   const strip = stripSet(cfg);
   return [...t].filter((ch) => !strip.has(ch)).join("");

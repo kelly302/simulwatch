@@ -10,7 +10,7 @@ const ENDPOINT = "https://graphql.anilist.co";
 
 const MEDIA_FIELDS = `id idMal title { romaji english native } synonyms format season seasonYear episodes coverImage { large } startDate { year }`;
 
-interface AniMedia {
+export interface AniMedia {
   id: number;
   idMal: number | null;
   title: { romaji: string | null; english: string | null; native: string | null };
@@ -70,6 +70,14 @@ export class AniListClient {
     return j.data as T;
   }
 
+  /** 検索語ごとの生の応答（別名 synonyms を含む）。照会の確認（lookup）と別名の試行で使う */
+  async searchRaw(queries: string[]): Promise<Map<string, AniMedia[]>> {
+    await this.search(queries);
+    const out = new Map<string, AniMedia[]>();
+    for (const q of new Set(queries)) out.set(q, this.cache.get<AniMedia[]>("anilist_raw", q) ?? []);
+    return out;
+  }
+
   /** 検索語ごとの候補（上位10件）。キャッシュは生の応答で持ち、変換は読み出すときに行う（変換のルールを変えても照会し直さない） */
   async search(queries: string[]): Promise<Map<string, WorkCandidate[]>> {
     const out = new Map<string, WorkCandidate[]>();
@@ -96,6 +104,32 @@ export class AniListClient {
         const ws = raw.map(anilistToCandidate);
         out.set(q, ws);
       });
+    }
+    return out;
+  }
+
+  /** AniList の ID から作品を引く（AI の判定を反映するときに使う） */
+  async byIds(ids: number[]): Promise<Map<number, WorkCandidate>> {
+    const out = new Map<number, WorkCandidate>();
+    const todo: number[] = [];
+    for (const id of new Set(ids)) {
+      const c = this.cache.get<AniMedia | null>("anilist_id", String(id));
+      if (c !== undefined) {
+        if (c) out.set(id, anilistToCandidate(c));
+      } else todo.push(id);
+    }
+    for (let i = 0; i < todo.length; i += 50) {
+      const batch = todo.slice(i, i + 50);
+      const data = await this.gql<{ Page: { media: AniMedia[] } }>(
+        `query($ids: [Int]) { Page(perPage: 50) { media(id_in: $ids, type: ANIME) { ${MEDIA_FIELDS} } } }`,
+        { ids: batch },
+      );
+      const got = new Map(data.Page.media.map((m) => [m.id, m]));
+      for (const id of batch) {
+        const m = got.get(id) ?? null;
+        this.cache.set("anilist_id", String(id), m);
+        if (m) out.set(id, anilistToCandidate(m));
+      }
     }
     return out;
   }

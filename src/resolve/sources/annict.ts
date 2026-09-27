@@ -128,6 +128,32 @@ export class AnnictClient {
     return out;
   }
 
+  /** Annict の ID から作品を引く（AI の判定を反映するときに使う）。キャッシュは "annict_id" */
+  async byIds(annictIds: number[]): Promise<Map<number, WorkCandidate>> {
+    const out = new Map<number, WorkCandidate>();
+    const todo: number[] = [];
+    for (const id of new Set(annictIds)) {
+      const c = this.cache.get<WorkCandidate | null>("annict_id", String(id));
+      if (c !== undefined) {
+        if (c) out.set(id, c);
+      } else todo.push(id);
+    }
+    for (let i = 0; i < todo.length; i += 50) {
+      const batch = todo.slice(i, i + 50);
+      const data = await this.gql<{ searchWorks: { nodes: AnnictWork[] } }>(
+        `query($ids: [Int!], $first: Int) { searchWorks(annictIds: $ids, first: $first) { nodes { ${WORK_FIELDS} } } }`,
+        { ids: batch, first: batch.length },
+      );
+      const got = new Map(data.searchWorks.nodes.map((n) => [n.annictId, annictToCandidate(n)]));
+      for (const id of batch) {
+        const c = got.get(id) ?? null;
+        this.cache.set("annict_id", String(id), c);
+        if (c) out.set(id, c);
+      }
+    }
+    return out;
+  }
+
   /**
    * 作品が属するシリーズの全作品（自分を含む）。同定の検証（期の取り違えの確認）で、ほかの期を並べるのに使う。
    * シリーズに入っていない作品は空の配列

@@ -197,6 +197,25 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (source, query)
   );
   `,
+  // 5: AI の判定。ルールで決まらなかった枠を、人が起動するコマンド（ai:apply）で判定して入れる。
+  // resolve は上書きしない（確定）。取り消しは ai:revoke（revoked_at を立てる。行は残す）
+  `
+  CREATE TABLE ai_decisions (
+    id              INTEGER PRIMARY KEY,
+    watch_event_id  INTEGER NOT NULL REFERENCES watch_events(id),
+    status          TEXT NOT NULL,       -- identified / not_a_work / unidentifiable / hold
+    works           TEXT,                -- JSON。同定した作品（外部DBの候補をそのまま）と話数
+    confidence      TEXT NOT NULL,       -- high / medium / low（low はサイトに出さない）
+    evidence        TEXT NOT NULL,       -- JSON。見たもの（タイトル・概要欄・サムネイル・照会した語と結果）
+    rationale       TEXT NOT NULL,       -- 判断の理由
+    model           TEXT NOT NULL,       -- 判定したモデル
+    batch           TEXT NOT NULL,       -- 判定のまとまり（ai:queue の名前）
+    seconds         REAL,                -- 1枠にかかった時間
+    decided_at      TEXT NOT NULL,
+    revoked_at      TEXT
+  );
+  CREATE UNIQUE INDEX ai_decisions_active ON ai_decisions(watch_event_id) WHERE revoked_at IS NULL;
+  `,
 ];
 
 export function openDb(path: string = DB_PATH): DB {

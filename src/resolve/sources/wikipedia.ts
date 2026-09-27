@@ -8,6 +8,16 @@ import type { ResolveCache } from "../cache.ts";
 const WP = "https://ja.wikipedia.org/w/api.php";
 const WD = "https://www.wikidata.org/w/api.php";
 
+export interface WdSearchHit {
+  id: string;
+  label: string | null;
+  description: string | null;
+  aliases: string[];
+  /** 何で一致したか（label / alias） */
+  matchType: string | null;
+  matchText: string | null;
+}
+
 export interface PageInfo {
   /** 照会した記事名 */
   query: string;
@@ -138,6 +148,21 @@ export class WikipediaClient {
     const titles = (((j.query as { search?: { title: string }[] } | undefined)?.search ?? []) as { title: string }[]).map((s) => s.title);
     this.cache.set("wp_search", text, titles);
     return titles;
+  }
+
+  /**
+   * Wikidata の項目をラベルと別名（aliases）で探す（日本語）。別名の辞書の試行と照会の確認（lookup）で使う
+   */
+  async searchEntities(text: string, limit = 20): Promise<WdSearchHit[]> {
+    const key = `${limit}|${text}`;
+    const c = this.cache.get<WdSearchHit[]>("wd_search", key);
+    if (c) return c;
+    const j = await this.getJson(WD, { action: "wbsearchentities", search: text, language: "ja", uselang: "ja", type: "item", limit: String(limit) });
+    if (j.error) throw new Error(`Wikidata: ${JSON.stringify(j.error).slice(0, 200)}`);
+    const hits = ((j.search ?? []) as { id: string; label?: string; description?: string; aliases?: string[]; match?: { type: string; text: string } }[])
+      .map((h) => ({ id: h.id, label: h.label ?? null, description: h.description ?? null, aliases: h.aliases ?? [], matchType: h.match?.type ?? null, matchText: h.match?.text ?? null }));
+    this.cache.set("wd_search", key, hits);
+    return hits;
   }
 
   /** 照会に失敗した Wikidata の項目（一時的なエラーが続いたもの）。これを参照する区間は「照会エラー」にして次回に回す */

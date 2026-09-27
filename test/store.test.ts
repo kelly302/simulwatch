@@ -82,3 +82,20 @@ test("MyAnimeList の ID が同じでも、Annict の別作品はまとめない
   assert.ok(al !== re && al !== rere);
   assert.equal((db.prepare("SELECT COUNT(*) AS n FROM works").get() as { n: number }).n, 3);
 });
+
+test("AI の判定: 入れ直しても同じ結果になり、取り消すまで残る（確定）", async () => {
+  const { applyAiDecisions } = await import("../src/resolve/ai.ts");
+  const db = freshDb();
+  const work = cand({ source: "wikidata", sourceKey: "wikidata:Q1", wikidataId: "Q1", title: "来る", media: "movie", releaseYear: 2018 });
+  db.prepare(`INSERT INTO ai_decisions (watch_event_id, status, works, confidence, evidence, rationale, model, batch, decided_at)
+    VALUES (1, 'identified', ?, 'high', '{"looked":["title"]}', 'r', 'm', 'b', 'n'), (2, 'not_a_work', NULL, 'medium', '{"looked":["title"]}', 'r', 'm', 'b', 'n')`)
+    .run(JSON.stringify([{ key: "wikidata:Q1", work }]));
+  applyAiDecisions(db, "v1");
+  applyAiDecisions(db, "v1");
+  const rows = db.prepare("SELECT watch_event_id, match_method FROM event_works").all().map((r) => ({ ...r }));
+  assert.deepEqual(rows, [{ watch_event_id: 1, match_method: "ai:high" }]);
+  assert.equal((db.prepare("SELECT reason FROM unresolved WHERE watch_event_id = 2 AND resolved_at IS NULL").get() as { reason: string }).reason, "not_a_work");
+  // 取り消せば反映しない
+  db.exec("UPDATE ai_decisions SET revoked_at = 'n' WHERE watch_event_id = 1");
+  assert.deepEqual(applyAiDecisions(db, "v1", [1]), { identified: 0, not_a_work: 0, unidentifiable: 0 });
+});

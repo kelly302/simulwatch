@@ -40,6 +40,8 @@ export function isShortLatin(key: string): boolean {
  */
 /** 作品名の末尾の公開年（「(2020)」「(2020年版)」「(2020年)」。照合キーでは括弧が落ちている） */
 const YEAR_SUFFIX = /^(19|20)\d{2}(年版|年)?$/;
+/** リメイクの作品名の末尾（年のあとに分割の表記が付くもの。「BASTARD!! -暗黒の破壊神- (2022) part1」） */
+const REMAKE_SUFFIX = /^(19|20)\d{2}(年版|年)?(part\d+|season\d+)?$/;
 
 export function matchByTitle(key: string, candidates: WorkCandidate[], hintText: string, cfg: ExtractConfig): MatchResult {
   const uniq = new Map<string, WorkCandidate>();
@@ -70,7 +72,7 @@ export function matchByTitle(key: string, candidates: WorkCandidate[], hintText:
   // リメイク: 「X」で当たっても、年付きの同名作品（「X (2020)」）が別にあれば、どちらか決められない
   if (method === "exact") {
     const remakes = all.filter(
-      (w) => !equal.includes(w) && keys(w).some((k) => k.startsWith(key) && YEAR_SUFFIX.test(k.slice(key.length))),
+      (w) => !equal.includes(w) && keys(w).some((k) => k.startsWith(key) && REMAKE_SUFFIX.test(k.slice(key.length))),
     );
     if (remakes.length > 0) return { kind: "ambiguous", works: [...equal, ...remakes], method: "remake" };
   }
@@ -124,6 +126,11 @@ export function wikidataCandidate(p: PageInfo, e: EntityInfo, cfg: ExtractConfig
     seriesId: e.series ? `wikidata:${e.series}` : null,
     isAnime: e.p31.some((c) => cfg.wikipedia.anime_classes.includes(c)),
   };
+}
+
+/** Wikipedia に記事の無い Wikidata の作品（ラベルの完全一致で見つけたもの） */
+export function labelCandidate(e: EntityInfo, cfg: ExtractConfig): WorkCandidate {
+  return wikidataCandidate({ query: e.labelJa ?? e.qid, title: null, qid: e.qid, missing: false, disambiguation: false, redirected: false, fragment: false }, e, cfg);
 }
 
 /**
@@ -220,4 +227,13 @@ export function decideWikipediaSearch(
   if (works.size === 0) return { kind: "none" };
   if (works.size === 1 && !qualified) return { kind: "match", work: [...works.values()][0]!, method: "search" };
   return { kind: "ambiguous", works: [...works.values()], method: qualified ? "search+disambiguation" : "search" };
+}
+
+const SEASON_MONTH: Record<string, number> = { winter: 1, spring: 4, summer: 7, autumn: 10 };
+
+/** 作品の放送開始の目安（放送期の最初の月の1日）。放送期が分からなければ null */
+export function releaseStart(w: WorkCandidate): number | null {
+  const m = w.seasonName?.match(/^(\d{4})-(winter|spring|summer|autumn)$/);
+  if (!m) return null;
+  return Date.UTC(Number(m[1]), SEASON_MONTH[m[2]!]! - 1, 1);
 }

@@ -228,3 +228,38 @@ test("同名の作品で保留になっても、同じ枠の英題の区間が�
   ]));
   assert.deepEqual(r.picked.map((x) => x.work.sourceKey), ["annict:1"]);
 });
+
+test("Wikidata のラベルが一致し曖昧さ回避ページもある区間は、映画の枠で一致が映画1つだけなら選ぶ（「ホラー映画：来る」）", () => {
+  const film = { ...work(55616294, "来る"), source: "wikidata" as const, sourceKey: "wikidata:Q55616294", annictId: null, wikidataId: "Q55616294", releaseYear: 2018 };
+  const o: Outcome = { kind: "ambiguous", works: [film], method: "Wikidata のラベルは一致するが、Wikipedia に曖昧さ回避ページがある", source: "wikidata" };
+  const movie = pick(plan("【同時視聴】ホラー映画：来る【にじさんじ】"), new Map([["来る", o]]));
+  assert.deepEqual(movie.picked.map((x) => [x.work.wikidataId, x.method]), [["Q55616294", "wikidata:label+movie"]]);
+  // 映画の手がかりが無ければ保留
+  assert.equal(pick(plan("【同時視聴】来る"), new Map([["来る", o]])).picked.length, 0);
+});
+
+test("タイトルに「総集編」があるのに、総集編でないテレビ作品には同定しない", () => {
+  const tv = { ...work(1, "チェンソーマン"), media: "tv" as const };
+  const p = plan("【 完全初見 】レゼ篇をどうしても観たいオタクによる「チェンソーマン」同時視聴！総集篇 - 前篇 -");
+  assert.equal(pick(p, new Map([["チェンソーマン", match(tv)]])).picked.length, 0);
+});
+
+test("同名の別作品で保留になったとき: 枠より後に公開された作品は外し、配信の回数（#2 以降）があればテレビシリーズを選ぶ", () => {
+  const anime = { ...work(1, "ひぐらしのなく頃に"), media: "tv" as const, episodesCount: 26, releaseYear: 2006 };
+  const film = { ...work(2, "ひぐらしのなく頃に"), source: "wikidata" as const, sourceKey: "wikidata:Q2", annictId: null, wikidataId: "Q2", releaseYear: 2008 };
+  const o: Outcome = { kind: "ambiguous", works: [anime, film], method: "同名の別作品（公開年が違う）", source: "annict" };
+  const counter = pick(plan("【#2】ひぐらしのなく頃に　同時視聴会"), new Map([["ひぐらしのなく頃に", o]]));
+  assert.deepEqual(counter.picked.map((x) => x.method), ["annict:exact+counter"]);
+  assert.equal(pick(plan("【同時視聴】ひぐらしのなく頃に"), new Map([["ひぐらしのなく頃に", o]])).picked.length, 0);
+  const later = { ...film, releaseYear: 2026 };
+  const o2: Outcome = { ...o, works: [{ ...anime, media: "movie" as const }, later] };
+  assert.deepEqual(pick(plan("【同時視聴】ひぐらしのなく頃に"), new Map([["ひぐらしのなく頃に", o2]])).picked.map((x) => x.method), ["annict:exact+date"]);
+});
+
+test("「実写見る前に復習したい」は実写版の手がかりにしない", () => {
+  const anime = { ...work(1, "リトル・マーメイド"), releaseYear: 1991 };
+  const live = { ...work(2, "リトル・マーメイド"), source: "wikidata" as const, sourceKey: "wikidata:Q2", annictId: null, wikidataId: "Q2", releaseYear: 2023 };
+  const o: Outcome = { kind: "ambiguous", works: [anime, live], method: "同名の別作品（公開年が違う）", source: "annict" };
+  const p = { ...plan("【メン限同時視聴】実写見る前に復習したい！【リトル・マーメイド】"), target: { ...plan("x").target, title_raw: "【メン限同時視聴】実写見る前に復習したい！【リトル・マーメイド】", started_at: "2023-07-01T00:00:00Z" } };
+  assert.ok(!pick(p, new Map([["リトル・マーメイド", o]])).picked.some((x) => x.method.endsWith("+live")));
+});

@@ -145,3 +145,32 @@ test("ハッシュタグは候補として別に持つ（配信者名・所属�
   assert.deepEqual(e.hashtags.map((s) => s.text), ["人外教室"]);
   assert.deepEqual(extract("【同時視聴】超かぐや姫！【#輪堂千速 / #hololivedev_is】", cfg).hashtags.map((s) => s.text), ["輪堂千速"]);
 });
+
+test("言い換えの小区間: 括弧の後ろに語が続く形・和英を空白で並べた形・前置き（監督作品・劇場版）・先頭の短い語・相手の「〇〇と」", () => {
+  const subsOf = (t: string) => extract(t, cfg).segments.flatMap((s) => s.subs.map((x) => x.text));
+  assert.ok(subsOf("【同時視聴】スプライス(SPLICE)を一緒に見よう【にじさんじ】").includes("スプライス"));
+  assert.ok(subsOf("【同時視聴】ベイマックス Big Hero 6").includes("ベイマックス"));
+  assert.ok(subsOf("【同時視聴】新海誠監督作品 君の名は。").includes("君の名は"));
+  assert.ok(subsOf("【同時視聴】劇場版モノノ怪 唐傘").includes("モノノ怪 唐傘"));
+  assert.ok(subsOf("【同時視聴】大人なカートゥーン ハズビンホテルへようこそ").includes("ハズビンホテルへようこそ"));
+  // 動詞が区間の外にある「〇〇と…（字幕版）みる」
+  assert.ok(subsOf("下僕と83歳のやさしいスパイ（字幕版）みる【同時視聴】").includes("83歳のやさしいスパイ"));
+});
+
+test("前の語を外したあとに残る「の」も外す（「実写のワンピ」→「ワンピ」）", () => {
+  assert.deepEqual(segs("【同時視聴】実写のワンピ見る！"), ["ワンピ"]);
+});
+
+test("照合キー: ひらがなとカタカナをそろえ、BOM・ゼロ幅の文字を落とす", () => {
+  assert.equal(matchKey("ゆるきゃん△", cfg), matchKey("ゆるキャン△", cfg));
+  assert.equal(matchKey("﻿亜人", cfg), matchKey("亜人", cfg));
+});
+
+test("和英を空白で並べた形は、英字の側が作品名の一部（OAD・Re:・BLEACH 千年血戦篇）なら分けない", () => {
+  const subsOf = (t: string) => extract(t, cfg).segments.flatMap((s) => s.subs.map((x) => x.text));
+  assert.ok(!subsOf("【同時視聴】進撃の巨人 OAD").includes("進撃の巨人"));
+  assert.ok(!subsOf("【同時視聴】BLEACH 千年血戦篇 -禍進譚- 第一話から").includes("BLEACH"));
+  assert.ok(!subsOf("【同時視聴】「きさらぎ駅 Re:」をみよう").includes("きさらぎ駅"));
+  assert.ok(!subsOf("【同時視聴】劇場版「Fate/stay night [Heaven’s Feel]」I.presage flower 同時視聴").includes("flower"));
+  assert.ok(subsOf("初見！STEINS;GATE シュタゲアニメ同時視聴").includes("STEINS;GATE"));
+});

@@ -12,7 +12,14 @@ import { loadExtractConfig } from "./resolve/config.ts";
 import { extract } from "./resolve/extract.ts";
 import { resolveSummary, unresolvedStats, unresolvedList, exportUnresolved, resolveAudit } from "./report/resolve.ts";
 import { seasonSample, unresolvedSample } from "./report/sample.ts";
-import { seriesReport } from "./report/series.ts";
+import { aiQueue, aiApply, aiReport, aiRevoke } from "./report/ai.ts";
+import { assignSeasons } from "./resolve/series.ts";
+import { ResolveCache } from "./resolve/cache.ts";
+import { AnnictClient } from "./resolve/sources/annict.ts";
+import { writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { DATA_DIR } from "./lib/paths.ts";
+import { lookup } from "./report/lookup.ts";
 import type { UnresolvedReason } from "./resolve/types.ts";
 
 // 使い方: npm run cli -- <command> [options]
@@ -44,7 +51,15 @@ const HELP = `
   resolve:sample  期の取り違えの検証用に、複数期のシリーズの枠を抽出して確認表を書き出す（data/review/）
                   [--n 60] [--seed S]。確認表の先頭に母集団・抽出・判定基準を書く
   unresolved:sample 未同定を理由ごとに抽出して分類用の確認表を書き出す（data/review/） [--reason not_found] [--n 100] [--seed S]
-  resolve:series  視聴系列（同じ配信者が同じ作品の系統を続けて観た枠）の件数と、期を決められる枠の件数
+  lookup "語" ...  外部作品DB（Annict・AniList・Wikipedia・Wikidata）の照会結果を並べる（判断の確認用）
+  resolve:series  視聴系列による期の割り当ての一覧を data/review/series-assign.md に書き出す（DB は変えない。確認用）
+
+コマンド（AI の判定。人が起動する。定期実行のジョブからは呼ばない）:
+  ai:queue        判定する枠を選び、タイトル・概要欄・区間・サムネイルを data/ai/<batch>/ に書き出す
+                  [--reason not_found] [--n 100] [--seed S] [--batch B（既定はシード）]
+  ai:apply FILE   判定のファイル（decisions.json）を DB に入れる。resolve は上書きしない（確定）
+  ai:report B     判定の根拠の一覧（採点用）を data/ai/<batch>/report.md に書き出す
+  ai:revoke       判定を取り消して、ルールで名寄せし直す [--batch B] [--video ID,...]
 
 環境変数:
   YOUTUBE_API_KEY  YouTube Data API のキー（.env に書けば自動で読む）
@@ -66,6 +81,7 @@ async function main(): Promise<number> {
       video: { type: "string" },
       n: { type: "string" },
       seed: { type: "string" },
+      batch: { type: "string" },
     },
   });
   const cmd = positionals[0];
@@ -89,11 +105,69 @@ async function main(): Promise<number> {
     "refresh": { job: "daily", run: refreshAll },
     "detect:fetch": { job: "daily", run: fetchOrphans },
     "resolve": { job: "resolve", run: resolveJob },
+    "lookup": {
+      job: "report",
+      run: async (ctx) => {
+        const r = await runStep(ctx, "lookup", () => lookup(ctx, loadExtractConfig(), positionals.slice(1), { limit: limit ?? 8 }));
+        if (r) console.log(r);
+      },
+    },
     "resolve:series": {
       job: "report",
       run: async (ctx) => {
-        const r = await runStep(ctx, "resolve:series", () => seriesReport(ctx, loadExtractConfig()));
+        const r = await runStep(ctx, "resolve:series", async () => {
+          const cfg = loadExtractConfig();
+          const token = process.env.ANNICT_TOKEN;
+          if (!token) throw new Error("ANNICT_TOKEN が必要です（Annict のシリーズの全作品を取るため）");
+          const annict = new AnnictClient(ctx.http, new ResolveCache(ctx.db, 30), token, cfg.annict);
+          const s = await assignSeasons(ctx, cfg, annict, cfg.version, false);
+          const dir = join(DATA_DIR, "review");
+          mkdirSync(dir, { recursive: true });
+          const path = join(dir, "series-assign.md");
+          const head = [
+            "# 視聴系列による期の割り当て（確認用の一覧）", "",
+            "- 母集団: 一覧に出る枠のうち、同じ配信者 × 同じ区間で2枠以上あり、系統（同じ Annict シリーズで原題が区間で始まるテレビ・Web の7話以上の作品。総集編・新編集版を除く）に期が2つ以上ある系列の枠",
+            "- 決め方は src/resolve/series.ts の先頭のコメント。「今」は DB の今の状態（resolve の後なら割り当て後）",
+            `- 系列 ${s.runs}・枠 ${s.events}。期が決まった ${s.events - s.held}（${Object.entries(s.byRule).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join("・")}）・保留 ${s.held}`,
+          ];
+          writeFileSync(path, [...head, ...s.lines].join("\n"), "utf8");
+          return `${head[head.length - 1]} → ${path}`;
+        });
         if (r) console.log(r);
+      },
+    },
+    "ai:queue": {
+      job: "report",
+      run: async (ctx) => {
+        const seed = values.seed ?? "ai-1";
+        const r = await runStep(ctx, "ai:queue", () =>
+          aiQueue(ctx, loadExtractConfig(), { reason: values.reason ?? "not_found", n: Number(values.n ?? 100), seed, batch: values.batch ?? seed }));
+        if (r) console.log(r);
+      },
+    },
+    "ai:apply": {
+      job: "ai",
+      run: async (ctx) => {
+        const file = positionals[1];
+        if (!file) throw new Error("判定のファイルを指定してください");
+        const r = await runStep(ctx, "ai:apply", () => aiApply(ctx, loadExtractConfig(), file));
+        if (r) console.log(r);
+      },
+    },
+    "ai:report": {
+      job: "report",
+      run: async (ctx) => {
+        const batch = positionals[1] ?? values.batch;
+        if (!batch) throw new Error("batch を指定してください");
+        console.log(aiReport(ctx, batch));
+      },
+    },
+    "ai:revoke": {
+      job: "ai",
+      run: async (ctx) => {
+        const videos = aiRevoke(ctx, { batch: values.batch, videos: values.video?.split(",") });
+        console.log(`取り消した判定 ${videos.length} 件。ルールで名寄せし直します`);
+        if (videos.length) await runStep(ctx, "resolve (videos)", () => resolveEvents(ctx, { mode: "videos", videoIds: videos }));
       },
     },
     "resolve:sample": {

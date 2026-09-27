@@ -23,13 +23,19 @@ export interface ExtractConfig {
   title_markers?: { kind: "season" | "part"; re: string; tag: string; suffixes?: string[] }[];
   /** 概要欄の作品名の列挙の末尾の動詞 */
   description_list_verbs?: string[];
-  match_normalize: { strip_chars: string; season_patterns: string[]; fold_chars?: Record<string, string> };
+  /** Wikidata のラベルの完全一致で同定する段（Wikipedia に記事が無い作品。「来る」「笑いのカイブツ」）と、同名別作品の照合にラベル検索を使う */
+  wikidata_label?: boolean;
+  /** 視聴系列による期の割り当て（src/resolve/series.ts）。false で止める */
+  series_assignment?: boolean;
+  match_normalize: { strip_chars: string; season_patterns: string[]; fold_chars?: Record<string, string>; fold_kana?: boolean };
   annict: { batch_size: number; per_query: number };
   anilist: { batch_size: number };
   wikipedia: {
     title_suffixes: string[];
     work_classes: Record<string, "tv" | "movie" | "ova" | "web">;
     anime_classes: string[];
+    /** 原作・作品の記事のクラス（小説・漫画など）。Wikidata のラベルの段で、区間と同名の記事がこれでなければ区間は一般の語とみなす */
+    source_classes?: string[];
     not_work_classes: Record<string, string>;
   };
   /** ルールのバージョン（ファイル内容とリゾルバのコードバージョンのハッシュ） */
@@ -37,7 +43,7 @@ export interface ExtractConfig {
 }
 
 /** リゾルバの処理を変えたら上げる。設定ファイルと合わせて再処理の要否を判断する */
-export const RESOLVER_CODE_VERSION = 3;
+export const RESOLVER_CODE_VERSION = 4;
 
 export function loadExtractConfig(): ExtractConfig {
   const raw = readFileSync(join(ROOT, "config", "extract.yaml"), "utf8");

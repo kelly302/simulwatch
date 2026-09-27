@@ -1,6 +1,7 @@
 import type { ExtractConfig } from "./config.ts";
 import { compileTerms, matchKey, spacedKey, looseKey } from "./normalize.ts";
 import { parseKanjiNumber } from "./kanji.ts";
+import { markersOf } from "./markers.ts";
 
 export { parseKanjiNumber };
 
@@ -111,6 +112,8 @@ const MAX_EPISODE_SPAN = 40;
 const WITH_VERB = "(?:一緒に)?(?:見る|観る|みる|見よう|観よう|みよう)";
 const COMPANION_BEFORE = new RegExp(`^(.{1,15}?)と${WITH_VERB}(.{2,})$`);
 const COMPANION_AFTER = new RegExp(`^(.{1,10}?)と(.{2,}?)(?:を)?${WITH_VERB}$`);
+const COMPANION_PREFIX = /^(.{1,8}?)と(.{4,})$/;
+const TITLE_VERB = /(見る|観る|みる|見よう|観よう|みよう|見ます|観ます)/;
 // 部・1期の表記（区間から外した形も言い換えとして試す。部の特定は照合側で確かめる）
 const PART_IN_TEXT = /\s*第[0-9一二三四五六七八九十]+部\s*|\s*(?<![a-z])part\s*\d+\s*/gi;
 const FIRST_SEASON_IN_TEXT = /\s*(?:第?1期|1st\s*(?:season|シーズン)|season\s*1(?!\d)|シーズン\s*1(?!\d))\s*/gi;
@@ -175,6 +178,8 @@ export function trimSegment(s: string, cfg: ExtractConfig): string {
     for (const w of trim) {
       if (lower.startsWith(w)) {
         t = t.slice(w.length);
+        // 前の語を外したあとに残る「の」（「実写のワンピ」「アニメの〇〇」）
+        if (t.startsWith("の") && t.length > 2) t = t.slice(1);
         break;
       }
       if (lower.endsWith(w)) {
@@ -220,7 +225,12 @@ interface Sink {
   dropped: string[];
 }
 
-function makeSegment(raw: string, from: Segment["from"], cfg: ExtractConfig, sink?: Sink): Segment | null {
+/** 区間の外から分かる手がかり。verb: タイトルに「見る・観る・みる」などがある（「下僕と〇〇（字幕版）みる」） */
+interface Hints {
+  verb?: boolean;
+}
+
+function makeSegment(raw: string, from: Segment["from"], cfg: ExtractConfig, sink?: Sink, hints: Hints = {}): Segment | null {
   const c = compile(cfg);
   const spaced = raw.replace(/\s+/g, " ").trim();
   const text = trimSegment(spaced, cfg);
@@ -270,11 +280,46 @@ function makeSegment(raw: string, from: Segment["from"], cfg: ExtractConfig, sin
   if (before) add(before[2]!, "alt", { min: 2 });
   const after = spaced.replace(EDGE_PUNCT, "").match(COMPANION_AFTER);
   if (after) add(after[2]!, "alt", { min: 2 });
-  // 読み仮名の括弧（「刃牙（バキ）」「Fallout（フォールアウト）」）と「LOKI -ロキ-」
-  const paren = spaced.replace(EDGE_PUNCT, "").match(/^(.+?)\s*[(（]([^()（）]+)[)）]?$/);
-  if (paren && !/^第?[0-9一二三四五六七八九十]+\s*期$/.test(paren[2]!.trim())) {
-    add(paren[1]!, "alt", { min: 2 });
-    add(paren[2]!, "alt", { min: 2 });
+  // 動詞が区間の外にある「下僕と83歳のやさしいスパイ（字幕版）みる」: タイトルに動詞があれば、先頭の「〇〇と」を外した形も試す
+  const prefix = hints.verb ? text.match(COMPANION_PREFIX) : null;
+  if (prefix) add(prefix[2]!, "alt");
+  // 読み仮名の括弧（「刃牙（バキ）」「Fallout（フォールアウト）」）と「LOKI -ロキ-」。
+  // 括弧の後ろに語が続く「スプライス(SPLICE)を一緒に見よう」は、前後の語を外した形でも見る
+  for (const src of [spaced.replace(EDGE_PUNCT, ""), text]) {
+    const paren = src.match(/^(.+?)\s*[(（]([^()（）]+)[)）]?$/);
+    if (paren && !/^第?[0-9一二三四五六七八九十]+\s*期$/.test(paren[2]!.trim())) {
+      add(paren[1]!, "alt", { min: 2 });
+      add(paren[2]!, "alt", { min: 2 });
+    }
+  }
+  // 和英を空白で並べた区間: 両側を試す。英字の側が作品名の一部（「BLEACH 千年血戦篇」「進撃の巨人 OAD」「きさらぎ駅 Re:」）のことが多いので絞る
+  //   日本語が先: 英字の側が照合キーで5文字以上で、期・部の表記や OAD などでない（「ベイマックス Big Hero 6」「ヴェノム VENOM」）
+  //   英字が先:   日本語の側がカタカナだけ（読み・略称。「STEINS;GATE シュタゲ」「/ODDTAXI オッドタクシー」）
+  const tokens = text.split(" ");
+  const ascii = (x: string) => /^[\x20-\x7E]+$/.test(x) && /[A-Za-z]/.test(x);
+  const qualifier = (x: string) => {
+    const m = markersOf(x, cfg);
+    return m.season.size > 0 || m.part.size > 0 || /^(oad|ova|sp|tv|movie|themovie|re)$/.test(matchKey(x, cfg));
+  };
+  for (let i = 1; i < tokens.length; i++) {
+    const l = tokens.slice(0, i).join(" "), r = tokens.slice(i).join(" ");
+    const jpFirst = japanese(l) && !/[A-Za-z]/.test(l) && ascii(r) && matchKey(r, cfg).length >= 5 && !qualifier(r);
+    const enFirst = ascii(l) && /^[\p{Script=Katakana}ー・\s]+$/u.test(r) && matchKey(r, cfg).length >= 3;
+    if (jpFirst || enFirst) {
+      add(l, "alt", { min: 2 });
+      add(r, "alt", { min: 2 });
+    }
+  }
+  // 前置きの「〇〇監督作品」「劇場版」「映画」を外した形（「新海誠監督作品 君の名は。」「劇場版 名探偵コナン ベイカー街の亡霊」）
+  const noDirector = text.replace(/^.{0,12}?監督(?:作品)?\s*/, "");
+  if (noDirector !== text) add(noDirector, "alt");
+  const noMovie = text.replace(/^(?:劇場版|映画)\s*/, "");
+  if (noMovie !== text) add(noMovie, "alt");
+  // 先頭の短い語を外した形（「大人なカートゥーン ハズビンホテルへようこそ」）。後ろが6文字以上で、両側とも日本語のときだけ
+  // （「I.presage flower」から「flower」を切り出さない）
+  if (tokens.length >= 2 && [...tokens[0]!].length <= 12 && !/\d/.test(tokens[0]!) && japanese(tokens[0]!)) {
+    const rest = tokens.slice(1).join(" ");
+    if (japanese(rest) && matchKey(rest, cfg).length >= 6) add(rest, "alt");
   }
   const dash = text.match(/^([\x20-\x7E]+?)\s+-\s*([^-]+?)\s*-?$/);
   if (dash && japanese(dash[2]!)) {
@@ -378,6 +423,7 @@ export function extract(title: string, cfg: ExtractConfig): Extracted {
   for (const re of c.noise) t = t.replace(re, MARK);
 
   const sink: Sink = { programs: [], dropped: [] };
+  const hints: Hints = { verb: TITLE_VERB.test(title.normalize("NFKC")) };
   const segments: Segment[] = [];
   const seen = new Set<string>();
   const quoteKeys = new Set<string>();
@@ -386,7 +432,7 @@ export function extract(title: string, cfg: ExtractConfig): Extracted {
     for (const re of c.noise) qt = qt.replace(re, MARK);
     for (const part of qt.split(MARK)) {
       if (part.includes(EP_MARK) || part.includes(HT_MARK)) continue;
-      const s = makeSegment(part, "quote", cfg, sink);
+      const s = makeSegment(part, "quote", cfg, sink, hints);
       if (s && !seen.has(s.key)) {
         seen.add(s.key);
         quoteKeys.add(s.key);
@@ -429,7 +475,7 @@ export function extract(title: string, cfg: ExtractConfig): Extracted {
       continue;
     }
     // 括弧の中身は本文にも残っているので、区間の重複は作らず並びだけ記録する
-    const s = makeSegment(part, "title", cfg, seen.has(matchKey(trimSegment(part, cfg), cfg)) ? quoteSink : sink);
+    const s = makeSegment(part, "title", cfg, seen.has(matchKey(trimSegment(part, cfg), cfg)) ? quoteSink : sink, hints);
     if (!s) continue;
     layout.push({ t: "seg", key: s.key, quote: quoteKeys.has(s.key) });
     if (!seen.has(s.key)) {
