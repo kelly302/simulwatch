@@ -18,6 +18,13 @@ export async function lookup(ctx: Ctx, cfg: ExtractConfig, texts: string[], opts
   const anilist = new AniListClient(ctx.http, cache, cfg.anilist);
   const wp = new WikipediaClient(ctx.http, cache);
   const limit = opts.limit ?? 8;
+  // ルールの作品クラスに無くても、AI の判定でだけ受け付けるクラス（テレビ番組など。ai_extra_work_classes）なら key に使ってよい
+  const extra = cfg.wikipedia.ai_extra_work_classes ?? {};
+  const kind = (e: { p31: string[] } | undefined, media: string | null) => {
+    if (media) return `作品(${media})`;
+    const x = (e?.p31 ?? []).map((c) => extra[c]).find((m) => !!m);
+    return x ? `作品(${x}・AI の判定でだけ受け付ける)` : "作品ではない";
+  };
   const out: string[] = [];
   for (const text of texts) {
     const key = matchKey(text, cfg);
@@ -48,7 +55,7 @@ export async function lookup(ctx: Ctx, cfg: ExtractConfig, texts: string[], opts
       if (!p || p.missing) return `    ${t}: 記事なし`;
       const e = p.qid ? ents.get(p.qid) : undefined;
       const media = workMedia(e, cfg);
-      return `    ${t}${p.redirected ? ` → ${p.title}${p.fragment ? "（節）" : ""}` : ""}${p.disambiguation ? "（曖昧さ回避）" : ""} ${p.qid ?? ""} P31=${(e?.p31 ?? []).map((c) => cfg.wikipedia.not_work_classes[c] ?? c).join(",")} 年=${e?.year ?? "?"} ${media ? `作品(${media})` : "作品ではない"}${matchKey(baseTitle(p.title ?? t), cfg) === key ? " ★一致" : ""}`;
+      return `    ${t}${p.redirected ? ` → ${p.title}${p.fragment ? "（節）" : ""}` : ""}${p.disambiguation ? "（曖昧さ回避）" : ""} ${p.qid ?? ""} P31=${(e?.p31 ?? []).map((c) => cfg.wikipedia.not_work_classes[c] ?? c).join(",")} 年=${e?.year ?? "?"} ${kind(e, media)}${matchKey(baseTitle(p.title ?? t), cfg) === key ? " ★一致" : ""}`;
     };
     out.push("  Wikipedia 記事名");
     out.push(show(text));
@@ -61,7 +68,7 @@ export async function lookup(ctx: Ctx, cfg: ExtractConfig, texts: string[], opts
     for (const h of hits) {
       const e = hitEnts.get(h.id);
       const media = workMedia(e, cfg);
-      out.push(`    ${h.id} ${h.label ?? ""}（${h.description ?? ""}）一致=${h.matchType}:${h.matchText} 年=${e?.year ?? "?"} ${media ? `作品(${media})` : "作品ではない"}`);
+      out.push(`    ${h.id} ${h.label ?? ""}（${h.description ?? ""}）一致=${h.matchType}:${h.matchText} 年=${e?.year ?? "?"} ${kind(e, media)}`);
     }
   }
   return out.join("\n");

@@ -566,7 +566,7 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- unresolved:sample --reason not_found --n 100 --seed nf-1   # 未同定の抽出と分類用の確認表
     npm run cli -- resolve:series    # 視聴系列による期の割り当ての一覧（data/review/series-assign.md。DB は変えない）
     npm run cli -- lookup "来る" "亜人"   # 外部作品DBの照会結果を並べる（判断の確認用）
-    npm run cli -- ai:queue --seed ai-run-1 --n 300 --include-hold          # AI に回す型の枠の待ち行列（候補を見せない。data/ai/<batch>/）
+    npm run cli -- ai:queue --seed ai-run-1 --n 300 --include-hold          # AI に回す型の枠の待ち行列（候補を見せない。data/ai/<batch>/。--video で動画を指定）
     npm run cli -- ai:queue --reason not_found --n 100 --seed ai-trial-1   # 未同定の理由で選ぶ待ち行列（ai-trial-1 の形）
     npm run cli -- ai:apply data/ai/ai-run-1/answers                     # 判定を入れる（確定。ファイルかフォルダ）
     npm run cli -- ai:report ai-trial-1                                 # 判定の根拠の一覧（report.md）と採点用の report.html
@@ -681,6 +681,13 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
 - ai-trial-1 の採点（2026-10-01。ユーザー）: 同定49件は正しい48・判断できない1（るろうに剣心を放送時期で2023年版にした）、作品ではない42件はすべて正しい、
   保留8件は正しい1・誤り2（「8年越しの花嫁」は原作と映画をまとめた Wikidata の項目を使ってよい、「下僕とハリーポッター」はリンク先が死の秘宝 PART1）・
   判断できない5（外部DBに無い作品。not_in_db で扱う）。GUIDE に「日付は公開前の作品を外すのにだけ使う」「原作と映画をまとめた項目も使ってよい」を足した
+- 試行の水曜どうでしょう2枠はユーザーの採点を「誤り」に直し（境目の決定どおり）、るろうに剣心（日付だけで決めた）と合わせて判定を取り消して判定し直した（ai-redo-1。2026-10-02）。
+  水曜どうでしょうは作品ではない、るろうに剣心は保留、保留だった「8年越しの花嫁」は同定、「下僕とハリーポッター」は作品を特定できない（リンク先を開けない）
+- ai-run-1（本番1回目、300件。2026-10-02）: 同定225・作品ではない59・外部DBに無い2・特定できない3・保留12。ユーザーの採点（150件）待ち。
+  ルールの答えとの比べ（参考）: ほかの期の頭と同じ 51件で食い違い0、リダイレクト 15件で6、曖昧さ回避 18件で2、小区間など 34件で2
+- **視聴系列（series）を AI に回す型に加えた**（2026-10-02）。ai-run-1 の AI の判定を根拠に新しく付いたアイカツの枠で、「第二期もラララ～！【51話】」と「スターズ感謝祭【26話】」を
+  アイカツスターズ！にしていた（Annict のアイカツ！は1作品に178話。視聴系列の「N期は放送順でN番目」が、期を1作品にまとめた作品に合わない）
+- 残る課題: works.episodes_count は最初に入った照会先の値のまま（アイカツ！が AniList の50話。Annict は178話）。Annict を正にするには名寄せのやり直しが要る
 
 ## 未確定（実装前に確認すること）
 

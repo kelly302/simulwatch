@@ -58,7 +58,7 @@ const HELP = `
 
 コマンド（AI の判定。人が起動する。定期実行のジョブからは呼ばない）:
   ai:queue        AI に回す型（extract.yaml の ai_routes）の枠のうち AI の判定が無いものを選び、候補を見せない待ち行列を data/ai/<batch>/ に書く
-                  [--n 300] [--seed S] [--batch B（既定はシード）] [--type 型,...（ai_routes の代わり）] [--include-hold（保留の枠も入れる）]
+                  [--n 300] [--seed S] [--batch B（既定はシード）] [--type 型,...（ai_routes の代わり）] [--include-hold（保留の枠も入れる）] [--video ID,...（動画を指定する。判定し直し用）]
                   --reason R を付けると未同定の理由で選ぶ（ai-trial-1 の形。区間と注記を見せる）
   ai:apply PATH   判定のファイル（answers/*.json か decisions.json。フォルダならその中のすべて）を DB に入れる。resolve は上書きしない（確定）
   ai:report B     判定の根拠の一覧（report.md）と採点用の report.html を書く [--sample N --seed S（シードで選んだ N 件だけを採点の表に出す）]
@@ -168,6 +168,7 @@ async function main(): Promise<number> {
           ? aiQueue(ctx, loadExtractConfig(), { reason: values.reason, n: Number(values.n ?? 100), seed, batch })
           : aiQueueRoutes(ctx, loadExtractConfig(), {
             batch, seed, n: Number(values.n ?? 300), routes: values.type?.split(","), includeHold: !!values["include-hold"],
+            ...(values.video ? { videos: values.video.split(",") } : {}),
           }));
         if (r) console.log(r);
       },

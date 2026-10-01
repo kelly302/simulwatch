@@ -80,7 +80,7 @@ function batchDir(batch: string): string {
  */
 export async function aiQueueRoutes(
   ctx: Ctx, cfg: ExtractConfig,
-  opts: { batch: string; seed: string; n: number; routes?: string[]; includeHold?: boolean },
+  opts: { batch: string; seed: string; n: number; routes?: string[]; includeHold?: boolean; videos?: string[] },
 ): Promise<string> {
   const dir = batchDir(opts.batch);
   if (existsSync(join(dir, "sealed", "answers.json"))) throw new Error(`${dir} はもうあります。別の batch 名にしてください`);
@@ -89,7 +89,8 @@ export async function aiQueueRoutes(
   const { routed } = await collectRoutes(ctx, cfg);
   const decided = new Map((ctx.db.prepare("SELECT watch_event_id, status FROM ai_decisions WHERE revoked_at IS NULL").all() as
     { watch_event_id: number; status: string }[]).map((r) => [r.watch_event_id, r.status]));
-  const pool = routed.filter((r) => needsAi(r.rule, routes) && (!decided.has(r.ev.id) || (opts.includeHold && decided.get(r.ev.id) === "hold")));
+  const pool = routed.filter((r) => needsAi(r.rule, routes) && (!decided.has(r.ev.id) || (opts.includeHold && decided.get(r.ev.id) === "hold"))
+    && (!opts.videos || opts.videos.includes(r.ev.video_id)));
   const byVid = new Map(pool.map((r) => [r.ev.video_id, r]));
   const rows = sampleOrder(opts.seed, [...byVid.keys()]).slice(0, opts.n).map((v) => byVid.get(v)!);
   const perRoute: Record<string, number> = {};
@@ -103,7 +104,7 @@ export async function aiQueueRoutes(
   });
   const plan = [
     `# AI の判定の待ち行列（${opts.batch}）`, "",
-    `- 母集団: 一覧に出る枠のうち、AI に回す型（${routes.join("・")}）で、AI の判定がまだ無いもの${opts.includeHold ? "（保留の枠を含む）" : ""}。${pool.length} 枠`,
+    `- 母集団: 一覧に出る枠のうち、AI に回す型（${routes.join("・")}）で、AI の判定がまだ無いもの${opts.includeHold ? "（保留の枠を含む）" : ""}${opts.videos ? `のうち、指定した動画（${opts.videos.join("・")}）` : ""}。${pool.length} 枠`,
     `- 抽出: sha256(シード + ":" + video_id) の昇順で先頭 ${rows.length} 件。シード「${opts.seed}」。待ち行列の並びは sha256(シード + ":queue:" + video_id) の昇順`,
     "- AI に見せるもの: 配信者・日時・タイトル・概要欄（定型文と URL の行を除き、その枠を指す行を先に12行まで）・サムネイル。型・区間・候補・ルールの答えは見せない（GUIDE.md）",
     "- 判定のあと: ai:apply data/ai/<batch>/answers で入れ、ai:report <batch> --sample N --seed S で採点の表を作る", "",
