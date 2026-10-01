@@ -16,6 +16,14 @@ export type StartedAtSource = "actual_start" | "scheduled_start" | "published_at
 
 export const AFFILIATIONS: readonly Affiliation[] = ["nijisanji", "hololive", "vspo", "other"];
 
+/** 作品の映像の種類（works.kind。外部DBから自動で埋める。src/resolve/enrich.ts） */
+export type WorkKind = "anime" | "tokusatsu" | "live_action";
+
+export const WORK_KIND_LABEL: Record<WorkKind, string> = { anime: "アニメ", tokusatsu: "特撮", live_action: "実写" };
+
+/** 作品の形態（works.media）。映画かどうかは movie で見る */
+export type WorkMedia = "tv" | "movie" | "ova" | "web";
+
 export const AFFILIATION_LABEL: Record<Affiliation, string> = {
   nijisanji: "にじさんじ",
   hololive: "ホロライブ",

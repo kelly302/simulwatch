@@ -32,6 +32,23 @@ export interface PageInfo {
   fragment: boolean;
 }
 
+/** 項目の属性（UI の絞り込み用）。p297 は国の項目の ISO 3166-1 alpha-2 */
+export interface WdAttrs {
+  p136: string[];
+  p495: string[];
+  p297: string | null;
+  /** 原作（based on） */
+  p144: string[];
+  /** メディア・フランチャイズ */
+  p8345: string[];
+  /** 原語 */
+  p364: string[];
+  /** 分類（P31） */
+  p31: string[];
+  /** 英語のラベル（日本語のラベルが無いシリーズの名前の代わり） */
+  labelEn: string | null;
+}
+
 export interface EntityInfo {
   qid: string;
   p31: string[];
@@ -165,8 +182,46 @@ export class WikipediaClient {
     return hits;
   }
 
+  /**
+   * 項目の属性（ジャンル P136・制作国 P495・ISO 3166-1 alpha-2 P297・原作 P144・フランチャイズ P8345・原語 P364・分類 P31・英語のラベル）。UI の絞り込み用（src/resolve/enrich.ts）。
+   * 作品の照会（wd_entity）とは別のキャッシュに持つ（既存のキャッシュを作り直さないため）。持つ属性を足したらキャッシュの名前を変える
+   */
+  async attrs(qids: string[]): Promise<Map<string, WdAttrs>> {
+    const out = new Map<string, WdAttrs>();
+    const todo: string[] = [];
+    for (const id of new Set(qids)) {
+      const c = this.cache.get<WdAttrs>("wd_attrs4", id);
+      if (c) out.set(id, c);
+      else todo.push(id);
+    }
+    const queue: string[][] = [];
+    for (let i = 0; i < todo.length; i += 50) queue.push(todo.slice(i, i + 50));
+    while (queue.length) {
+      const batch = queue.shift()!;
+      const j = (await this.getJson(WD, { action: "wbgetentities", ids: batch.join("|"), props: "claims|labels", languages: "en" })) as { entities?: Record<string, WdEntity & { missing?: string }>; error?: unknown };
+      if (j.error) throw new Error(`Wikidata: ${JSON.stringify(j.error).slice(0, 200)}`);
+      // 応答が大きすぎると（12MB 超。国の項目など）後ろの項目が黙って切り捨てられる。返ってこなかった項目は分けて取り直す
+      const absent = batch.filter((id) => !j.entities?.[id]);
+      if (absent.length && batch.length > 1) {
+        const half = Math.ceil(absent.length / 2);
+        queue.push(absent.slice(0, half), ...(absent.length > 1 ? [absent.slice(half)] : []));
+      }
+      for (const id of batch) {
+        const e = j.entities?.[id];
+        if (!e || e.missing !== undefined) continue;
+        const iso = (e.claims?.P297 ?? []).map((c) => c.mainsnak.datavalue?.value).find((v): v is string => typeof v === "string") ?? null;
+        const a: WdAttrs = { p136: claimIds(e, "P136"), p495: claimIds(e, "P495"), p297: iso, p144: claimIds(e, "P144"), p8345: claimIds(e, "P8345"), p364: claimIds(e, "P364"), p31: claimIds(e, "P31"), labelEn: e.labels?.en?.value ?? null };
+        this.cache.set("wd_attrs4", id, a);
+        out.set(id, a);
+      }
+    }
+    return out;
+  }
+
   /** 照会に失敗した Wikidata の項目（一時的なエラーが続いたもの）。これを参照する区間は「照会エラー」にして次回に回す */
   readonly failedQids = new Set<string>();
+  /** 応答の切り捨てで返ってこなかった項目の数（分けて取り直した数） */
+  truncated = 0;
 
   /** Wikidata の項目（P31・日本語ラベル・年・シリーズ） */
   async entities(qids: string[]): Promise<Map<string, EntityInfo>> {
@@ -224,6 +279,18 @@ export class WikipediaClient {
         throw new Error(`Wikidata: ${j.error.code} ${j.error.info ?? ""}`);
       }
       const ents = j.entities ?? {};
+      // 応答が大きすぎると（12MB 超。キャストや受賞の多い映画の項目が50件並ぶと超える）後ろの項目が黙って切り捨てられる。
+      // 返ってこなかった項目は分けて取り直す（1件でも返ってこなければ failedQids）
+      const absent = batch.filter((id) => !ents[id]);
+      if (absent.length) {
+        this.truncated += absent.length;
+        if (batch.length === 1) this.failedQids.add(batch[0]!);
+        else {
+          const half = Math.ceil(absent.length / 2);
+          await this.fetchEntities(absent.slice(0, half), out);
+          if (absent.length > 1) await this.fetchEntities(absent.slice(half), out);
+        }
+      }
       for (const id of batch) {
         const e = ents[id];
         if (!e || e.missing !== undefined) continue;

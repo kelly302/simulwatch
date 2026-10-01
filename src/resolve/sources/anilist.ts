@@ -109,6 +109,31 @@ export class AniListClient {
   }
 
   /** AniList の ID から作品を引く（AI の判定を反映するときに使う） */
+  /** 制作国（countryOfOrigin。ISO 3166-1 alpha-2）。UI の絞り込み用。作品の照会とは別のキャッシュに持つ */
+  async countries(ids: number[]): Promise<Map<number, string | null>> {
+    const out = new Map<number, string | null>();
+    const todo: number[] = [];
+    for (const id of new Set(ids)) {
+      const c = this.cache.get<{ country: string | null }>("anilist_country", String(id));
+      if (c !== undefined && c !== null) out.set(id, c.country);
+      else todo.push(id);
+    }
+    for (let i = 0; i < todo.length; i += 50) {
+      const batch = todo.slice(i, i + 50);
+      const data = await this.gql<{ Page: { media: { id: number; countryOfOrigin: string | null }[] } }>(
+        `query($ids: [Int]) { Page(perPage: 50) { media(id_in: $ids, type: ANIME) { id countryOfOrigin } } }`,
+        { ids: batch },
+      );
+      const got = new Map(data.Page.media.map((m) => [m.id, m.countryOfOrigin ?? null]));
+      for (const id of batch) {
+        const country = got.get(id) ?? null;
+        this.cache.set("anilist_country", String(id), { country });
+        out.set(id, country);
+      }
+    }
+    return out;
+  }
+
   async byIds(ids: number[]): Promise<Map<number, WorkCandidate>> {
     const out = new Map<number, WorkCandidate>();
     const todo: number[] = [];

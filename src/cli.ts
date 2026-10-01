@@ -16,6 +16,7 @@ import { aiQueue, aiQueueRoutes, aiApply, aiReport, aiRevoke } from "./report/ai
 import { auditTypes, auditSample, auditCompare } from "./report/audit.ts";
 import { assignSeasons } from "./resolve/series.ts";
 import { persistRoutes, publishSummary } from "./resolve/routing.ts";
+import { enrichWorks } from "./resolve/enrich.ts";
 import { ResolveCache } from "./resolve/cache.ts";
 import { AnnictClient } from "./resolve/sources/annict.ts";
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -63,6 +64,7 @@ const HELP = `
   ai:apply PATH   判定のファイル（answers/*.json か decisions.json。フォルダならその中のすべて）を DB に入れる。resolve は上書きしない（確定）
   ai:report B     判定の根拠の一覧（report.md）と採点用の report.html を書く [--sample N --seed S（シードで選んだ N 件だけを採点の表に出す）]
   ai:revoke       判定を取り消して、ルールで名寄せし直す [--batch B] [--video ID,...]
+  works:enrich    作品の属性（映像の種類・制作国・シリーズの名前）を外部DBから埋める [--all（全部埋め直す）]
   ai:status       サイトでの出し方（作品を付けて出す・枠として出す・出さない・AI の判定待ち）ごとの件数と、判定待ちの型の内訳
 
 コマンド（型ごとの検証。ゲート2の決定。人が起動する）:
@@ -275,6 +277,16 @@ async function main(): Promise<number> {
       console.log("AI の判定待ちの内訳（型）");
       for (const [k, v] of Object.entries(s.pendingByRoute).sort((a, b) => b[1] - a[1])) console.log(`  ${k}	${v}`);
       if (s.noRoute) console.log(`型が記録されていない枠 ${s.noRoute}（resolve を流すと記録される）`);
+      return 0;
+    }
+    case "works:enrich": {
+      const ctx = createCtx("report");
+      try {
+        const r = await runStep(ctx, "works:enrich", () => enrichWorks(ctx, loadExtractConfig(), { all: !!values.all }));
+        if (r) console.log(`作品の属性 ${r.updated} 件（${Object.entries(r.kinds).map(([k, v]) => `${k} ${v}`).join("・")}）・制作国が分からない ${r.noCountry}・同名の Wikipedia の記事で埋めた制作国 ${r.countryViaWikipedia}・同じシリーズの作品で埋めた制作国 ${r.countryViaSeries}・シリーズの名前 ${r.series}`);
+      } finally {
+        finishCtx(ctx);
+      }
       return 0;
     }
     case "resolve:summary":

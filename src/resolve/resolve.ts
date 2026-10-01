@@ -27,6 +27,7 @@ import { upsertWork, mergeWorks, getOrCreateEpisode, replaceEventWorks, markUnre
 import { applyAiDecisions, AI_LOCKED_SQL } from "./ai.ts";
 import { assignSeasons } from "./series.ts";
 import { liftLiveSeasons } from "./lift.ts";
+import { enrichWorks } from "./enrich.ts";
 import type { SeriesStats } from "./series.ts";
 
 // 名寄せの本体。
@@ -1077,6 +1078,8 @@ export async function resolveEvents(ctx: Ctx, opts: ResolveOptions): Promise<Res
     const r2 = ctx.db.prepare(`DELETE FROM works WHERE id NOT IN (SELECT DISTINCT work_id FROM event_works)`).run();
     stats.works_removed = Number(r2.changes);
   });
+  // 作品の属性（映像の種類・制作国・シリーズの名前。UI の絞り込み用。src/resolve/enrich.ts）を、まだ埋めていない作品に
+  await runStep(ctx, "resolve: 作品の属性", () => enrichWorks(ctx, cfg));
   stats.works_total = (ctx.db.prepare("SELECT COUNT(*) AS n FROM works").get() as { n: number }).n;
   stats.requests = { annict: r.annict?.requests ?? 0, anilist: r.anilist.requests, wikipedia: r.wikipedia.requests };
   stats.cache = { hits: r.cache.hits, misses: r.cache.misses };

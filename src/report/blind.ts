@@ -120,7 +120,9 @@ export const GUIDE = `# 答え方（候補を見ない AI の判定）
 }
 \`\`\`
 
-- not_in_db のときは "title": "作品名" を付ける
+- not_in_db のときは "title": "作品名"、"kind": "anime" / "tokusatsu" / "live_action"、"movie": true / false を付ける
+  - kind: anime はアニメーション（海外のアニメ・CG・ストップモーションを含む）、tokusatsu は日本の特撮（ヒーロー・怪獣）、live_action はそれ以外（実写と CG の合成、舞台・ミュージカルの映像を含む）
+  - movie: 映画（劇場公開か配信の単発の長編）なら true。テレビ・Web のシリーズ、特番、舞台の映像は false
 - confidence: high / medium / low（hold は low）
 - evidence.looked: 見たもの（title / description / thumbnail / lookup）。not_a_work と not_in_db は lookup と queries が必須
 `;

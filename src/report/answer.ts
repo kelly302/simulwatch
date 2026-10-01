@@ -10,6 +10,9 @@ export interface AuditAnswer {
   title?: string;
   /** identified で、ほかにも観ているが外部DBに無い作品の名前（「プリキュア＆X」の X が外部DBに無いなど） */
   missing?: string[];
+  /** not_in_db の作品の映像の種類と、映画かどうか（作品の行が無いので、UI の絞り込み用にここで持つ） */
+  kind?: "anime" | "tokusatsu" | "live_action";
+  movie?: boolean;
   confidence: "high" | "medium" | "low";
   evidence: { looked: string[]; queries?: string[]; thumbnail?: string; notes?: string };
   rationale: string;
@@ -33,6 +36,9 @@ export function validateAnswer(a: AuditAnswer): string | null {
   if (a.status === "not_in_db" && !a.title?.trim()) return "not_in_db なのに title（作品名）が無い";
   if (a.missing !== undefined && (!Array.isArray(a.missing) || a.missing.some((x) => typeof x !== "string" || !x.trim()))) return "missing は作品名の配列";
   if (a.missing?.length && a.status !== "identified") return "missing は identified のときだけ";
+  if (a.kind !== undefined && !["anime", "tokusatsu", "live_action"].includes(a.kind)) return `kind が不正: ${a.kind}`;
+  if (a.movie !== undefined && typeof a.movie !== "boolean") return `movie が不正: ${String(a.movie)}`;
+  if ((a.kind !== undefined || a.movie !== undefined) && a.status !== "not_in_db") return "kind・movie は not_in_db のときだけ（外部DBの作品は外部DBから埋める）";
   return null;
 }
 

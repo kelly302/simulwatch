@@ -292,3 +292,50 @@ test("実写のシーズンの項目はシリーズの項目に付け替える�
   assert.equal(lifted.get("wikidata:Q2")?.liftedFrom, "wikidata:Q2");
   assert.equal(lifted.has("wikidata:Q6"), false);
 });
+
+test("映像の種類: アニメのDBの作品はアニメ、Wikidata の作品はジャンルの特撮・アニメーションと分類で分け、残りは実写", async () => {
+  const { workKind } = await import("../src/resolve/enrich.ts");
+  const cfg = loadExtractConfig();
+  assert.equal(workKind("annict", [], [], cfg), "anime");
+  assert.equal(workKind("anilist", [], [], cfg), "anime");
+  // 仮面ライダー（テレビドラマ・ジャンル特撮）
+  assert.equal(workKind("wikidata", ["Q5398426"], ["Q275934"], cfg), "tokusatsu");
+  // 特撮のアニメ映画は特撮を先に見る（ジャンルに特撮があれば特撮）
+  assert.equal(workKind("wikidata", ["Q202866"], ["Q275934"], cfg), "tokusatsu");
+  // アニメ映画（分類）・ジャンルがアニメーションの映画
+  assert.equal(workKind("wikidata", ["Q202866"], [], cfg), "anime");
+  assert.equal(workKind("wikidata", ["Q11424"], ["Q11425"], cfg), "anime");
+  // 実写の映画・ドラマ
+  assert.equal(workKind("wikidata", ["Q11424"], ["Q130232"], cfg), "live_action");
+  assert.equal(workKind("wikidata", ["Q5398426"], [], cfg), "live_action");
+  // 作品にジャンルが無くても、シリーズ（スーパー戦隊シリーズ）が特撮なら特撮
+  assert.equal(workKind("wikidata", ["Q5398426"], [], cfg, ["Q275934"]), "tokusatsu");
+  // 日本の怪獣映画は特撮、原作がゴジラ（特撮）でもハリウッドの制作なら実写
+  assert.equal(workKind("wikidata", ["Q11424"], ["Q1065444"], cfg, [], true), "tokusatsu");
+  assert.equal(workKind("wikidata", ["Q11424"], ["Q1065444"], cfg, ["Q275934"], false), "live_action");
+  // シリーズが特撮でも、作品自体がアニメならアニメ
+  assert.equal(workKind("wikidata", ["Q202866"], [], cfg, ["Q275934"], true), "anime");
+});
+
+test("Wikidata の応答が大きすぎて切り捨てられた項目は、分けて取り直す（黙って落とさない）", async () => {
+  const { openDb } = await import("../src/lib/db.ts");
+  const { ResolveCache } = await import("../src/resolve/cache.ts");
+  const { WikipediaClient } = await import("../src/resolve/sources/wikipedia.ts");
+  const calls: string[][] = [];
+  const entity = (id: string) => ({ id, labels: { ja: { value: id }, en: { value: id } }, claims: { P31: [{ mainsnak: { datavalue: { value: { id: "Q11424" } } } }] } });
+  // 2件以上をまとめて頼むと、先頭の1件だけ返して残りを切り捨てる
+  const http = {
+    postForm: async (_url: string, form: Record<string, string>) => {
+      const ids = form.ids!.split("|");
+      calls.push(ids);
+      const got = ids.length > 1 ? ids.slice(0, 1) : ids;
+      return { status: 200, body: JSON.stringify({ entities: Object.fromEntries(got.map((id) => [id, entity(id)])), warnings: { result: { "*": "truncated" } } }) };
+    },
+  };
+  const wp = new WikipediaClient(http as never, new ResolveCache(openDb(":memory:"), 30));
+  const ents = await wp.entities(["Q1", "Q2", "Q3", "Q4"]);
+  assert.deepEqual([...ents.keys()].sort(), ["Q1", "Q2", "Q3", "Q4"]);
+  assert.equal(wp.failedQids.size, 0);
+  const attrs = await wp.attrs(["Q5", "Q6", "Q7"]);
+  assert.deepEqual([...attrs.keys()].sort(), ["Q5", "Q6", "Q7"]);
+});

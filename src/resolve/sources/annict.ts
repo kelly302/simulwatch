@@ -158,6 +158,31 @@ export class AnnictClient {
    * 作品が属するシリーズの全作品（自分を含む）。同定の検証（期の取り違えの確認）で、ほかの期を並べるのに使う。
    * シリーズに入っていない作品は空の配列
    */
+  /** 作品が属するシリーズ（Annict のシリーズの ID と名前）。UI のシリーズのまとめ用。作品の照会とは別のキャッシュに持つ */
+  async seriesNames(annictIds: number[]): Promise<Map<number, { id: number; name: string }[]>> {
+    const out = new Map<number, { id: number; name: string }[]>();
+    const todo: number[] = [];
+    for (const id of new Set(annictIds)) {
+      const c = this.cache.get<{ id: number; name: string }[]>("annict_series_name", String(id));
+      if (c) out.set(id, c);
+      else todo.push(id);
+    }
+    for (let i = 0; i < todo.length; i += 50) {
+      const batch = todo.slice(i, i + 50);
+      const data = await this.gql<{ searchWorks: { nodes: { annictId: number; seriesList: { nodes: { annictId: number; name: string }[] } }[] } }>(
+        `query($ids: [Int!]) { searchWorks(annictIds: $ids, first: 50) { nodes { annictId seriesList(first: 5) { nodes { annictId name } } } } }`,
+        { ids: batch },
+      );
+      const got = new Map(data.searchWorks.nodes.map((n) => [n.annictId, n.seriesList.nodes.map((s) => ({ id: s.annictId, name: s.name }))]));
+      for (const id of batch) {
+        const v = got.get(id) ?? [];
+        this.cache.set("annict_series_name", String(id), v);
+        out.set(id, v);
+      }
+    }
+    return out;
+  }
+
   async seriesWorks(annictIds: number[]): Promise<Map<number, WorkCandidate[]>> {
     const out = new Map<number, WorkCandidate[]>();
     const todo: number[] = [];

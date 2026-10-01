@@ -14,6 +14,7 @@ import { WikipediaClient } from "../resolve/sources/wikipedia.ts";
 import { labelCandidate, workMedia } from "../resolve/match.ts";
 import { applyAiDecisions } from "../resolve/ai.ts";
 import { liftLiveSeasons } from "../resolve/lift.ts";
+import { enrichWorks } from "../resolve/enrich.ts";
 import type { AiStatus, AiConfidence, AiWork } from "../resolve/ai.ts";
 import type { WorkCandidate } from "../resolve/types.ts";
 import { sampleOrder } from "./sample.ts";
@@ -207,7 +208,7 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promi
   const problems: string[] = [];
   const CONF = new Set(["high", "medium", "low"]);
   const evOf = db.prepare("SELECT id FROM watch_events WHERE video_id = ?");
-  type Item = DecisionInput & { title?: string; missing?: string[]; model: string; batch: string; finished_at?: string };
+  type Item = DecisionInput & { title?: string; missing?: string[]; kind?: string; movie?: boolean; model: string; batch: string; finished_at?: string };
   const items: Item[] = [];
   for (const f of files) {
     const j = JSON.parse(readFileSync(f, "utf8")) as Partial<DecisionFile> & { answers?: AuditAnswer[] };
@@ -216,10 +217,13 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promi
       for (const a of j.answers) {
         const why = !evOf.get(a.video_id) ? "枠が無い" : validateAnswer(a);
         if (why) { problems.push(`${a.video_id}: ${why}`); continue; }
+        // 2026-10-02 より前の答えには無い（受け付けて、UI の絞り込みから漏れることだけ知らせる）
+        if (a.status === "not_in_db" && (!a.kind || a.movie === undefined)) problems.push(`${a.video_id}: not_in_db に kind・movie が無い（映像の種類・映画での絞り込みに出ない）`);
         items.push({
           video_id: a.video_id, status: a.status as AiStatus, confidence: a.confidence, evidence: a.evidence, rationale: a.rationale, seconds: a.seconds,
           works: (a.works ?? []).map((w) => ({ key: w.key, ...(w.episodes?.length ? { episodes: w.episodes } : {}) })),
           ...(a.title ? { title: a.title } : {}), ...(a.missing?.length ? { missing: a.missing } : {}),
+          ...(a.kind ? { kind: a.kind } : {}), ...(a.movie !== undefined ? { movie: a.movie } : {}),
           model: j.model, batch: j.batch, finished_at: j.finished_at,
         });
       }
@@ -248,7 +252,10 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promi
       const unknown = works.filter((w) => !w.work).map((w) => w.key);
       if (unknown.length) { problems.push(`${d.video_id}: 外部DBで引けない（作品クラスでない Wikidata の項目を含む）: ${unknown.join(", ")}`); continue; }
       const ev = (evOf.get(d.video_id) as { id: number }).id;
-      const extra = d.title || d.missing?.length ? JSON.stringify({ ...(d.title ? { title: d.title } : {}), ...(d.missing?.length ? { missing: d.missing } : {}) }) : null;
+      const extra = d.title || d.missing?.length || d.kind ? JSON.stringify({
+        ...(d.title ? { title: d.title } : {}), ...(d.missing?.length ? { missing: d.missing } : {}),
+        ...(d.kind ? { kind: d.kind } : {}), ...(d.movie !== undefined ? { movie: d.movie } : {}),
+      }) : null;
       db.prepare("UPDATE ai_decisions SET revoked_at = ? WHERE watch_event_id = ? AND revoked_at IS NULL").run(now, ev);
       db.prepare(`INSERT INTO ai_decisions (watch_event_id, status, works, confidence, evidence, rationale, model, batch, seconds, decided_at, extra)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ev, d.status, works.length ? JSON.stringify(works) : null, d.confidence,
@@ -257,6 +264,12 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promi
     }
     applyAiDecisions(db, cfg.version, applied);
   });
+  // 新しく入った作品の属性（映像の種類・制作国・シリーズの名前）を埋める
+  try {
+    await enrichWorks(ctx, cfg);
+  } catch (e) {
+    problems.push(`作品の属性を埋められなかった（次の resolve で埋める）: ${String(e).slice(0, 200)}`);
+  }
   const by = new Map<string, number>();
   for (const d of items) by.set(`${d.status}/${d.confidence}`, (by.get(`${d.status}/${d.confidence}`) ?? 0) + 1);
   return [`入れた判定 ${applied.length} / ${items.length + problems.filter((x) => !x.includes("外部DBで引けない")).length}（${[...by].map(([k, v]) => `${k} ${v}`).join("・")}）`, ...problems.map((x) => `  ✖ ${x}`)].join("\n");

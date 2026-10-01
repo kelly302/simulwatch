@@ -39,6 +39,12 @@ export interface ExtractConfig {
     /** 原作・作品の記事のクラス（小説・漫画など）。Wikidata のラベルの段で、区間と同名の記事がこれでなければ区間は一般の語とみなす */
     source_classes?: string[];
     not_work_classes: Record<string, string>;
+    /** 映像の種類を決めるジャンル（P136）。特撮のジャンルがあれば特撮、アニメーションのジャンルか anime_classes の分類があればアニメ */
+    tokusatsu_genres?: string[];
+    tokusatsu_origin?: { language: string; country: string };
+    series_excluded_classes?: string[];
+    series_excluded?: string[];
+    animation_genres?: string[];
     /** シーズンの項目のクラス（テレビシリーズのシーズン）。実写ならシリーズの項目に付け替える */
     live_season_classes?: string[];
     /** AI の判定（ai:apply）で受け付けるときだけ足す作品のクラス。ルールの照合には使わない */

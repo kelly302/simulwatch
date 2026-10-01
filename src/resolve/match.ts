@@ -107,7 +107,8 @@ export function baseTitle(t: string): string {
 }
 
 export function wikidataCandidate(p: PageInfo, e: EntityInfo, cfg: ExtractConfig): WorkCandidate {
-  const title = e.labelJa ?? baseTitle(p.title ?? p.query);
+  // Wikidata のラベルの BOM・ゼロ幅の文字は表示に出るので落とす（照合キーではもともと落としている）
+  const title = (e.labelJa ?? baseTitle(p.title ?? p.query)).replace(/[\uFEFF\u200B-\u200D\u2060]/g, "").trim();
   return {
     source: "wikidata",
     sourceKey: `wikidata:${e.qid}`,

@@ -225,6 +225,17 @@ const MIGRATIONS: string[] = [
   ALTER TABLE event_resolution ADD COLUMN route_at TEXT;
   ALTER TABLE ai_decisions ADD COLUMN extra TEXT;           -- JSON。{ title（not_in_db の作品名）, missing（外部DBに無い作品の名前）}
   `,
+  // 7: 作品の属性（2026-10-02。UI の絞り込み用）。映像の種類・制作国・シリーズの名前。外部DBから自動で埋める（src/resolve/enrich.ts）
+  `
+  ALTER TABLE works ADD COLUMN kind TEXT;           -- anime / tokusatsu / live_action
+  ALTER TABLE works ADD COLUMN countries TEXT;      -- JSON。制作国の ISO 3166-1 alpha-2 の並び（["JP"]・["US","GB"]）。分からなければ NULL
+  ALTER TABLE works ADD COLUMN series_title TEXT;   -- シリーズの名前（Annict のシリーズ・Wikidata の P179）。series_id と対
+  ALTER TABLE works ADD COLUMN attrs_at TEXT;       -- 属性を埋めた時刻
+  `,
+  // 8: 作品名の BOM・ゼロ幅の文字を落とす（Wikidata のラベルの末尾に混じる。「エクステリトリアル」の末尾）。新しい作品は wikidataCandidate で落とす
+  `
+  UPDATE works SET title = replace(replace(title, char(65279), ''), char(8203), '') WHERE instr(title, char(65279)) > 0 OR instr(title, char(8203)) > 0;
+  `,
 ];
 
 export function openDb(path: string = DB_PATH): DB {

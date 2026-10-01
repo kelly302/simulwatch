@@ -51,6 +51,7 @@
 自分の MV のプレミア公開、同時視聴の枠の切り抜き（#shorts） |
 | 作品だが外部DBに無いもの | 映画・ドラマ・アニメ・舞台やミュージカルの映像・事務所のアニメやドラマ（ホロぐら）は、外部DBに無くても作品ではない扱いにしない。**枠として出す**（作品ページは作らない）（2026-09-28 決定） |
 | 作品種別 | アニメ限定にしない。映画・実写・特撮も含める |
+| 作品の属性（UI の絞り込み） | 映像の種類（アニメ / 特撮 / 実写）・映画かどうか（media が movie）・制作国・シリーズのまとめ。**ジャンルは持たない**。外部DBから自動で埋める（2026-10-02 決定。詳細は「作品の属性」） |
 | 話数の粒度 | 持つが必須にしない。映画・単発は Episode を作らない |
 | メン限枠 | 一覧に載せる。is_members_only でバッジ表示 |
 | 主要指標 | 再生数。ランキングと並び順に使う |
@@ -132,6 +133,7 @@ views_* のソートは実施済み枠のみを対象にする。
     Work       id, annict_id, anilist_id, wikidata_id, title, title_kana,
                media (tv / movie / ova / web), season_name, series_id,
                episodes_count, image_url, mal_id, release_year, source,
+               kind (anime / tokusatsu / live_action), countries, series_title, attrs_at,
                created_at, updated_at
     Episode    id, work_id, number, number_text, title
                ※ 映画・単発は作らない
@@ -175,6 +177,31 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
 - `Work.season_name` Annict・AniList は `2022-autumn`、Wikidata は年だけ（`2022`）。`series_id` は `annict:<id>` / `wikidata:<Qid>`
 - `EventWork.match_method` 同定のしかた（`annict:exact`、`wikipedia:suffix` など）。`extracted_text` は一致した区間。誤同定の調査に使う
 - `Unresolved` は1枠1行。あとで同定できたら `resolved_at` を立てる（行は残す）。`detail` に試した区間と候補を JSON で持つ
+
+### 作品の属性（2026-10-02 決定。UI の絞り込み用。src/resolve/enrich.ts）
+
+外部DBから自動で埋める（手で分類しない）。名寄せ（resolve）の最後と ai:apply のあとに、まだ埋めていない作品（attrs_at が NULL）だけを埋める。
+`works:enrich --all` で全部を埋め直す。ルールは config/extract.yaml の wikipedia（tokusatsu_genres など）。
+
+- `Work.kind` 映像の種類。Annict・AniList の作品はアニメ。Wikidata の作品は次の順で決める
+  1. 作品のジャンル（P136）に特撮（`tokusatsu_genres`。**怪獣を含む**。シン・ゴジラ・ゴジラ-1.0・ガメラは Wikidata のジャンルが特撮でなく怪獣）があれば特撮
+  2. アニメーションのジャンル（`animation_genres`）か anime_classes の分類（P31）があればアニメ
+  3. シリーズ（P179。2段まで）・原作（P144）・フランチャイズ（P8345）のジャンルに特撮があれば特撮（仮面ライダーシリーズ・スーパー戦隊シリーズ・劇場版の原作のテレビシリーズ）。作品自体のアニメの分類を上書きしない
+  4. それ以外は実写（実写と CG の合成を含む。ソニック・名探偵ピカチュウ）
+
+  **特撮は日本の作品に限る**（`tokusatsu_origin`。原語（P364）が日本語。原語が無ければ制作国に日本。どちらも分からなければ限らない）。
+  ハリウッドのゴジラ（モンスターバース）は原作がゴジラ（特撮）で制作国に日本も入るが、原語が英語なので実写
+- 映画かどうかは `Work.media`（movie）で見る（列を足さない）
+- `Work.countries` 制作国（ISO 3166-1 alpha-2 の JSON の並び。順序に意味は持たせない）。Wikidata の P495、無ければ AniList の countryOfOrigin。
+  Annict にだけある作品（海外のアニメ映画に多い）は、作品名・「作品名 (映画)」・「作品名 (YYYY年の映画)」の Wikipedia の記事の Wikidata 項目が
+  **アニメーションの作品で公開年が±1年**（日本の公開が翌年になる）のときだけ、その P495 を使う（制作国を引くためだけ。同定には使わない）。
+  それでも無ければ同じシリーズのほかの作品の制作国がそろっていれば使う。分からなければ NULL（表示は「不明」）
+- `Work.series_title` シリーズの名前。Annict のシリーズ名、Wikidata の P179 の日本語ラベル（無ければ英語のラベル）。
+  **シリーズのまとめ（UI）は series_title のある作品を series_id でまとめる**。Wikidata の P179 に一覧記事（「BBC's 100 Greatest Films of the 21st Century」が
+  インセプションとメメントをまとめていた）やスタジオの作品一覧が入るので、`series_excluded_classes`・`series_excluded` の項目はシリーズにしない（series_title を NULL）。
+  Annict の作品で series_id が空のもの（視聴系列・AI の判定でシリーズの一覧から作った作品）は Annict の作品のシリーズで埋める（複数なら DB のほかの作品が多く付いているもの）
+- 作品だが外部DBに無いもの（not_in_db）は作品の行が無いので、AI の答えに `kind`・`movie` を持たせて ai_decisions.extra に入れる（GUIDE に定義を書いた。
+  舞台・ミュージカルの映像は実写・映画でない）。2026-10-02 より前の答えには無いので ai:apply は受け付けて知らせる。ai-run-1 の2件は fix-not-in-db-kind.json で足した
 
 ### 取得用の内部テーブル（公開しない）
 
@@ -377,6 +404,9 @@ resolve（区間を外部DBに照会して作品を決める）:
 - Wikipedia・Wikidata への照会は POST で送る（記事名50件をまとめると GET の URL が長すぎて 414 になる）。
   1回の照会が落ちても他は続け、落ちた記事名を使う区間だけ `error` にする。検索の混雑エラーは待って再試行する
 - AniList のキャッシュは生の応答で持ち、候補への変換は読み出すときに行う（変換のルールを変えても照会し直さない）
+- **Wikidata の wbgetentities は応答が約12MB を超えると後ろの項目を黙って切り捨てる**（warnings に truncated。国の項目やキャストの多い映画の項目が50件並ぶと超える）。
+  返ってこなかった項目は分けて取り直す（1件でも返ってこなければ failedQids。2026-10-02）。それまでの名寄せへの影響は、記事の QID 16,479 件のうち
+  項目のキャッシュが無いものが7件で、作品の項目は0件（ラベル検索の候補はすべての項目を引かないので、この方法では測れない）
 
 期の取り違えを防ぐ規則（ゲート2の追加確認で入れたもの）:
 
@@ -532,7 +562,7 @@ AI の判定（ゲート2の判断。`src/resolve/ai.ts`・`src/report/ai.ts`）
       detect/           キーワード判定（純粋関数）
       crawl/            巡回ジョブ（取得元・判定と保存・状態の取り直し）
       resolve/          名寄せ（extract・照合・期と部の表記（markers）・視聴系列の期（series）・AI の判定の反映（ai）・同定の型（route）・型の記録と出し方（routing）・
-                        Annict / AniList / Wikipedia のクライアント・保存）
+                        作品の属性（enrich）・Annict / AniList / Wikipedia のクライアント・保存）
       report/           ローカル確認用のレポート・同定の検証用の抽出・外部DBの照会（lookup）・AI の判定の道具（ai）・
                         型ごとの抽出と AI との突き合わせ（audit）・候補を見せない待ち行列（blind）・AI の答えの形式（answer）・裁定と採点の HTML（review）
     test/               node --test のテスト
@@ -572,6 +602,7 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- ai:report ai-trial-1                                 # 判定の根拠の一覧（report.md）と採点用の report.html
     npm run cli -- ai:revoke --batch ai-trial-1                         # 判定の取り消しとルールでの名寄せし直し
     npm run cli -- ai:status                                            # サイトでの出し方ごとの件数と、AI の判定待ちの型の内訳
+    npm run cli -- works:enrich [--all]                                 # 作品の属性（映像の種類・制作国・シリーズの名前）を外部DBから埋める
     npm run cli -- audit:types                     # 同定の型ごとの件数と目印の重なり（data/audit/types.md。DB は変えない）
     npm run cli -- audit:sample --seed audit-1     # 型ごとの抽出。AI に見せる待ち行列と封をしたルールの答え（data/audit/<batch>/）
     npm run cli -- audit:sample --seed audit-2 --exclude audit-1 --n 50 --type "unique_exact,not_a_work_rule:スポーツ"   # 層を絞った測り直し
@@ -691,7 +722,21 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
   所属するシリーズ（P179）の項目に付け替え、話数を付けない（src/resolve/lift.ts。名寄せと ai:apply の両方）。作品ページではシリーズの枠が日付順に並ぶ。
   「イカゲーム (シーズン2)」→「イカゲーム」、TXQ FICTION の各作品（UFO山・魔法少女山田・イシナガキクエを探しています・飯沼一家に謝罪します）→「TXQ FICTION」。
   アニメは今までどおり Annict の期ごとに分ける
-- アニメか実写かは名寄せの中では区別しているが（Annict・AniList はアニメ、Wikidata は P31 がアニメのクラスならアニメ）、works には列が無い（2026-10-02 時点）
+- アニメ / 特撮 / 実写・映画・制作国・シリーズのまとめを作品の属性として持つことにした（2026-10-02。ジャンルは持たない。上の「作品の属性」）。
+  初回（作品1,018件）: アニメ460・実写531・特撮27、制作国が分からない12、シリーズの名前552。確認の手順と結果は下の「作品の属性の確認」
+- 残る課題（作品の属性）: Wikidata に特撮の手がかりが無い作品は実写になる（仮面ライダーギーツはジャンル・シリーズ・フランチャイズが無い）。
+  同じ作品群でも照会先でシリーズが分かれる（Annict の「劇場版 名探偵コナン」と Wikidata の「Detective Conan」、「劇場版ポケットモンスター」と「ポケットモンスター (劇場版)」。
+  Phase 3 の表示で寄せるか決める）。Wikidata のラベルが崩れている作品がある（「麻雀放浪記#映画 麻雀放浪記」）。Thunderbolt Fantasy（人形劇）は Annict にあるのでアニメ
+- 作品の属性の確認（2026-10-02）: DB は works:enrich --all のあと（作品1,018件）。基準は抽出の前に決めた（アニメ＝アニメーション。海外・CG・ストップモーションを含む／
+  特撮＝日本の特撮（ヒーロー・怪獣）／実写＝それ以外。実写と CG の合成を含む／映画＝劇場公開か配信の単発の長編／制作国＝主な制作国を含み関係のない国が無い／
+  シリーズ名＝付いていれば作品がそのシリーズに属する。付いていないのは取りこぼしで誤りに数えない）。
+  全数: 特撮27件・Wikidata のアニメ34件・Wikidata の実写531件（名前を全部見てアニメ・特撮の取りこぼしを探し、怪しい11件は Wikidata を照会。すべて実写で正しい）・
+  同名の Wikipedia の記事で埋めた制作国49件・シリーズで埋めた3件。抽出: sha256("attrs-1:" + 作品の id) の昇順で50件、誤り0（誤りの割合の95%上限は約6%）。
+  この確認で見つけて直したもの: 特撮の取りこぼし（仮面ライダー・戦隊の6件とオメガホーン。シリーズ・原作・フランチャイズを見るようにした）、
+  ハリウッドのゴジラ2件が特撮になる（原語で日本の作品に限った）、P179 の一覧記事（インセプションとメメントを1つのシリーズにしていた）、
+  Annict の作品の series_id の空（10件）、作品名の BOM（4件）、Wikidata の応答の切り捨て（国の項目が4件落ちていた）。
+  この手順で検出できない誤り: 判定は知識によるので、合作の副次的な制作国の誤り、名前からアニメと分からない実写の誤分類（実写の全数は名前だけで見た）、
+  Annict にあるアニメ以外の作品（人形劇など）は名前で気づけたものしか拾えない
 - 残る課題: works.episodes_count は最初に入った照会先の値のまま（アイカツ！が AniList の50話。Annict は178話）。Annict を正にするには名寄せのやり直しが要る
 
 ## 未確定（実装前に確認すること）
