@@ -39,6 +39,8 @@ export interface ExtractConfig {
     /** 原作・作品の記事のクラス（小説・漫画など）。Wikidata のラベルの段で、区間と同名の記事がこれでなければ区間は一般の語とみなす */
     source_classes?: string[];
     not_work_classes: Record<string, string>;
+    /** シーズンの項目のクラス（テレビシリーズのシーズン）。実写ならシリーズの項目に付け替える */
+    live_season_classes?: string[];
     /** AI の判定（ai:apply）で受け付けるときだけ足す作品のクラス。ルールの照合には使わない */
     ai_extra_work_classes?: Record<string, "tv" | "movie" | "ova" | "web">;
   };

@@ -26,6 +26,7 @@ import type { EventWorkRow } from "./store.ts";
 import { upsertWork, mergeWorks, getOrCreateEpisode, replaceEventWorks, markUnresolved, markResolved } from "./store.ts";
 import { applyAiDecisions, AI_LOCKED_SQL } from "./ai.ts";
 import { assignSeasons } from "./series.ts";
+import { liftLiveSeasons } from "./lift.ts";
 import type { SeriesStats } from "./series.ts";
 
 // 名寄せの本体。
@@ -877,6 +878,18 @@ export async function resolveEvents(ctx: Ctx, opts: ResolveOptions): Promise<Res
     const d = pick(p, outcomes, seasonQualifiers);
     return { plan: p, ...d, eps: d.picked.map((x) => episodesFor(p, x, cfg)) };
   });
+  // 実写のシーズンの項目はシリーズの項目に付け替え、話数を付けない（src/resolve/lift.ts）
+  try {
+    const lifted = await liftLiveSeasons(decisions.flatMap((d) => d.picked.map((p) => p.work)), r.wikipedia, cfg);
+    for (const d of decisions) {
+      d.picked.forEach((p, i) => {
+        const l = lifted.get(p.work.sourceKey);
+        if (l) { p.work = l; d.eps[i] = []; }
+      });
+    }
+  } catch (e) {
+    r.errors.push(`実写のシーズンの付け替え: ${errorMessage(e)}`);
+  }
   // 話数を紐付けるテレビ作品の話の一覧（Annict）
   const annictEpisodes = new Map<number, AnnictEpisode[]>();
   if (r.annict) {

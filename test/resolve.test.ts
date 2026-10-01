@@ -274,3 +274,21 @@ test("作品ではない枠の仕分け: ほぼ同じ作品名（前方一致・
   assert.equal(nearTitle("天皇賞秋", "天気の子", cfg), false);
   assert.equal(nearTitle("にじさんじ甲子園", "にじさんじ", cfg), true);
 });
+
+test("実写のシーズンの項目はシリーズの項目に付け替える（アニメのシーズン・シリーズが作品でないものは付け替えない）", async () => {
+  const { liftLiveSeasons } = await import("../src/resolve/lift.ts");
+  const { wikidataCandidate, liveSeasonSeries } = await import("../src/resolve/match.ts");
+  const cfg = loadExtractConfig();
+  const ent = (qid: string, p31: string[], label: string, series: string | null = null) => ({ qid, p31, labelJa: label, year: 2024, series });
+  const season = ent("Q2", ["Q3464665"], "イカゲーム (シーズン2)", "Q1");
+  const animeSeason = ent("Q4", ["Q3464665", "Q63952888"], "あるアニメ 第2期", "Q3");
+  assert.equal(liveSeasonSeries(season, cfg), "Q1");
+  assert.equal(liveSeasonSeries(animeSeason, cfg), null);
+  const page = (q: string) => ({ query: q, title: null, qid: q, missing: false, disambiguation: false, redirected: false, fragment: false });
+  const ents = new Map([["Q1", ent("Q1", ["Q5398426"], "イカゲーム")], ["Q9", ent("Q9", ["Q5"], "人物")]]);
+  const wp = { entities: async (qs: string[]) => new Map(qs.filter((q) => ents.has(q)).map((q) => [q, ents.get(q)!])) };
+  const lifted = await liftLiveSeasons([wikidataCandidate(page("Q2"), season, cfg), wikidataCandidate(page("Q6"), ent("Q6", ["Q3464665"], "X", "Q9"), cfg)], wp as never, cfg);
+  assert.equal(lifted.get("wikidata:Q2")?.wikidataId, "Q1");
+  assert.equal(lifted.get("wikidata:Q2")?.liftedFrom, "wikidata:Q2");
+  assert.equal(lifted.has("wikidata:Q6"), false);
+});

@@ -13,6 +13,7 @@ import { AniListClient } from "../resolve/sources/anilist.ts";
 import { WikipediaClient } from "../resolve/sources/wikipedia.ts";
 import { labelCandidate, workMedia } from "../resolve/match.ts";
 import { applyAiDecisions } from "../resolve/ai.ts";
+import { liftLiveSeasons } from "../resolve/lift.ts";
 import type { AiStatus, AiConfidence, AiWork } from "../resolve/ai.ts";
 import type { WorkCandidate } from "../resolve/types.ts";
 import { sampleOrder } from "./sample.ts";
@@ -187,6 +188,9 @@ export async function fetchWorks(ctx: Ctx, cfg: ExtractConfig, keys: string[]): 
       if (media) got.set(`wikidata:${q}`, { ...labelCandidate(e, cfg), media });
     }
   }
+  // 実写のシーズンの項目はシリーズの項目に付け替える（src/resolve/lift.ts。話数は ai:apply が外す）
+  const lifted = await liftLiveSeasons([...got.values()], wp, cfg, extra);
+  for (const [k, c] of got) { const l = lifted.get(c.sourceKey); if (l) got.set(k, l); }
   return got;
 }
 
@@ -239,7 +243,8 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promi
   const now = nowIso();
   tx(db, () => {
     for (const d of items) {
-      const works: AiWork[] = (d.works ?? []).map((w) => ({ key: w.key, work: got.get(w.key), ...(w.episodes?.length ? { episodes: w.episodes } : {}) }));
+      // シリーズの項目に付け替えた作品には話数を付けない（どのシーズンの話か分からない）
+      const works: AiWork[] = (d.works ?? []).map((w) => ({ key: w.key, work: got.get(w.key), ...(w.episodes?.length && !got.get(w.key)?.liftedFrom ? { episodes: w.episodes } : {}) }));
       const unknown = works.filter((w) => !w.work).map((w) => w.key);
       if (unknown.length) { problems.push(`${d.video_id}: 外部DBで引けない（作品クラスでない Wikidata の項目を含む）: ${unknown.join(", ")}`); continue; }
       const ev = (evOf.get(d.video_id) as { id: number }).id;

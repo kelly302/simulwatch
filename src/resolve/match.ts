@@ -125,7 +125,16 @@ export function wikidataCandidate(p: PageInfo, e: EntityInfo, cfg: ExtractConfig
     imageUrl: null,
     seriesId: e.series ? `wikidata:${e.series}` : null,
     isAnime: e.p31.some((c) => cfg.wikipedia.anime_classes.includes(c)),
+    ...(liveSeasonSeries(e, cfg) ? { liveSeasonOf: liveSeasonSeries(e, cfg)! } : {}),
   };
+}
+
+/** 実写のシーズンの項目なら、所属するシリーズの QID（付け替え先）。そうでなければ null */
+export function liveSeasonSeries(e: EntityInfo, cfg: ExtractConfig): string | null {
+  const seasons = cfg.wikipedia.live_season_classes ?? [];
+  if (!e.series || !e.p31.some((c) => seasons.includes(c))) return null;
+  if (e.p31.some((c) => cfg.wikipedia.anime_classes.includes(c))) return null;
+  return e.series;
 }
 
 /** Wikipedia に記事の無い Wikidata の作品（ラベルの完全一致で見つけたもの） */

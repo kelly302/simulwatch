@@ -24,6 +24,10 @@ export interface WorkCandidate {
   seriesId: string | null;
   /** Wikidata の作品がアニメ（P31 がアニメのクラス）か。アニメなら期の表記で照合する */
   isAnime?: boolean;
+  /** Wikidata の実写のシーズンの項目で、所属するシリーズの項目（P179）がある（シリーズの項目に付け替える。2026-10-02 の決定 (b)） */
+  liveSeasonOf?: string;
+  /** シーズンの項目から付け替えたシリーズの項目（どのシーズンの話か分からないので話数を付けない） */
+  liftedFrom?: string;
 }
 
 export type UnresolvedReason = "no_candidate" | "unidentifiable" | "not_found" | "ambiguous" | "not_a_work" | "not_in_db" | "error";
