@@ -16,6 +16,8 @@ import { applyAiDecisions } from "../resolve/ai.ts";
 import type { AiStatus, AiConfidence, AiWork } from "../resolve/ai.ts";
 import type { WorkCandidate } from "../resolve/types.ts";
 import { sampleOrder } from "./sample.ts";
+import { writeReviewHtml } from "./review.ts";
+import type { ReviewItem } from "./review.ts";
 
 // AI による判定の道具（ローカルの CLI。定期実行のジョブからは呼ばない）。
 //
@@ -263,7 +265,35 @@ export function aiReport(ctx: Ctx, batch: string): string {
   mkdirSync(dir, { recursive: true });
   const path = join(dir, "report.md");
   writeFileSync(path, out.join("\n"), "utf8");
-  return `${rows.length} 件 → ${path}`;
+
+  // 採点用の HTML（正しい / 誤り / 判断できない とメモ。scores.md に書き出す）。取り消した判定は出さない
+  const order = ["identified", "not_a_work", "unidentifiable", "hold"];
+  const live = rows.filter((r) => !r.revoked_at);
+  const sections = order.filter((k) => live.some((r) => r.status === k))
+    .map((k) => ({ key: k, label: label[k] ?? k, required: true, ...(k === "hold" ? { note: "決められたはずなのに保留にしたものを「誤り」にする" } : {}) }));
+  const items: ReviewItem[] = sections.flatMap((sec) => live.filter((r) => r.status === sec.key).map((r, i) => {
+    const works = r.works ? (JSON.parse(String(r.works)) as AiWork[]) : [];
+    const ev = JSON.parse(String(r.evidence)) as DecisionInput["evidence"];
+    const q = queued.get(String(r.video_id));
+    const vid = String(r.video_id);
+    return {
+      id: vid, no: i + 1, section: sec.key, type: sec.label, typeLabel: `AI の判定: ${sec.label}`,
+      streamer: String(r.streamer), started_at: String(r.started_at ?? "").slice(0, 10), title: String(r.title_raw),
+      url: `https://www.youtube.com/watch?v=${vid}`, thumb: existsSync(join(dir, "thumbs", `${vid}.jpg`)) ? `thumbs/${vid}.jpg` : null,
+      desc: q?.description_lines ?? [],
+      rule: { status: `判定の前のルール: 未同定（${q?.reason ?? "?"}）`, lines: q?.segments.length ? [`区間: ${q.segments.join(" ／ ")}`] : [], flags: q?.notes.join(" ／ ") ?? "" },
+      ai: {
+        status: label[String(r.status)] ?? String(r.status), confidence: String(r.confidence),
+        lines: works.map((w) => `${w.work?.title ?? "?"}（${w.key}・${w.work?.media ?? "?"}・${w.work?.releaseYear ?? "?"}）${w.episodes?.length ? ` 話 ${w.episodes.join(",")}` : ""}`),
+        looked: `${ev.looked.join("・")}${ev.queries?.length ? `（照会: ${ev.queries.join(" ／ ")}）` : ""}`,
+        thumbnail: ev.thumbnail ?? "", rationale: String(r.rationale),
+      },
+      why: "",
+    };
+  }));
+  const html = join(dir, "report.html");
+  writeReviewHtml(html, { mode: "score", batch, source: path, file: "scores.md", sections, items });
+  return `${rows.length} 件 → ${path}・採点用 ${html}`;
 }
 
 /** 判定を取り消す。取り消した枠の video_id を返す（呼び出し側でルールの名寄せをし直す） */

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>裁定 /*BATCH*/</title>
+<title>/*WORD*/ /*BATCH*/</title>
 <style>
 :root {
   --bg: #f6f6f4; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc;
@@ -54,6 +54,8 @@ h2 { font-size: 15px; margin: 0 0 4px; }
 .verdict button[data-v="rule"][aria-pressed="true"] { background: var(--rule-bg); border-color: var(--rule); color: var(--rule); font-weight: 600; }
 .verdict button[data-v="ai"][aria-pressed="true"] { background: var(--ai-bg); border-color: var(--ai); color: var(--ai); font-weight: 600; }
 .verdict button[data-v="both"][aria-pressed="true"] { background: var(--both-bg); border-color: var(--both); color: var(--both); font-weight: 600; }
+.verdict button[data-v="ok"][aria-pressed="true"] { background: var(--ai-bg); border-color: var(--ai); color: var(--ai); font-weight: 600; }
+.verdict button[data-v="ng"][aria-pressed="true"] { background: var(--both-bg); border-color: var(--both); color: var(--both); font-weight: 600; }
 .verdict button[data-v="unknown"][aria-pressed="true"] { background: var(--unk-bg); border-color: var(--unk); color: var(--unk); font-weight: 600; }
 textarea { width: 100%; min-height: 3.2em; margin-top: 6px; font: inherit; font-size: 14px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: var(--bg); color: var(--text); }
 .hide { display: none !important; }
@@ -63,10 +65,10 @@ textarea { width: 100%; min-height: 3.2em; margin-top: 6px; font: inherit; font-
 </head>
 <body>
 <header>
-  <h1>裁定 — /*BATCH*/</h1>
+  <h1>/*WORD*/ — /*BATCH*/</h1>
   <div class="bar">
     <div class="tabs" id="tabs"></div>
-    <label class="progress"><input type="checkbox" id="undoneOnly"> 未裁定だけ</label>
+    <label class="progress"><input type="checkbox" id="undoneOnly"> 未/*WORD*/だけ</label>
     <span class="progress" id="progress"></span>
     <div class="tools">
       <button class="primary" id="exportBtn">md に書き出す</button>
@@ -81,7 +83,9 @@ textarea { width: 100%; min-height: 3.2em; margin-top: 6px; font: inherit; font-
 <script>
 const DATA = /*DATA*/;
 const KEY = "audit-verdicts:" + DATA.batch;
-const LABEL = { rule: "ルール", ai: "AI", both: "両方誤り", unknown: "判断できない" };
+const SCORE = DATA.mode === "score";
+const LABEL = SCORE ? { ok: "正しい", ng: "誤り", unknown: "判断できない" } : { rule: "ルール", ai: "AI", both: "両方誤り", unknown: "判断できない" };
+const WORD = SCORE ? "採点" : "裁定";
 let store = {};
 try { store = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { store = {}; }
 const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} };
@@ -99,7 +103,7 @@ function renderTabs() {
   }).join("");
   el.querySelectorAll("button").forEach((b) => b.onclick = () => { tab = b.dataset.k; render(); });
   const all = DATA.items.filter((x) => DATA.sections.find((s) => s.key === x.section)?.required);
-  document.getElementById("progress").textContent = `必須の裁定 ${all.filter((x) => store[x.id]?.v).length}/${all.length}`;
+  document.getElementById("progress").textContent = `必須の${WORD} ${all.filter((x) => store[x.id]?.v).length}/${all.length}`;
 }
 
 function card(x) {
@@ -119,9 +123,9 @@ function card(x) {
       <div class="ans ai"><b class="who">AI</b> <b>${esc(x.ai.status)}</b>（確度 ${esc(x.ai.confidence)}）${list(x.ai.lines)}
         <div class="sub">見たもの: ${esc(x.ai.looked)}${x.ai.thumbnail ? ` ／ サムネイル: ${esc(x.ai.thumbnail)}` : ""}</div>
         <div class="sub">理由: ${esc(x.ai.rationale)}</div></div>
-      <div class="why">食い違い: ${esc(x.why)}</div>
+      ${x.why ? `<div class="why">食い違い: ${esc(x.why)}</div>` : ""}
       <div class="verdict">${Object.entries(LABEL).map(([k, l]) => `<button data-v="${k}" aria-pressed="${st.v === k}">${l}</button>`).join("")}</div>
-      <textarea placeholder="メモ（両方誤りなら正しい答え、判断の理由など）">${esc(st.memo || "")}</textarea>
+      <textarea placeholder="${SCORE ? "メモ（誤りなら正しい答え、判断の理由など）" : "メモ（両方誤りなら正しい答え、判断の理由など）"}">${esc(st.memo || "")}</textarea>
     </div>
   </article>`;
 }
@@ -148,26 +152,37 @@ function render() {
 }
 
 function toMarkdown() {
-  const out = [`# 裁定（${DATA.batch}）`, "", `- 書き出し: ${new Date().toLocaleString("ja-JP")}`, `- 元の一覧: ${DATA.source}`, "- 裁定: ルール（ルールが正しい）／ AI（AI が正しい）／ 両方誤り ／ 判断できない", ""];
-  // 型ごとの集計（ルールの誤り = AI か 両方誤り）
-  out.push("## 型ごとの集計（誤りの疑いの区分）", "", "| 型 | 件数 | 裁定済み | ルールの誤り | ルールが正しい | 判断できない |", "| --- | ---: | ---: | ---: | ---: | ---: |");
+  const out = [`# ${WORD}（${DATA.batch}）`, "", `- 書き出し: ${new Date().toLocaleString("ja-JP")}`, `- 元の一覧: ${DATA.source}`,
+    SCORE ? "- 採点: 正しい ／ 誤り（メモに正しい答え）／ 判断できない。保留は、決められたはずなのに保留にしたものを誤りにする" : "- 裁定: ルール（ルールが正しい）／ AI（AI が正しい）／ 両方誤り ／ 判断できない", ""];
   const req = DATA.items.filter((x) => DATA.sections.find((s) => s.key === x.section)?.required);
   const types = [...new Set(req.map((x) => x.type))];
-  for (const t of types) {
-    const xs = req.filter((x) => x.type === t);
-    const c = (f) => xs.filter((x) => f(store[x.id]?.v)).length;
-    out.push(`| ${t} | ${xs.length} | ${c((v) => !!v)} | ${c((v) => v === "ai" || v === "both")} | ${c((v) => v === "rule")} | ${c((v) => v === "unknown")} |`);
+  if (SCORE) {
+    // AI の判定の区分ごとの集計
+    out.push("## 判定の区分ごとの集計", "", "| 区分 | 件数 | 採点済み | 正しい | 誤り | 判断できない |", "| --- | ---: | ---: | ---: | ---: | ---: |");
+    for (const t of types) {
+      const xs = req.filter((x) => x.type === t);
+      const c = (f) => xs.filter((x) => f(store[x.id]?.v)).length;
+      out.push(`| ${t} | ${xs.length} | ${c((v) => !!v)} | ${c((v) => v === "ok")} | ${c((v) => v === "ng")} | ${c((v) => v === "unknown")} |`);
+    }
+  } else {
+    // 型ごとの集計（ルールの誤り = AI か 両方誤り）
+    out.push("## 型ごとの集計（誤りの疑いの区分）", "", "| 型 | 件数 | 裁定済み | ルールの誤り | ルールが正しい | 判断できない |", "| --- | ---: | ---: | ---: | ---: | ---: |");
+    for (const t of types) {
+      const xs = req.filter((x) => x.type === t);
+      const c = (f) => xs.filter((x) => f(store[x.id]?.v)).length;
+      out.push(`| ${t} | ${xs.length} | ${c((v) => !!v)} | ${c((v) => v === "ai" || v === "both")} | ${c((v) => v === "rule")} | ${c((v) => v === "unknown")} |`);
+    }
   }
   out.push("");
   for (const s of DATA.sections) {
     const xs = DATA.items.filter((x) => x.section === s.key);
     const done = xs.filter((x) => store[x.id]?.v || store[x.id]?.memo);
     if (!s.required && done.length === 0) continue;
-    out.push(`## ${s.label}（${xs.length} 件・裁定 ${xs.filter((x) => store[x.id]?.v).length}）`, "");
+    out.push(`## ${s.label}（${xs.length} 件・${WORD} ${xs.filter((x) => store[x.id]?.v).length}）`, "");
     for (const x of s.required ? xs : done) {
       const st = store[x.id] || {};
       out.push(`### ${x.no}. ${x.id}　型 ${x.type}`, `- タイトル: ${x.title}`, `- ルール: ${x.rule.status} ${x.rule.lines.join(" ＋ ")}`, `- AI: ${x.ai.status} ${x.ai.lines.join(" ＋ ")}`,
-        `- 裁定: ${st.v ? LABEL[st.v] : "（未）"}`, `- メモ: ${(st.memo || "").replace(/\n/g, " ")}`, "");
+        `- ${WORD}: ${st.v ? LABEL[st.v] : "（未）"}`, `- メモ: ${(st.memo || "").replace(/\n/g, " ")}`, "");
     }
   }
   out.push("## 読み込み用（編集しない）", "", "```json", JSON.stringify({ batch: DATA.batch, verdicts: store }), "```", "");
@@ -178,15 +193,15 @@ document.getElementById("exportBtn").onclick = async () => {
   const md = toMarkdown();
   if (window.showSaveFilePicker) {
     try {
-      const h = await showSaveFilePicker({ suggestedName: "verdicts.md", types: [{ description: "Markdown", accept: { "text/markdown": [".md"] } }] });
+      const h = await showSaveFilePicker({ suggestedName: DATA.file || "verdicts.md", types: [{ description: "Markdown", accept: { "text/markdown": [".md"] } }] });
       const w = await h.createWritable(); await w.write(md); await w.close();
       toast("書き出しました: " + h.name); return;
     } catch (e) { if (e && e.name === "AbortError") return; }
   }
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
-  a.download = "verdicts.md"; a.click();
-  toast("ダウンロードフォルダに verdicts.md を保存しました。保存場所へ移してください");
+  a.download = DATA.file || "verdicts.md"; a.click();
+  toast(`ダウンロードフォルダに ${DATA.file || "verdicts.md"} を保存しました。保存場所へ移してください`);
 };
 document.getElementById("importFile").onchange = async (e) => {
   const f = e.target.files[0]; if (!f) return;
@@ -198,7 +213,7 @@ document.getElementById("importFile").onchange = async (e) => {
   } catch (err) { toast("読み込めませんでした（末尾の「読み込み用」が必要です）"); }
   e.target.value = "";
 };
-document.getElementById("clearBtn").onclick = () => { if (confirm("この一覧の裁定とメモを全部消します。よろしいですか？")) { store = {}; persist(); render(); } };
+document.getElementById("clearBtn").onclick = () => { if (confirm(`この一覧の${WORD}とメモを全部消します。よろしいですか？`)) { store = {}; persist(); render(); } };
 document.getElementById("undoneOnly").onchange = render;
 render();
 </script>

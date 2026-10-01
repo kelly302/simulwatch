@@ -1,6 +1,5 @@
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, relative } from "node:path";
 import type { Ctx } from "../lib/context.ts";
 import { activeEventSql, farFutureCutoff } from "../lib/events.ts";
 import { DATA_DIR, ROOT } from "../lib/paths.ts";
@@ -20,6 +19,7 @@ import { ROUTES, ROUTE_ORDER, classifyRoute, routeFlags, zeroErrorUpper95, notAW
 import type { RouteType, RouteFacts, SegmentFrom } from "../resolve/route.ts";
 import { sampleOrder } from "./sample.ts";
 import { descriptionReader, downloadThumb, fetchWorks } from "./ai.ts";
+import { writeReviewHtml } from "./review.ts";
 
 // 型ごとの抽出と、候補を見ない AI の判定との突き合わせ（ゲート2の決定。ローカルの CLI。定期実行のジョブからは呼ばない）。
 //
@@ -770,18 +770,14 @@ export async function auditCompare(ctx: Ctx, cfg: ExtractConfig, batch: string):
         flags: [x.rule.flags.join("・"), x.rule.prefixSiblings.length ? `ほかの作品名: ${x.rule.prefixSiblings.join("、")}` : ""].filter(Boolean).join(" ／ "),
       },
       ai: {
-        status: STATUS_LABEL[x.ai.status], confidence: x.ai.confidence, lines: aiLines(x),
+        status: STATUS_LABEL[x.ai.status] ?? x.ai.status, confidence: x.ai.confidence, lines: aiLines(x),
         looked: `${x.ai.evidence.looked.join("・")}${x.ai.evidence.queries?.length ? `（照会: ${x.ai.evidence.queries.join(" ／ ")}）` : ""}`,
         thumbnail: x.ai.evidence.thumbnail ?? "", rationale: x.ai.rationale,
       },
       why: x.why,
     };
   }));
-  const tpl = readFileSync(fileURLToPath(new URL("./audit-review.html", import.meta.url)), "utf8");
-  // </script> で埋め込みが切れないように < を逃がす
-  const json = JSON.stringify({ batch, source: join(dir, "mismatches.md"), sections, items: reviewItems }).replace(/</g, "\\u003c");
-  const html = tpl.replaceAll("/*BATCH*/", batch).replace("/*SAVE_PATH*/", resolve(dir, "verdicts.md")).replace("/*DATA*/", () => json);
-  writeFileSync(join(dir, "review.html"), html, "utf8");
+  writeReviewHtml(join(dir, "review.html"), { mode: "audit", batch, source: join(dir, "mismatches.md"), file: "verdicts.md", sections, items: reviewItems });
   const c = (o: Outcome) => rows.filter((x) => x.outcome === o).length;
   return [
     `答え ${answers.size} / ${sealed.answers.length}: ${(Object.keys(OUTCOME_LABEL) as Outcome[]).map((o) => `${OUTCOME_LABEL[o]} ${c(o)}`).join("・")}`,

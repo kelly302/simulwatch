@@ -568,7 +568,7 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- lookup "来る" "亜人"   # 外部作品DBの照会結果を並べる（判断の確認用）
     npm run cli -- ai:queue --reason not_found --n 100 --seed ai-trial-1   # AI の判定の待ち行列（data/ai/<batch>/）
     npm run cli -- ai:apply data/ai/ai-trial-1/decisions.json            # 判定を入れる（確定）
-    npm run cli -- ai:report ai-trial-1                                 # 判定の根拠の一覧（採点用）
+    npm run cli -- ai:report ai-trial-1                                 # 判定の根拠の一覧（report.md）と採点用の report.html
     npm run cli -- ai:revoke --batch ai-trial-1                         # 判定の取り消しとルールでの名寄せし直し
     npm run cli -- audit:types                     # 同定の型ごとの件数と目印の重なり（data/audit/types.md。DB は変えない）
     npm run cli -- audit:sample --seed audit-1     # 型ごとの抽出。AI に見せる待ち行列と封をしたルールの答え（data/audit/<batch>/）
@@ -656,7 +656,8 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
   **取りこぼし**（ルールの答えが AI の答えの一部。サイトに出ないだけ）に分け、それぞれ作品と話数で数える（2026-09-30、queue/01 の結果を見て分けた。一致の基準は変えていない）
 - 裁定は `data/audit/<batch>/review.html`（audit:compare が書く。ひな形は `src/report/audit-review.html`）をブラウザで開いて行う。
   ボタン（ルール / AI / 両方誤り / 判断できない）とメモはブラウザに残り、「md に書き出す」で同じフォルダの `verdicts.md` に保存する（末尾の JSON で読み戻せる）。
-  メン限枠の概要欄を含むので公開しない
+  メン限枠の概要欄を含むので公開しない。
+  AI の判定の採点も同じひな形の採点用（正しい / 誤り / 判断できない）で、ai:report が data/ai/<batch>/report.html を書き、scores.md に書き出す（src/report/review.ts）
 - AI の答えの `missing` は、複数作品のうち外部DBに無い作品の名前。キーの作品名が枠の文字・照会語と2文字も重ならない答えは、キーの取り違えの疑いとして一覧の末尾に出す
 - 判定はサブエージェントに GUIDE.md と待ち行列1ファイルだけを渡し、5本ずつ並行で回す。照会の出力は `work/<番号>/` に分ける（共用の一時ファイルで照会結果が混ざったため）。
   audit-1 は 706 件を約40分で判定（1件あたり約7秒、1ファイル約17万トークン）
