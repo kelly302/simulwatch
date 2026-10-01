@@ -8,6 +8,11 @@ nijisanji:
   list_url: "https://www.nijisanji.jp/api/livers?limit=300&orderKey=subscriber_count&order=desc&affiliation=nijisanji&locale=ja"
   detail_url: "https://www.nijisanji.jp/talents/l/{slug}"
   min_count: 100
+  # 所属の中の区分（UI の絞り込み用）。一覧には統合した旧 NIJISANJI KR・ID のライバーも入っていて、プロフィールの項目名がその言語になっている。
+  # 項目名がこれに当たれば その区分、当たらなければ jp（日本）
+  branch_markers:
+    kr: ["생일", "팬클럽 이름"]
+    id: ["Ulang Tahun", "Nama Fans"]
 
 hololive:
   group_url: "https://hololive.hololivepro.com/talents?gp={group}"

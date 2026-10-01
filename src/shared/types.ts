@@ -24,6 +24,15 @@ export const WORK_KIND_LABEL: Record<WorkKind, string> = { anime: "アニメ", t
 /** 作品の形態（works.media）。映画かどうかは movie で見る */
 export type WorkMedia = "tv" | "movie" | "ova" | "web";
 
+/**
+ * 所属の中の区分（streamers.branch。公式サイトから自動で埋める）。UI の所属の絞り込みで、事務所の下のチェックボックスにする。
+ * にじさんじの公式の一覧には、統合した旧 NIJISANJI KR・旧 NIJISANJI ID のライバーも入っている（2026-10-02 決定: 外さずに区分で絞れるようにする）。
+ * EN（NIJISANJI EN・hololive EN など）は対象外なので今は無い
+ */
+export type Branch = "jp" | "kr" | "id" | "en";
+
+export const BRANCH_LABEL: Record<Branch, string> = { jp: "日本", kr: "KR", id: "ID", en: "EN" };
+
 export const AFFILIATION_LABEL: Record<Affiliation, string> = {
   nijisanji: "にじさんじ",
   hololive: "ホロライブ",
@@ -35,6 +44,8 @@ export interface Streamer {
   id: number;
   name: string;
   affiliation: Affiliation;
+  /** 所属の中の区分（にじさんじの jp / kr / id。ホロライブ・ぶいすぽっ！は jp） */
+  branch: Branch | null;
   channel_id: string;
   platform: Platform;
   icon_url: string | null;

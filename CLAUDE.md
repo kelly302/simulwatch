@@ -37,7 +37,7 @@
 | 名寄せ失敗 | unresolved として保持し、**エラーとして修正する**。捨てない |
 | 動画 | 再アップロード・埋め込み再生はしない。YouTubeへ送客する |
 | アーカイブなし | アーカイブが残っていない枠は一覧から消す |
-| 対象範囲 | Tier 1 = にじさんじ / ホロライブ / VSPO! の**日本の**所属チャンネル（約240人）。海外支部（NIJISANJI EN、hololive EN/ID、VSPO! EN）は含めない。複数タレントの共用チャンネル（holoAN の @holoANroom など）は1配信者ではないので対象外 |
+| 対象範囲 | Tier 1 = にじさんじ / ホロライブ / VSPO! の**日本の**所属チャンネル（約240人）。海外支部（NIJISANJI EN、hololive EN/ID、VSPO! EN）は含めない。にじさんじの公式の一覧に入っている統合した旧 NIJISANJI KR（11人）・旧 NIJISANJI ID（6人）は外さず、所属の中の区分（branch）で絞れるようにする（2026-10-02 決定）。複数タレントの共用チャンネル（holoAN の @holoANroom など）は1配信者ではないので対象外 |
 | Tier 1 の取得元 | 各事務所の公式サイト。取得に失敗したら前回の一覧を保持する |
 | 卒業・引退 | 公式一覧から外れたら巡回を止める（is_active=false）。取得済みの枠はアーカイブが残る限り表示する |
 | シード拡張 | Tier 2 = 関心作品名からの逆引きでチャンネルを自動追加。**Phase 5（Phase 4 の公開後）に実装する** |
@@ -124,10 +124,11 @@ views_* のソートは実施済み枠のみを対象にする。
 - トップのランキングは公開枠のみで決まる（意図どおり）
 
 「同時視聴した枠」のフィルターは5軸。所属 / 作品種別 / 放送年・放送期 / 期間 / メン限。
+所属の絞り込みは、事務所の下に区分（`Streamer.branch`）のチェックボックスを置く（にじさんじ: 日本 / KR / ID。2026-10-02 決定）。データにある区分だけを出す。
 
 ## データモデル
 
-    Streamer   id, name, affiliation, channel_id, platform, icon_url, tier,
+    Streamer   id, name, affiliation, branch, channel_id, platform, icon_url, tier,
                is_active, source_key, channel_title,
                first_seen_at, last_listed_at, deactivated_at, updated_at
     Work       id, annict_id, anilist_id, wikidata_id, title, title_kana,
@@ -162,6 +163,8 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
 
 - `Streamer.is_active` 公式一覧に載っていて巡回する人。卒業・引退で 0（行と過去の枠は残す）
 - `Streamer.source_key` 公式サイト上の識別子（例 `nijisanji:kuzuha`）。Tier 2 は NULL
+- `Streamer.branch` 所属の中の区分（2026-10-02 に追加）。にじさんじは公式の一覧のプロフィールの項目名で決める（「생일」なら kr、「Ulang Tahun」なら id、ほかは jp。
+  config/roster.yaml の `branch_markers`）。ホロライブ・ぶいすぽっ！は jp。ラベルは `BRANCH_LABEL`（src/shared/types.ts）
 - `WatchEvent.description_raw` extract と再判定のためだけに持つ。**公開しない**（メン限枠の本文を転載しない）
 - `WatchEvent.started_at` 実開始時刻。未開始なら予定時刻（`scheduled_start_at` にも別に持つ）、ライブでない動画は公開日時
 - `WatchEvent.started_at_source` started_at にどの値を入れたか（`actual_start` / `scheduled_start` / `published_at`）
@@ -561,7 +564,7 @@ AI の判定（ゲート2の判断。`src/resolve/ai.ts`・`src/report/ai.ts`）
 
     config/
       detect.yaml       判定の語彙と正規化ルール
-      roster.yaml       Tier 1 の取得元（公式サイトのURL・日本の所属グループ・卒業の印）
+      roster.yaml       Tier 1 の取得元（公式サイトのURL・日本の所属グループ・卒業の印・所属の中の区分の印）
       crawl.yaml        巡回頻度・クォータ上限・遡りの予算・HTTP（User-Agent と照会先ごとの間隔）
       extract.yaml      名寄せのルール（作品ではない語・ノイズ語・前後の語・Wikidata の作品クラス）
     src/
@@ -575,7 +578,7 @@ AI の判定（ゲート2の判断。`src/resolve/ai.ts`・`src/report/ai.ts`）
       resolve/          名寄せ（extract・照合・期と部の表記（markers）・視聴系列の期（series）・AI の判定の反映（ai）・同定の型（route）・型の記録と出し方（routing）・
                         作品の属性（enrich）・Wikidata のアニメのまとめ（link）・Annict / AniList / Wikipedia のクライアント・保存）
       report/           ローカル確認用のレポート・同定の検証用の抽出・外部DBの照会（lookup）・AI の判定の道具（ai）・
-                        型ごとの抽出と AI との突き合わせ（audit）・候補を見せない待ち行列（blind）・AI の答えの形式（answer）・裁定と採点の HTML（review）
+                        型ごとの抽出と AI との突き合わせ（audit）・候補を見せない待ち行列（blind）・判定役に見せる手がかり（neighbors）・AI の答えの形式（answer）・裁定と採点の HTML（review）
     test/               node --test のテスト
     data/               SQLite と生レスポンス（ローカル・コミットしない）
 
@@ -732,7 +735,18 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
   ゾンビーズは映画.com のリンク先の We Are Zombies（2023年）。Re:ゼロの枠に話数12〜15を足した。抽出の外の保留6件のうち、刃牙の21〜22話は同じ根拠で、
   ロストワールド（概要欄の Amazon のリンク先の題名）とターザン（前後の枠がディズニーのアニメ映画の連続）は判定役に見せていない手がかりで直した（fix-remaining-holds.json。ユーザーの確認待ち）。
   保留は12 → 4（ピンポンは正しい保留、コワスギ・新幹線大爆破・サウスパークは手がかりが足りない）
-- **保留が多すぎる**: 判定役は同じ配信者のほかの枠と概要欄のリンク先を見られないので、それで決まる枠を保留にしていた。次の回の前に、判定役に見せるもの（下の「未確定」）を決める
+- **保留が多すぎる**: 判定役は同じ配信者のほかの枠と概要欄のリンク先を見られないので、それで決まる枠を保留にしていた
+- **判定役に見せる手がかりを足した**（2026-10-02 決定・実装。src/report/neighbors.ts。設定は config/extract.yaml の `ai_context`）。次の回（ai-run-2）から使う。
+  ほかの枠のルールの答え・AI の答えは今までどおり見せない。待ち行列の1件に次を足す:
+  - **同じ配信者の同じ作品名の枠**（日付順。この枠の位置に「← この枠」）: タイトルの作品名の区間（照合キー3文字以上）を含むほかの枠。この枠に近い10枠まで。
+    配信者の決まり文句（配信者名を含む区間「花畑チャイカと」、10枠以上かつ半分を超える枠に出る区間「王覇山軍」）は使わない
+  - **同じ配信者の前後の枠**（前後それぞれ3枠。同じ作品名の枠と重なるものは除く）
+  - **概要欄のリンク先の題名・公開年・あらすじの冒頭**: 定型文でない行のリンクのうち、題名の取れるサイト（Amazon Prime Video・Netflix・ABEMA・Hulu・映画.com・Filmarks）を1枠3件まで。
+    Disney+・U-NEXT・FOD はページの題名が取れないので入れない。結果は resolve_cache（link_page、30日）。2026-10-02 の DB で概要欄に Amazon Prime Video のリンクがある枠は647
+  - GUIDE に使い方を書いた（同じ作品名の枠の話数の続き・最終話で期やリメイクを決める、傾向だけで決めたら medium、ほかの枠の作品をこの枠の答えにしない、
+    「〇〇同時視聴４」はテレビシリーズ、タイトルに書かれた作品名を優先、手がかりまで見て決められるなら保留にしない）。evidence.looked に link・same_streamer を足した
+  - 確認（2026-10-02）: ai-run-1 の採点で誤りだった保留の枠で待ち行列を作り、刃牙（バキ）の第26話（終）までの並び・ヴァイオレット・エヴァーガーデンの同時視聴1〜5・
+    ロストワールドのリンク先（1997年）・君に届けのリンク先（2010年。題名だけではアニメか実写か分からない）・ターザンの前後のディズニー映画が出ることを見た
   ルールの答えとの比べ（参考）: ほかの期の頭と同じ 51件で食い違い0、リダイレクト 15件で6、曖昧さ回避 18件で2、小区間など 34件で2
 - **視聴系列（series）を AI に回す型に加えた**（2026-10-02）。ai-run-1 の AI の判定を根拠に新しく付いたアイカツの枠で、「第二期もラララ～！【51話】」と「スターズ感謝祭【26話】」を
   アイカツスターズ！にしていた（Annict のアイカツ！は1作品に178話。視聴系列の「N期は放送順でN番目」が、期を1作品にまとめた作品に合わない）
@@ -764,9 +778,6 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
 - **AI の判定の Phase 4 での運用**（抜き取り検査の件数は 2026-09-30 に決めた。上の「ゲート2の決定」）: DB は R2 にあり毎時のジョブが書くので、ローカルで判定した decisions.json を R2 の非公開領域に置き、
   resolve のジョブが取り込む案（ai:apply は同じファイルを何度入れても同じ結果）。日次の判定を誰がいつ起動するかも含めて判断待ち
 - **1枠に複数作品が付く枠の表示**（Phase 3 への申し送り）: トップ・配信者ページの枠カードに作品名を並べるか「他2作品」と畳むかは未決。件数を出して決める
-- **にじさんじの旧 KR・旧 ID の所属**（2026-10-02 に見つかった）: 公式サイトの一覧（affiliation=nijisanji）に、旧 NIJISANJI KR（11人）・旧 NIJISANJI ID（6人）のライバーが入っている
-  （ライ ガリレイ・ライラ アルストロエメリアなど。プロフィールの項目名が韓国語・インドネシア語）。2026-10-02 の DB で108枠。Tier 1（日本の所属）に入れるか判断待ち
-- **AI の判定役に見せるもの**（ai-run-1 の採点から）: 同じ配信者の前後の枠のタイトル（ルールの答えは見せない）と、概要欄のリンク先（Amazon Prime Video・映画.com など）の題名を見せるか。判断待ち
 - 仕様に書いていない判断が必要になったら先に聞く
 
 ## フェーズ

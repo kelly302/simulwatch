@@ -89,9 +89,19 @@ test("VSPO!: 日本の所属だけ、重複を除いて取る", () => {
 test("共用チャンネル（複数タレントが同じ handle / channel_id）は登録しない", async () => {
   const { markSharedChannels } = await import("../src/roster/sync.ts");
   const e = (key: string, handle: string | null, channelId: string | null = null) =>
-    ({ sourceKey: key, name: key, affiliation: "hololive" as const, channelId, handle, inactive: false });
+    ({ sourceKey: key, name: key, affiliation: "hololive" as const, channelId, handle, inactive: false, branch: "jp" as const });
   const entries = [e("a", "holoANroom"), e("b", "HoloANroom"), e("c", "solo"), e("d", null, "UCdddddddddddddddddddddd")];
   const shared = markSharedChannels(entries);
   assert.deepEqual(shared, { "@holoanroom": ["a", "b"] });
   assert.deepEqual(entries.map((x) => x.handle ?? x.channelId), [null, null, "solo", "UCdddddddddddddddddddddd"]);
+});
+
+test("にじさんじの区分: プロフィールの項目名が韓国語・インドネシア語なら旧 KR・旧 ID、ほかは日本", async () => {
+  const { nijisanjiBranch } = await import("../src/roster/sources.ts");
+  const markers = { kr: ["생일", "팬클럽 이름"], id: ["Ulang Tahun", "Nama Fans"] };
+  const l = (names: string[]) => ({ slug: "x", hidden: false, name: "x", profile: { profileItems: names.map((name) => ({ name })) } });
+  assert.equal(nijisanjiBranch(l(["誕生日", "ファンネーム"]), markers), "jp");
+  assert.equal(nijisanjiBranch(l(["생일", "팬클럽 이름"]), markers), "kr");
+  assert.equal(nijisanjiBranch(l(["Ulang Tahun", "Nama Fans"]), markers), "id");
+  assert.equal(nijisanjiBranch({ slug: "x", hidden: false, name: "x" }, markers), "jp");
 });

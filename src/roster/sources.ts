@@ -1,6 +1,6 @@
 import type { Http } from "../lib/http.ts";
 import type { RosterConfig } from "../lib/config.ts";
-import type { Affiliation } from "../shared/types.ts";
+import type { Affiliation, Branch } from "../shared/types.ts";
 import { log, errorMessage } from "../lib/log.ts";
 
 // 各事務所の公式サイトからタレント一覧を抜き出す。
@@ -15,6 +15,8 @@ export interface RosterEntry {
   handle: string | null;
   /** 卒業・活動終了など。巡回しない */
   inactive: boolean;
+  /** 所属の中の区分（jp / kr / id） */
+  branch: Branch;
 }
 
 /** 既に分かっている sourceKey → channel_id。詳細ページの取得を省く */
@@ -47,6 +49,17 @@ interface NijiLiver {
   slug: string;
   hidden: boolean;
   name: string;
+  profile?: { profileItems?: { name: string }[] };
+}
+
+/**
+ * にじさんじの区分。旧 NIJISANJI KR・ID のライバーはプロフィールの項目名が韓国語・インドネシア語（「생일」「Ulang Tahun」）。
+ * 項目名が branch_markers のどれかに当たればその区分、当たらなければ jp
+ */
+export function nijisanjiBranch(l: NijiLiver, markers: Record<string, string[]> = {}): Branch {
+  const names = (l.profile?.profileItems ?? []).map((i) => i.name);
+  for (const [b, ms] of Object.entries(markers)) if (names.some((n) => ms.includes(n))) return b as Branch;
+  return "jp";
 }
 
 export async function fetchNijisanji(http: Http, cfg: RosterConfig["nijisanji"], known: KnownChannels): Promise<RosterEntry[]> {
@@ -67,7 +80,7 @@ export async function fetchNijisanji(http: Http, cfg: RosterConfig["nijisanji"],
         log.warn(`nijisanji detail failed ${l.slug}: ${errorMessage(e)}`);
       }
     }
-    out.push({ sourceKey, name: l.name, affiliation: "nijisanji", channelId, handle, inactive: l.hidden });
+    out.push({ sourceKey, name: l.name, affiliation: "nijisanji", channelId, handle, inactive: l.hidden, branch: nijisanjiBranch(l, cfg.branch_markers) });
   }
   return out;
 }
@@ -117,7 +130,7 @@ export async function fetchHololive(http: Http, cfg: RosterConfig["hololive"], k
         log.warn(`hololive detail failed ${slug}: ${errorMessage(e)}`);
       }
     }
-    out.push({ sourceKey, name, affiliation: "hololive", channelId, handle, inactive });
+    out.push({ sourceKey, name, affiliation: "hololive", channelId, handle, inactive, branch: "jp" });
   }
   return out;
 }
@@ -142,6 +155,7 @@ export function parseVspo(html: string, japaneseClass: string): RosterEntry[] {
       sourceKey: `vspo:${id}`,
       name: decodeHtml(m[3]!),
       affiliation: "vspo",
+      branch: "jp",
       channelId,
       handle,
       inactive: false,

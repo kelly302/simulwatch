@@ -26,6 +26,14 @@ export interface ExtractConfig {
   /** Wikidata のラベルの完全一致で同定する段（Wikipedia に記事が無い作品。「来る」「笑いのカイブツ」）と、同名別作品の照合にラベル検索を使う */
   wikidata_label?: boolean;
   /** AI に回す型（src/resolve/route.ts の型か層）。この型の枠は AI が確かめるまでサイトに出さない */
+  /** AI の判定役に見せる手がかり（src/report/neighbors.ts） */
+  ai_context?: {
+    neighbors?: number;
+    same_name?: number;
+    link_patterns?: string[];
+    generic_titles?: string[];
+    max_links?: number;
+  };
   ai_routes?: string[];
   /** 視聴系列による期の割り当て（src/resolve/series.ts）。false で止める */
   series_assignment?: boolean;

@@ -236,6 +236,10 @@ const MIGRATIONS: string[] = [
   `
   UPDATE works SET title = replace(replace(title, char(65279), ''), char(8203), '') WHERE instr(title, char(65279)) > 0 OR instr(title, char(8203)) > 0;
   `,
+  // 9: 所属の中の区分（2026-10-02。UI の所属の絞り込みで、事務所の下のチェックボックスに使う）。にじさんじの jp / kr（旧 NIJISANJI KR）/ id（旧 NIJISANJI ID）
+  `
+  ALTER TABLE streamers ADD COLUMN branch TEXT;
+  `,
 ];
 
 export function openDb(path: string = DB_PATH): DB {

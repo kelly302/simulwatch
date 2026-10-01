@@ -51,10 +51,10 @@ function applyOrg(ctx: Ctx, affiliation: Affiliation, entries: RosterEntry[]): O
   const bySource = db.prepare("SELECT id, is_active FROM streamers WHERE source_key = ?");
   const byChannel = db.prepare("SELECT id, is_active FROM streamers WHERE channel_id = ?");
   const insert = db.prepare(`
-    INSERT INTO streamers (name, affiliation, channel_id, platform, tier, is_active, source_key, first_seen_at, last_listed_at, updated_at)
-    VALUES (?, ?, ?, 'youtube', 1, 1, ?, ?, ?, ?)`);
+    INSERT INTO streamers (name, affiliation, branch, channel_id, platform, tier, is_active, source_key, first_seen_at, last_listed_at, updated_at)
+    VALUES (?, ?, ?, ?, 'youtube', 1, 1, ?, ?, ?, ?)`);
   const update = db.prepare(`
-    UPDATE streamers SET name = ?, affiliation = ?, channel_id = ?, tier = 1, is_active = 1, source_key = ?,
+    UPDATE streamers SET name = ?, affiliation = ?, branch = ?, channel_id = ?, tier = 1, is_active = 1, source_key = ?,
       last_listed_at = ?, deactivated_at = NULL, updated_at = ? WHERE id = ?`);
   const deactivate = db.prepare("UPDATE streamers SET is_active = 0, deactivated_at = ?, updated_at = ? WHERE id = ? AND is_active = 1");
 
@@ -78,10 +78,10 @@ function applyOrg(ctx: Ctx, affiliation: Affiliation, entries: RosterEntry[]): O
       }
       if (existing) {
         if (!existing.is_active) r.reactivated++;
-        update.run(e.name, affiliation, e.channelId, e.sourceKey, now, now, existing.id);
+        update.run(e.name, affiliation, e.branch, e.channelId, e.sourceKey, now, now, existing.id);
         listedIds.add(existing.id);
       } else {
-        const res = insert.run(e.name, affiliation, e.channelId, e.sourceKey, now, now, now);
+        const res = insert.run(e.name, affiliation, e.branch, e.channelId, e.sourceKey, now, now, now);
         listedIds.add(Number(res.lastInsertRowid));
         r.inserted++;
       }

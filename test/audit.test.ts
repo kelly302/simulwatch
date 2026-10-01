@@ -168,3 +168,34 @@ test("サイトでの出し方: AI に回す型の枠は AI が確かめるま�
   assert.equal(publishState({ ...base, type: null, hasWorks: true }, routes), "pending_ai");
   assert.equal(needsAi({ type: "not_a_work_rule", sub: "スポーツ" }, routes), true);
 });
+
+test("判定役に見せる手がかり: 同じ作品名の枠（日付順・この枠の位置）と前後の枠、リンク先の題名", async () => {
+  const { frameContext, pageTitle, pickLinks } = await import("../src/report/neighbors.ts");
+  const { loadExtractConfig } = await import("../src/resolve/config.ts");
+  const cfg = loadExtractConfig();
+  const f = (id: number, title: string) => ({ id, date: `2025-01-${String(id).padStart(2, "0")}`, title });
+  const frames = [
+    f(1, "【メン限】『リメンバー・ミー』 同時視聴する"),
+    f(2, "【 メン限/同時視聴 】「 刃牙（バキ） 」第1話～第4話"),
+    f(3, "【メン限】『ターザン』 同時視聴する"),
+    f(4, "【 メン限/同時視聴 】「 刃牙（バキ） 」第5話～第7話"),
+    f(5, "【メン限】『ベイマックス』 同時視聴する"),
+    f(6, "【 メン限/同時視聴 】「 刃牙（バキ） 」第23話～第26話（ 終 ）"),
+  ];
+  const c = frameContext(frames, 2, frames[1]!.title, cfg);
+  assert.deepEqual(c.sameName.map((x) => [x.id, !!x.self]), [[2, true], [4, false], [6, false]]);
+  assert.deepEqual(c.around.map((x) => x.id), [1, 3, 5]);
+  const t = frameContext(frames, 3, frames[2]!.title, cfg);
+  assert.equal(t.sameName.length, 0);
+  assert.deepEqual(t.around.map((x) => x.id), [1, 2, 4, 5, 6]);
+  // ページの題名（og:title を先に。ゼロ幅の文字を落とす）
+  assert.equal(pageTitle('<meta property="og:title" content="ドラゴンクエスト ダイの大冒険\uFEFFを観\uFEFFる | Netflix"><title>x</title>'), "ドラゴンクエスト ダイの大冒険を観る | Netflix");
+  assert.equal(pageTitle("<title>Amazon.co.jp: ロスト・ワールド／ジュラシック・パーク (吹替版)を観る | Prime Video</title>"), "Amazon.co.jp: ロスト・ワールド／ジュラシック・パーク (吹替版)を観る | Prime Video");
+  // 公開年とあらすじ（Amazon の releaseYear・meta description）
+  const { pageInfo } = await import("../src/report/neighbors.ts");
+  assert.deepEqual(pageInfo('<title>Amazon.co.jp: 君に届けを観る | Prime Video</title><meta name="description" content="黒沼爽子は、見た目が暗く">{"releaseYear":2010}'),
+    { title: "Amazon.co.jp: 君に届けを観る | Prime Video", year: 2010, summary: "黒沼爽子は、見た目が暗く" });
+  // 題名を取りに行くリンク（配信サービス・映画情報サイトだけ）
+  assert.deepEqual(pickLinks(["https://www.amazon.co.jp/gp/video/detail/B01BODDI64/ref=x", "https://twitter.com/a", "https://www.disneyplus.com/ja-jp/movies/x/1"], cfg),
+    ["https://www.amazon.co.jp/gp/video/detail/B01BODDI64/ref=x"]);
+});
