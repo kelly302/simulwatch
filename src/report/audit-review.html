@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>裁定 /*BATCH*/</title>
+<style>
+:root {
+  --bg: #f6f6f4; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e2e1dc;
+  --accent: #2f5bd3; --rule: #8a5a00; --rule-bg: #fff4dc; --ai: #1f6f4a; --ai-bg: #e3f4ea;
+  --both: #a33a3a; --both-bg: #fbe5e5; --unk: #555; --unk-bg: #ececec; --chip: #efeee9;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --panel: #1f1f1d; --text: #ecebe6; --muted: #a09f98; --line: #34332f;
+    --accent: #7ea2ff; --rule: #f0c060; --rule-bg: #3a2f14; --ai: #6fd4a0; --ai-bg: #16372a;
+    --both: #f08a8a; --both-bg: #3d1d1d; --unk: #c9c9c4; --unk-bg: #2c2c2a; --chip: #2a2a27;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px; }
+header h1 { font-size: 17px; margin: 0 0 6px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tabs button, .tools button, .tools label { border: 1px solid var(--line); background: var(--chip); color: var(--text); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.tabs button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tools { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.tools .primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.progress { font-size: 13px; color: var(--muted); }
+.save { font-size: 12px; color: var(--muted); margin-top: 6px; word-break: break-all; }
+.save code { background: var(--chip); padding: 1px 6px; border-radius: 4px; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin: 0 0 16px; padding: 14px; display: grid; grid-template-columns: 260px 1fr; gap: 14px; }
+.card.done { border-left: 5px solid var(--accent); }
+@media (max-width: 760px) { .card { grid-template-columns: 1fr; } }
+.thumb img { width: 100%; border-radius: 6px; display: block; }
+.thumb .noimg { aspect-ratio: 16/9; background: var(--chip); border-radius: 6px; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+.meta { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.chip { display: inline-block; background: var(--chip); border-radius: 4px; padding: 0 6px; font-size: 12px; margin-right: 4px; }
+h2 { font-size: 15px; margin: 0 0 4px; }
+.title a { color: var(--text); }
+.desc { font-size: 12px; color: var(--muted); margin: 4px 0 8px; max-height: 5.4em; overflow: auto; }
+.ans { border-radius: 8px; padding: 8px 10px; margin: 6px 0; font-size: 14px; }
+.ans.rule { background: var(--rule-bg); }
+.ans.ai { background: var(--ai-bg); }
+.ans b.who { display: inline-block; min-width: 3.5em; }
+.ans.rule b.who { color: var(--rule); }
+.ans.ai b.who { color: var(--ai); }
+.ans ul { margin: 2px 0 0 1.1em; padding: 0; }
+.sub { font-size: 12px; color: var(--muted); }
+.why { font-size: 13px; margin: 6px 0; }
+.verdict { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.verdict button { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 6px; padding: 6px 12px; font: inherit; font-size: 14px; cursor: pointer; }
+.verdict button[data-v="rule"][aria-pressed="true"] { background: var(--rule-bg); border-color: var(--rule); color: var(--rule); font-weight: 600; }
+.verdict button[data-v="ai"][aria-pressed="true"] { background: var(--ai-bg); border-color: var(--ai); color: var(--ai); font-weight: 600; }
+.verdict button[data-v="both"][aria-pressed="true"] { background: var(--both-bg); border-color: var(--both); color: var(--both); font-weight: 600; }
+.verdict button[data-v="unknown"][aria-pressed="true"] { background: var(--unk-bg); border-color: var(--unk); color: var(--unk); font-weight: 600; }
+textarea { width: 100%; min-height: 3.2em; margin-top: 6px; font: inherit; font-size: 14px; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: var(--bg); color: var(--text); }
+.hide { display: none !important; }
+.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>裁定 — /*BATCH*/</h1>
+  <div class="bar">
+    <div class="tabs" id="tabs"></div>
+    <label class="progress"><input type="checkbox" id="undoneOnly"> 未裁定だけ</label>
+    <span class="progress" id="progress"></span>
+    <div class="tools">
+      <button class="primary" id="exportBtn">md に書き出す</button>
+      <label>md を読み込む<input type="file" id="importFile" accept=".md,text/markdown" hidden></label>
+      <button id="clearBtn">裁定を全部消す</button>
+    </div>
+  </div>
+  <div class="save">保存場所: <code>/*SAVE_PATH*/</code>（押したボタンとメモはこのブラウザに自動で残ります。md はこの場所に保存してください）</div>
+</header>
+<main id="list"></main>
+<div class="toast" id="toast"></div>
+<script>
+const DATA = /*DATA*/;
+const KEY = "audit-verdicts:" + DATA.batch;
+const LABEL = { rule: "ルール", ai: "AI", both: "両方誤り", unknown: "判断できない" };
+let store = {};
+try { store = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { store = {}; }
+const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} };
+let tab = DATA.sections[0].key;
+
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const toast = (m) => { const t = document.getElementById("toast"); t.textContent = m; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2200); };
+
+function renderTabs() {
+  const el = document.getElementById("tabs");
+  el.innerHTML = DATA.sections.map((s) => {
+    const items = DATA.items.filter((x) => x.section === s.key);
+    const done = items.filter((x) => store[x.id]?.v).length;
+    return `<button data-k="${s.key}" aria-pressed="${s.key === tab}">${esc(s.label)} ${done}/${items.length}</button>`;
+  }).join("");
+  el.querySelectorAll("button").forEach((b) => b.onclick = () => { tab = b.dataset.k; render(); });
+  const all = DATA.items.filter((x) => DATA.sections.find((s) => s.key === x.section)?.required);
+  document.getElementById("progress").textContent = `必須の裁定 ${all.filter((x) => store[x.id]?.v).length}/${all.length}`;
+}
+
+function card(x) {
+  const st = store[x.id] || {};
+  const thumb = x.thumb ? `<img loading="lazy" src="${esc(x.thumb)}" alt="">` : `<div class="noimg">サムネイルなし</div>`;
+  const list = (a) => a.length ? `<ul>${a.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : "";
+  return `<article class="card ${st.v ? "done" : ""}" data-id="${esc(x.id)}">
+    <div class="thumb">${thumb}
+      <div class="meta"><span class="chip">${esc(x.type)}</span>${esc(x.streamer)}<br>${esc(x.started_at)}</div>
+    </div>
+    <div>
+      <h2 class="title">${x.no}. <a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a></h2>
+      <div class="sub">型: ${esc(x.typeLabel)}</div>
+      ${x.desc.length ? `<div class="desc">概要欄: ${esc(x.desc.join(" ／ "))}</div>` : ""}
+      <div class="ans rule"><b class="who">ルール</b> <b>${esc(x.rule.status)}</b>${list(x.rule.lines)}
+        ${x.rule.flags ? `<div class="sub">目印: ${esc(x.rule.flags)}</div>` : ""}</div>
+      <div class="ans ai"><b class="who">AI</b> <b>${esc(x.ai.status)}</b>（確度 ${esc(x.ai.confidence)}）${list(x.ai.lines)}
+        <div class="sub">見たもの: ${esc(x.ai.looked)}${x.ai.thumbnail ? ` ／ サムネイル: ${esc(x.ai.thumbnail)}` : ""}</div>
+        <div class="sub">理由: ${esc(x.ai.rationale)}</div></div>
+      <div class="why">食い違い: ${esc(x.why)}</div>
+      <div class="verdict">${Object.entries(LABEL).map(([k, l]) => `<button data-v="${k}" aria-pressed="${st.v === k}">${l}</button>`).join("")}</div>
+      <textarea placeholder="メモ（両方誤りなら正しい答え、判断の理由など）">${esc(st.memo || "")}</textarea>
+    </div>
+  </article>`;
+}
+
+function render() {
+  renderTabs();
+  const undone = document.getElementById("undoneOnly").checked;
+  const items = DATA.items.filter((x) => x.section === tab && (!undone || !store[x.id]?.v));
+  const sec = DATA.sections.find((s) => s.key === tab);
+  document.getElementById("list").innerHTML = (sec.note ? `<p class="sub">${esc(sec.note)}</p>` : "") + (items.map(card).join("") || `<p class="sub">この区分に残っている枠はありません。</p>`);
+  document.querySelectorAll(".card").forEach((c) => {
+    const id = c.dataset.id;
+    c.querySelectorAll(".verdict button").forEach((b) => b.onclick = () => {
+      const cur = store[id] || {};
+      cur.v = cur.v === b.dataset.v ? undefined : b.dataset.v;
+      cur.at = new Date().toISOString();
+      store[id] = cur; persist();
+      c.classList.toggle("done", !!cur.v);
+      c.querySelectorAll(".verdict button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === cur.v)));
+      renderTabs();
+    });
+    c.querySelector("textarea").oninput = (e) => { store[id] = { ...(store[id] || {}), memo: e.target.value }; persist(); };
+  });
+}
+
+function toMarkdown() {
+  const out = [`# 裁定（${DATA.batch}）`, "", `- 書き出し: ${new Date().toLocaleString("ja-JP")}`, `- 元の一覧: ${DATA.source}`, "- 裁定: ルール（ルールが正しい）／ AI（AI が正しい）／ 両方誤り ／ 判断できない", ""];
+  // 型ごとの集計（ルールの誤り = AI か 両方誤り）
+  out.push("## 型ごとの集計（誤りの疑いの区分）", "", "| 型 | 件数 | 裁定済み | ルールの誤り | ルールが正しい | 判断できない |", "| --- | ---: | ---: | ---: | ---: | ---: |");
+  const req = DATA.items.filter((x) => DATA.sections.find((s) => s.key === x.section)?.required);
+  const types = [...new Set(req.map((x) => x.type))];
+  for (const t of types) {
+    const xs = req.filter((x) => x.type === t);
+    const c = (f) => xs.filter((x) => f(store[x.id]?.v)).length;
+    out.push(`| ${t} | ${xs.length} | ${c((v) => !!v)} | ${c((v) => v === "ai" || v === "both")} | ${c((v) => v === "rule")} | ${c((v) => v === "unknown")} |`);
+  }
+  out.push("");
+  for (const s of DATA.sections) {
+    const xs = DATA.items.filter((x) => x.section === s.key);
+    const done = xs.filter((x) => store[x.id]?.v || store[x.id]?.memo);
+    if (!s.required && done.length === 0) continue;
+    out.push(`## ${s.label}（${xs.length} 件・裁定 ${xs.filter((x) => store[x.id]?.v).length}）`, "");
+    for (const x of s.required ? xs : done) {
+      const st = store[x.id] || {};
+      out.push(`### ${x.no}. ${x.id}　型 ${x.type}`, `- タイトル: ${x.title}`, `- ルール: ${x.rule.status} ${x.rule.lines.join(" ＋ ")}`, `- AI: ${x.ai.status} ${x.ai.lines.join(" ＋ ")}`,
+        `- 裁定: ${st.v ? LABEL[st.v] : "（未）"}`, `- メモ: ${(st.memo || "").replace(/\n/g, " ")}`, "");
+    }
+  }
+  out.push("## 読み込み用（編集しない）", "", "```json", JSON.stringify({ batch: DATA.batch, verdicts: store }), "```", "");
+  return out.join("\n");
+}
+
+document.getElementById("exportBtn").onclick = async () => {
+  const md = toMarkdown();
+  if (window.showSaveFilePicker) {
+    try {
+      const h = await showSaveFilePicker({ suggestedName: "verdicts.md", types: [{ description: "Markdown", accept: { "text/markdown": [".md"] } }] });
+      const w = await h.createWritable(); await w.write(md); await w.close();
+      toast("書き出しました: " + h.name); return;
+    } catch (e) { if (e && e.name === "AbortError") return; }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
+  a.download = "verdicts.md"; a.click();
+  toast("ダウンロードフォルダに verdicts.md を保存しました。保存場所へ移してください");
+};
+document.getElementById("importFile").onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const m = (await f.text()).match(/```json\r?\n([\s\S]*?)\r?\n```/);
+  try {
+    const j = JSON.parse(m[1]);
+    if (j.batch !== DATA.batch) { toast("別の batch の裁定です: " + j.batch); return; }
+    store = j.verdicts || {}; persist(); render(); toast("読み込みました");
+  } catch (err) { toast("読み込めませんでした（末尾の「読み込み用」が必要です）"); }
+  e.target.value = "";
+};
+document.getElementById("clearBtn").onclick = () => { if (confirm("この一覧の裁定とメモを全部消します。よろしいですか？")) { store = {}; persist(); render(); } };
+document.getElementById("undoneOnly").onchange = render;
+render();
+</script>
+</body>
+</html>

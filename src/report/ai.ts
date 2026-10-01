@@ -66,6 +66,47 @@ function batchDir(batch: string): string {
   return join(DATA_DIR, "ai", batch);
 }
 
+/**
+ * 概要欄の行を AI に見せる形にする。定型文（同じ配信者の枠に繰り返し出る行）と URL の行を除き、
+ * その枠を指す行を先に、残りは先頭から（合わせて12行まで、1行120文字まで）
+ */
+export function descriptionReader(ctx: Ctx): (streamerId: number, raw: string | null) => string[] {
+  const templates = new Map<number, Set<string>>();
+  const templatesOf = (sid: number) => {
+    let t = templates.get(sid);
+    if (!t) {
+      const ds = (ctx.db.prepare("SELECT description_raw FROM watch_events WHERE streamer_id = ?").all(sid) as { description_raw: string | null }[]).map((x) => x.description_raw);
+      t = templateLines(ds, ctx.detectCfg);
+      templates.set(sid, t);
+    }
+    return t;
+  };
+  return (sid, raw) => {
+    const tpl = templatesOf(sid);
+    const lines = String(raw ?? "").split(/\r?\n/).map((l) => l.trim())
+      .filter((l) => l && !tpl.has(normalize(l, ctx.detectCfg.normalize)) && !/^https?:\/\//.test(l));
+    const self = lines.filter((l) => SELF.test(l));
+    return [...self, ...lines.filter((l) => !SELF.test(l))].slice(0, 12).map((l) => l.slice(0, 120));
+  };
+}
+
+/** サムネイルを判定のためだけにローカルへ落とす（サイトには使わない）。取れなければ null（タイトル・概要欄だけで見る） */
+export async function downloadThumb(ctx: Ctx, url: string | null, dir: string, videoId: string): Promise<string | null> {
+  if (!url || !/^https:\/\/i\d?\.ytimg\.com\//.test(url)) return null;
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `${videoId}.jpg`);
+  if (!existsSync(path)) {
+    try {
+      const res = await fetch(url, { headers: { "user-agent": ctx.crawlCfg.http.user_agent }, signal: AbortSignal.timeout(15_000) });
+      if (res.ok) writeFileSync(path, Buffer.from(await res.arrayBuffer()));
+      await new Promise((ok) => setTimeout(ok, 150));
+    } catch {
+      // サムネイルが取れなくても判定はできる
+    }
+  }
+  return existsSync(path) ? path : null;
+}
+
 /** 判定する枠を選んで書き出す。AI の判定がすでにある枠（hold を含む）は選ばない */
 export async function aiQueue(ctx: Ctx, cfg: ExtractConfig, opts: { reason: string; n: number; seed: string; batch: string }): Promise<string> {
   const db = ctx.db;
@@ -80,48 +121,18 @@ export async function aiQueue(ctx: Ctx, cfg: ExtractConfig, opts: { reason: stri
   const dir = batchDir(opts.batch);
   mkdirSync(join(dir, "thumbs"), { recursive: true });
 
-  // 概要欄の定型文（同じ配信者の枠に繰り返し出る行）は外す
-  const templates = new Map<number, Set<string>>();
-  const templatesOf = (sid: number) => {
-    let t = templates.get(sid);
-    if (!t) {
-      const ds = (db.prepare("SELECT description_raw FROM watch_events WHERE streamer_id = ?").all(sid) as { description_raw: string | null }[]).map((x) => x.description_raw);
-      t = templateLines(ds, ctx.detectCfg);
-      templates.set(sid, t);
-    }
-    return t;
-  };
-
+  const desc = descriptionReader(ctx);
   const items: QueueItem[] = [];
   for (const vid of picked) {
     const r = byVideo.get(vid)!;
     const d = r.detail ? (JSON.parse(String(r.detail)) as Record<string, unknown>) : {};
-    const tpl = templatesOf(Number(r.streamer_id));
-    const lines = String(r.description_raw ?? "").split(/\r?\n/).map((l) => l.trim())
-      .filter((l) => l && !tpl.has(normalize(l, ctx.detectCfg.normalize)) && !/^https?:\/\//.test(l));
-    // その枠を指す行を先に、残りは先頭から（合わせて12行まで）
-    const self = lines.filter((l) => SELF.test(l));
-    const desc = [...self, ...lines.filter((l) => !SELF.test(l))].slice(0, 12).map((l) => l.slice(0, 120));
-    let thumb: string | null = null;
-    const url = r.thumbnail_url ? String(r.thumbnail_url) : null;
-    if (url && /^https:\/\/i\d?\.ytimg\.com\//.test(url)) {
-      const path = join(dir, "thumbs", `${vid}.jpg`);
-      if (!existsSync(path)) {
-        try {
-          const res = await fetch(url, { headers: { "user-agent": ctx.crawlCfg.http.user_agent }, signal: AbortSignal.timeout(15_000) });
-          if (res.ok) writeFileSync(path, Buffer.from(await res.arrayBuffer()));
-          await new Promise((ok) => setTimeout(ok, 150));
-        } catch {
-          // サムネイルが取れなくても判定はできる（タイトル・概要欄だけで見る）
-        }
-      }
-      if (existsSync(path)) thumb = path;
-    }
+    const lines = desc(Number(r.streamer_id), r.description_raw as string | null);
+    const thumb = await downloadThumb(ctx, r.thumbnail_url as string | null, join(dir, "thumbs"), vid);
     const notes = d.notes && typeof d.notes === "object" ? Object.entries(d.notes as Record<string, string>).map(([k, v]) => `${k} → ${v}`) : [];
     items.push({
       video_id: vid, event_id: Number(r.id), streamer: String(r.streamer), started_at: String(r.started_at ?? ""), reason: String(r.reason),
       title: String(r.title_raw), segments: [...((d.segments ?? []) as string[]), ...((d.subs ?? []) as string[]).map((x) => `(小区間) ${x}`)],
-      notes, description_lines: desc, thumbnail: thumb,
+      notes, description_lines: lines, thumbnail: thumb,
     });
   }
   writeFileSync(join(dir, "queue.json"), JSON.stringify({ batch: opts.batch, reason: opts.reason, seed: opts.seed, population: rows.length, created_at: nowIso(), items }, null, 2), "utf8");
@@ -146,6 +157,24 @@ export async function aiQueue(ctx: Ctx, cfg: ExtractConfig, opts: { reason: stri
   return `母集団 ${rows.length} 枠から ${items.length} 件（サムネイル ${items.filter((x) => x.thumbnail).length} 件）→ ${join(dir, "queue.md")}`;
 }
 
+/** 外部DBのキー（annict:1 / anilist:2 / wikidata:Q3）から作品の情報を引く。Wikidata は作品クラスの項目だけ */
+export async function fetchWorks(ctx: Ctx, cfg: ExtractConfig, keys: string[]): Promise<Map<string, WorkCandidate>> {
+  const cache = new ResolveCache(ctx.db, 30);
+  const token = process.env.ANNICT_TOKEN;
+  const annict = token ? new AnnictClient(ctx.http, cache, token, cfg.annict) : null;
+  const anilist = new AniListClient(ctx.http, cache, cfg.anilist);
+  const wp = new WikipediaClient(ctx.http, cache);
+  const ids = (p: string) => keys.filter((k) => k.startsWith(p)).map((k) => k.slice(p.length));
+  const got = new Map<string, WorkCandidate>();
+  if (ids("annict:").length) {
+    if (!annict) throw new Error("annict の作品を引くには ANNICT_TOKEN が必要です");
+    for (const [id, w] of await annict.byIds(ids("annict:").map(Number))) got.set(`annict:${id}`, w);
+  }
+  if (ids("anilist:").length) for (const [id, w] of await anilist.byIds(ids("anilist:").map(Number))) got.set(`anilist:${id}`, w);
+  if (ids("wikidata:").length) for (const [q, e] of await wp.entities(ids("wikidata:"))) if (workMedia(e, cfg)) got.set(`wikidata:${q}`, labelCandidate(e, cfg));
+  return got;
+}
+
 /** 判定のファイルを検査して、作品の情報を外部DBから引いて DB に入れる */
 export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promise<string> {
   const f = JSON.parse(readFileSync(file, "utf8")) as DecisionFile;
@@ -165,21 +194,7 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promi
   });
 
   // 作品の情報を外部DBから引く
-  const cache = new ResolveCache(db, 30);
-  const token = process.env.ANNICT_TOKEN;
-  const annict = token ? new AnnictClient(ctx.http, cache, token, cfg.annict) : null;
-  const anilist = new AniListClient(ctx.http, cache, cfg.anilist);
-  const wp = new WikipediaClient(ctx.http, cache);
-  const keys = [...new Set(valid.flatMap((d) => (d.works ?? []).map((w) => w.key)))];
-  const ids = (p: string) => keys.filter((k) => k.startsWith(p)).map((k) => k.slice(p.length));
-  const got = new Map<string, WorkCandidate>();
-  if (ids("annict:").length) {
-    if (!annict) throw new Error("annict の作品を入れるには ANNICT_TOKEN が必要です");
-    for (const [id, w] of await annict.byIds(ids("annict:").map(Number))) got.set(`annict:${id}`, w);
-  }
-  for (const [id, w] of await anilist.byIds(ids("anilist:").map(Number))) got.set(`anilist:${id}`, w);
-  const ents = await wp.entities(ids("wikidata:"));
-  for (const [q, e] of ents) if (workMedia(e, cfg)) got.set(`wikidata:${q}`, labelCandidate(e, cfg));
+  const got = await fetchWorks(ctx, cfg, [...new Set(valid.flatMap((d) => (d.works ?? []).map((w) => w.key)))]);
 
   const applied: number[] = [];
   const now = nowIso();
@@ -215,11 +230,25 @@ export function aiReport(ctx: Ctx, batch: string): string {
     "確度が low の同定はサイトに出さない（出すのは high と medium）。",
     "",
   ];
+  // 採点に使う材料（待ち行列に書き出した概要欄の行とサムネイル）
+  const dir = batchDir(batch);
+  const queued = new Map<string, QueueItem>();
+  if (existsSync(join(dir, "queue.json"))) {
+    for (const x of (JSON.parse(readFileSync(join(dir, "queue.json"), "utf8")) as { items: QueueItem[] }).items) queued.set(x.video_id, x);
+  }
+  const count = new Map<string, number>();
+  for (const r of rows) if (!r.revoked_at) count.set(String(r.status), (count.get(String(r.status)) ?? 0) + 1);
+  out.push(`件数（取り消していないもの）: ${[...count].map(([k, v]) => `${label[k] ?? k} ${v}`).join("・")}`, "");
   rows.forEach((r, i) => {
     const works = r.works ? (JSON.parse(String(r.works)) as AiWork[]) : [];
     const ev = JSON.parse(String(r.evidence)) as DecisionInput["evidence"];
+    const q = queued.get(String(r.video_id));
+    const thumb = join(dir, "thumbs", `${r.video_id}.jpg`);
     out.push(`## ${i + 1}. ${r.video_id}　${r.streamer}　${String(r.started_at).slice(0, 10)}${r.revoked_at ? "（取り消し済み）" : ""}`);
+    if (existsSync(thumb)) out.push(`![サムネイル](thumbs/${r.video_id}.jpg)`, "");
     out.push(`- タイトル: ${r.title_raw}`);
+    out.push(`- URL: https://www.youtube.com/watch?v=${r.video_id}`);
+    if (q) out.push(`- 概要欄（ローカルの確認用・公開しない）: ${q.description_lines.join(" ／ ") || "なし"}`);
     out.push(`- 判定: **${label[String(r.status)] ?? r.status}**（確度 ${r.confidence}）`);
     for (const w of works) {
       const c = w.work;
@@ -231,7 +260,6 @@ export function aiReport(ctx: Ctx, batch: string): string {
     out.push(`- 採点: `);
     out.push("");
   });
-  const dir = batchDir(batch);
   mkdirSync(dir, { recursive: true });
   const path = join(dir, "report.md");
   writeFileSync(path, out.join("\n"), "utf8");

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pick, looksLikeMovieEvent } from "../src/resolve/resolve.ts";
+import { pick, looksLikeMovieEvent, nearTitle } from "../src/resolve/resolve.ts";
 import type { Plan, Outcome } from "../src/resolve/resolve.ts";
 import { extract } from "../src/resolve/extract.ts";
 import { loadExtractConfig } from "../src/resolve/config.ts";
@@ -262,4 +262,15 @@ test("「実写見る前に復習したい」は実写版の手がかりにし�
   const o: Outcome = { kind: "ambiguous", works: [anime, live], method: "同名の別作品（公開年が違う）", source: "annict" };
   const p = { ...plan("【メン限同時視聴】実写見る前に復習したい！【リトル・マーメイド】"), target: { ...plan("x").target, title_raw: "【メン限同時視聴】実写見る前に復習したい！【リトル・マーメイド】", started_at: "2023-07-01T00:00:00Z" } };
   assert.ok(!pick(p, new Map([["リトル・マーメイド", o]])).picked.some((x) => x.method.endsWith("+live")));
+});
+
+test("作品ではない枠の仕分け: ほぼ同じ作品名（前方一致・先頭の大部分が同じ）を拾い、短い名前や別の名前は拾わない", () => {
+  const cfg = loadExtractConfig();
+  assert.equal(nearTitle("Duel Masters LOST", "Duel Masters LOST～追憶の水晶～", cfg), true);
+  assert.equal(nearTitle("グリーンランド-地球最後の二日間-", "グリーンランド -地球最後の2日間-", cfg), true);
+  assert.equal(nearTitle("F1", "F1/エフワン", cfg), false);
+  // 番号だけ違う名前も拾う（比べる相手は照会で出た作品の候補だけ。ゲームの記事は候補に入らない）
+  assert.equal(nearTitle("スプラトゥーン3 Direct", "スプラトゥーン2", cfg), true);
+  assert.equal(nearTitle("天皇賞秋", "天気の子", cfg), false);
+  assert.equal(nearTitle("にじさんじ甲子園", "にじさんじ", cfg), true);
 });

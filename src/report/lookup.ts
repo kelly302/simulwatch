@@ -24,9 +24,15 @@ export async function lookup(ctx: Ctx, cfg: ExtractConfig, texts: string[], opts
     out.push(`■ 「${text}」（照合キー ${key}）`);
     if (annict) {
       const r = (await annict.search([text])).get(text) ?? [];
+      // 話の番号の範囲（分割クールの後半は通し番号のまま。水星の魔女 Season2 は第13話〜第24話）
+      const eps = await annict.episodes(r.slice(0, limit).filter((w) => w.media !== "movie" && w.annictId).map((w) => w.annictId!));
+      const range = (id: number | null) => {
+        const es = id ? eps.get(id) ?? [] : [];
+        return es.length ? ` 話の番号: ${es[0]!.numberText ?? es[0]!.number}〜${es[es.length - 1]!.numberText ?? es[es.length - 1]!.number}` : "";
+      };
       out.push(`  Annict ${r.length}件`);
       for (const w of r.slice(0, limit)) {
-        out.push(`    annict:${w.annictId} ${w.title}〈${w.media ?? "?"},${w.seasonName ?? "?"},${w.episodesCount ?? "?"}話〉${w.titles.slice(1).length ? ` 英題等: ${w.titles.slice(1).join(" / ")}` : ""}${matchKey(w.title, cfg) === key ? " ★一致" : ""}`);
+        out.push(`    annict:${w.annictId} ${w.title}〈${w.media ?? "?"},${w.seasonName ?? "?"},${w.episodesCount ?? "?"}話〉${range(w.annictId)}${w.titles.slice(1).length ? ` 英題等: ${w.titles.slice(1).join(" / ")}` : ""}${matchKey(w.title, cfg) === key ? " ★一致" : ""}`);
       }
     }
     const al = (await anilist.searchRaw([text])).get(text) ?? [];

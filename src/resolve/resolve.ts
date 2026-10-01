@@ -415,6 +415,8 @@ export interface ResolveStats {
   unresolved: Record<UnresolvedReason, number>;
   event_works: number;
   multi_work_events: number;
+  /** 作品ではない語に当たったが、区間が作品にも当たった枠（AI の判定に回す） */
+  not_a_work_conflicts?: number;
   episodes_linked: number;
   works_total: number;
   works_removed: number;
@@ -463,7 +465,7 @@ export interface Picked {
  * 括弧で作品が決まった枠では、括弧の外の区間（「王覇山軍」「ぺこ」など配信者の決まり文句）を照会も採用もしない。
  * 作品ではない語に当たった枠は、作品名だと明示された括弧（「映画「さがす」」）の中身だけを試す。
  */
-interface TierItem {
+export interface TierItem {
   text: string;
   from: Picked["from"];
   /** 小区間の分け方。multi は複数作品になりうる、alt は同じ作品の言い換え */
@@ -476,7 +478,7 @@ interface TierItem {
 
 export const TIER_NAMES = ["括弧の中身", "括弧の外の区間", "小区間", "概要欄", "ハッシュタグ"];
 
-function tiers(plan: Plan): TierItem[][] {
+export function tiers(plan: Plan): TierItem[][] {
   const item = (s: Segment): TierItem => ({ text: s.text, from: s.from, ...(s.wp ? { wp: s.wp } : {}) });
   const quote = plan.ex.segments.filter((s) => s.from === "quote").map(item);
   if (plan.ex.notAWork) return [plan.ex.notAWorkQuoteOnly ? quote : [], [], [], [], []];
@@ -499,6 +501,21 @@ export function looksLikeMovieEvent(title: string): boolean {
 }
 
 export { releaseStart };
+
+/**
+ * 作品ではない枠を AI に見せるかの仕分けに使う「ほぼ同じ作品名」（同定には使わない）。照合キーで、
+ * どちらかが他方の前方に一致して短いほうが4文字以上、または先頭の共通部分が6文字以上で短いほうの3分の2以上
+ * （「グリーンランド-地球最後の二日間-」と「…2日間-」、「Duel Masters LOST」と「Duel Masters LOST～追憶の水晶～」）
+ */
+export function nearTitle(a: string, b: string, cfg: ExtractConfig): boolean {
+  const x = [...matchKey(a, cfg)];
+  const y = [...matchKey(b, cfg)];
+  const short = Math.min(x.length, y.length);
+  if (short < 4) return false;
+  let i = 0;
+  while (i < short && x[i] === y[i]) i++;
+  return i === short || (i >= 6 && i >= (short * 2) / 3);
+}
 
 /** 区間の末尾の公開年（「GODZILLA(2014」「ショーシャンクの空に(字幕版)1995」） */
 export function yearIn(text: string | undefined): number | null {
@@ -871,11 +888,65 @@ export async function resolveEvents(ctx: Ctx, opts: ResolveOptions): Promise<Res
     }
   }
 
+  // 作品ではない語に当たった枠でも、区間が作品に当たるか（「少林サッカー」の「サッカー」、配信者のタグ「#ロボ子生放送」で消えた映画）。
+  // ルールでは決めず（作品ではないのまま）、当たったものを detail.work_conflicts に残して AI の判定に回す（型 not_a_work_conflict）
+  const conflicts = new Map<number, string[]>();
+  const nawPlans = decisions.filter((d) => d.picked.length === 0 && d.plan.ex.notAWork).map((d) => d.plan);
+  if (nawPlans.length) {
+    const main = new Map<string, string>();
+    const subs = new Map<string, string>();
+    for (const p of nawPlans) {
+      for (const s of p.ex.segments) {
+        if (!outcomes.has(s.text)) main.set(s.text, p.target.title_raw);
+        for (const x of s.subs) if (!outcomes.has(x.text)) subs.set(x.text, p.target.title_raw);
+      }
+    }
+    log.info(`作品ではない枠の区間の照会: 区間 ${main.size} 件・小区間 ${subs.size} 件（${nawPlans.length} 枠）`);
+    for (const [t, o] of await r.resolveTexts(main, true)) outcomes.set(t, o);
+    const restSubs = new Map([...subs].filter(([t]) => !outcomes.has(t)));
+    for (const [t, o] of await r.resolveTexts(restSubs, false)) outcomes.set(t, o);
+    // 完全一致しなくても、照会で出てきた作品の名前が区間とほぼ同じなら拾う（AI に見せるかどうかの仕分けなので、拾いすぎは許す）。
+    // 「グリーンランド-地球最後の二日間-」（作品名は 2日間）、「Duel Masters LOST」（作品名に副題が続く）
+    const near = new Map<string, string[]>();
+    try {
+      const texts = [...new Set(nawPlans.flatMap((p) => p.ex.segments.map((s) => s.text)))].filter((t) => matchKey(t, cfg).length >= 4);
+      const found = new Map<string, string[]>();
+      const labels = new Map<string, string[]>();
+      for (const t of texts) {
+        found.set(t, await r.wikipedia.search(t));
+        if (cfg.wikidata_label && !isShortLatin(matchKey(t, cfg))) labels.set(t, (await r.wikipedia.searchEntities(t)).map((h) => h.id));
+      }
+      const pages = await r.wikipedia.pages([...found.values()].flat());
+      const ents = await r.wikipedia.entities([...[...pages.values()].map((p) => p.qid).filter((q): q is string => !!q), ...[...labels.values()].flat()]);
+      for (const t of texts) {
+        const titles = [
+          ...(outcomes.get(t)?.cands ?? []).flatMap((c) => c.titles.slice(0, 1)),
+          ...(found.get(t) ?? []).filter((x) => isWorkPage(pages.get(x), ents, cfg)).map((x) => pages.get(x)!.title ?? x),
+          ...(labels.get(t) ?? []).map((q) => ents.get(q)).filter((e): e is EntityInfo => !!e && !!e.labelJa && !!workMedia(e, cfg)).map((e) => e.labelJa!),
+        ];
+        const hit = titles.filter((x) => nearTitle(t, x, cfg));
+        if (hit.length) near.set(t, [...new Set(hit)]);
+      }
+    } catch (e) {
+      r.errors.push(`作品ではない枠の近い作品名: ${errorMessage(e)}`);
+    }
+    for (const p of nawPlans) {
+      const hits = p.ex.segments.flatMap((s) => [s.text, ...s.subs.map((x) => x.text)]).flatMap((t) => {
+        const o = outcomes.get(t);
+        if (o?.kind === "match") return [`${t} → ${o.work.sourceKey} ${o.work.title}`];
+        if (o?.kind === "ambiguous") return [`${t} → ${o.works.map((w) => `${w.sourceKey} ${w.title}`).join(" / ")}（候補が複数）`];
+        return (near.get(t) ?? []).map((x) => `${t} ≒ ${x}（作品名がほぼ同じ）`);
+      });
+      if (hits.length) conflicts.set(p.target.id, [...new Set(hits)]);
+    }
+  }
+
   const stats: ResolveStats = {
     targets: targets.length, resolved: 0,
     unresolved: { no_candidate: 0, unidentifiable: 0, not_found: 0, ambiguous: 0, not_a_work: 0, error: 0 },
     event_works: 0, multi_work_events: 0, episodes_linked: 0, works_total: 0, works_removed: 0, images_linked: 0,
     requests: {}, cache: { hits: 0, misses: 0 }, source_errors: [], rule_version: cfg.version,
+    not_a_work_conflicts: conflicts.size,
   };
 
   tx(ctx.db, () => {
@@ -885,7 +956,10 @@ export async function resolveEvents(ctx: Ctx, opts: ResolveOptions): Promise<Res
       const segTexts = plan.ex.segments.map((s) => s.text);
       const shown = segTexts.join(" / ") || plan.ex.cleaned || null;
       if (d.picked.length === 0 && plan.ex.notAWork) {
-        markUnresolved(ctx.db, ev, "not_a_work", plan.ex.notAWork, { cleaned: plan.ex.cleaned, segments: segTexts, notes: d.notes }, cfg.version);
+        markUnresolved(ctx.db, ev, "not_a_work", plan.ex.notAWork, {
+          cleaned: plan.ex.cleaned, segments: segTexts, notes: d.notes,
+          ...(conflicts.has(ev) ? { work_conflicts: conflicts.get(ev) } : {}),
+        }, cfg.version);
         stats.unresolved.not_a_work++;
         continue;
       }

@@ -13,6 +13,7 @@ import { extract } from "./resolve/extract.ts";
 import { resolveSummary, unresolvedStats, unresolvedList, exportUnresolved, resolveAudit } from "./report/resolve.ts";
 import { seasonSample, unresolvedSample } from "./report/sample.ts";
 import { aiQueue, aiApply, aiReport, aiRevoke } from "./report/ai.ts";
+import { auditTypes, auditSample, auditCompare } from "./report/audit.ts";
 import { assignSeasons } from "./resolve/series.ts";
 import { ResolveCache } from "./resolve/cache.ts";
 import { AnnictClient } from "./resolve/sources/annict.ts";
@@ -61,6 +62,14 @@ const HELP = `
   ai:report B     判定の根拠の一覧（採点用）を data/ai/<batch>/report.md に書き出す
   ai:revoke       判定を取り消して、ルールで名寄せし直す [--batch B] [--video ID,...]
 
+コマンド（型ごとの検証。ゲート2の決定。人が起動する）:
+  audit:types     枠を同定の型に分け、型ごとの件数と目印の重なりを data/audit/types.md に書く（DB は変えない）
+  audit:sample    型ごとに抽出し、AI に見せる待ち行列（タイトル・概要欄・サムネイルだけ）と封をしたルールの答えを
+                  data/audit/<batch>/ に書き出す [--seed S（既定 audit-1）] [--batch B（既定はシード）]
+                  [--type T,...（型か層を絞る。層は not_a_work_rule:スポーツ のように語の種類まで）]
+                  [--exclude B,...（前の抽出で使った枠を除く）] [--n N（1層の件数を指定）]
+  audit:compare B AI の答え（data/audit/<batch>/answers/*.json）とルールの答えを突き合わせ、不一致の一覧と型ごとの集計を書く
+
 環境変数:
   YOUTUBE_API_KEY  YouTube Data API のキー（.env に書けば自動で読む）
   ANNICT_TOKEN     Annict の個人用アクセストークン（無ければ AniList と Wikipedia だけで名寄せする）
@@ -82,6 +91,8 @@ async function main(): Promise<number> {
       n: { type: "string" },
       seed: { type: "string" },
       batch: { type: "string" },
+      type: { type: "string" },
+      exclude: { type: "string" },
     },
   });
   const cmd = positionals[0];
@@ -168,6 +179,34 @@ async function main(): Promise<number> {
         const videos = aiRevoke(ctx, { batch: values.batch, videos: values.video?.split(",") });
         console.log(`取り消した判定 ${videos.length} 件。ルールで名寄せし直します`);
         if (videos.length) await runStep(ctx, "resolve (videos)", () => resolveEvents(ctx, { mode: "videos", videoIds: videos }));
+      },
+    },
+    "audit:types": {
+      job: "report",
+      run: async (ctx) => {
+        const r = await runStep(ctx, "audit:types", () => auditTypes(ctx, loadExtractConfig()));
+        if (r) console.log(r);
+      },
+    },
+    "audit:sample": {
+      job: "report",
+      run: async (ctx) => {
+        const seed = values.seed ?? "audit-1";
+        const r = await runStep(ctx, "audit:sample", () =>
+          auditSample(ctx, loadExtractConfig(), {
+            seed, batch: values.batch ?? seed, only: values.type?.split(","), exclude: values.exclude?.split(","),
+            ...(values.n ? { n: Number(values.n) } : {}),
+          }));
+        if (r) console.log(r);
+      },
+    },
+    "audit:compare": {
+      job: "report",
+      run: async (ctx) => {
+        const batch = positionals[1] ?? values.batch;
+        if (!batch) throw new Error("batch を指定してください");
+        const r = await runStep(ctx, "audit:compare", () => auditCompare(ctx, loadExtractConfig(), batch));
+        if (r) console.log(r);
       },
     },
     "resolve:sample": {
