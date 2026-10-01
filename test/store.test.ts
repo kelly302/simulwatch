@@ -97,5 +97,15 @@ test("AI の判定: 入れ直しても同じ結果になり、取り消すまで
   assert.equal((db.prepare("SELECT reason FROM unresolved WHERE watch_event_id = 2 AND resolved_at IS NULL").get() as { reason: string }).reason, "not_a_work");
   // 取り消せば反映しない
   db.exec("UPDATE ai_decisions SET revoked_at = 'n' WHERE watch_event_id = 1");
-  assert.deepEqual(applyAiDecisions(db, "v1", [1]), { identified: 0, not_a_work: 0, unidentifiable: 0 });
+  assert.deepEqual(applyAiDecisions(db, "v1", [1]), { identified: 0, not_a_work: 0, unidentifiable: 0, not_in_db: 0 });
+});
+
+test("AI の判定: 作品だが外部DBに無い（not_in_db）は未同定の理由 not_in_db にして作品名を残す", async () => {
+  const { applyAiDecisions } = await import("../src/resolve/ai.ts");
+  const db = freshDb();
+  db.prepare(`INSERT INTO ai_decisions (watch_event_id, status, works, confidence, evidence, rationale, model, batch, decided_at, extra)
+    VALUES (1, 'not_in_db', NULL, 'high', '{"looked":["title","lookup"]}', 'r', 'm', 'b', 'n', '{"title":"歩女"}')`).run();
+  assert.deepEqual(applyAiDecisions(db, "v1"), { identified: 0, not_a_work: 0, unidentifiable: 0, not_in_db: 1 });
+  const u = db.prepare("SELECT reason, extracted_text FROM unresolved WHERE watch_event_id = 1 AND resolved_at IS NULL").get() as { reason: string; extracted_text: string };
+  assert.deepEqual({ ...u }, { reason: "not_in_db", extracted_text: "歩女" });
 });

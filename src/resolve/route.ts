@@ -170,3 +170,41 @@ export function stratumOf(r: { type: RouteType; sub?: string | null }): string {
 export function zeroErrorUpper95(n: number): number {
   return n > 0 ? 1 - Math.pow(0.05, 1 / n) : 1;
 }
+
+/** 枠が AI に回す型か（config/extract.yaml の ai_routes。型か層（not_a_work_rule:スポーツ）で書く） */
+export function needsAi(r: { type: string; sub?: string | null }, aiRoutes: string[]): boolean {
+  return aiRoutes.includes(r.type) || aiRoutes.includes(stratumOf(r as { type: RouteType; sub?: string | null }));
+}
+
+/**
+ * サイトでの出し方（2026-10-01 の決定 (a)。AI に回す型の枠は AI が確かめるまで出さない）
+ *   work       作品を付けて出す
+ *   frame      作品を付けずに枠として出す（作品だが外部DBに無い・作品を特定できない・確度 low の同定）
+ *   hidden     出さない（作品ではない）
+ *   pending_ai AI の判定待ち（出さない。AI が保留にした枠もここ）
+ */
+export type PublishState = "work" | "frame" | "hidden" | "pending_ai";
+
+export function publishState(
+  p: {
+    type: string | null;
+    sub: string | null;
+    /** 取り消されていない AI の判定（hold を含む） */
+    ai: { status: string; confidence: string } | null;
+    hasWorks: boolean;
+    unresolvedReason: string | null;
+  },
+  aiRoutes: string[],
+): PublishState {
+  if (p.ai && p.ai.status !== "hold") {
+    if (p.ai.status === "identified") return p.ai.confidence === "low" ? "frame" : "work";
+    if (p.ai.status === "not_a_work") return "hidden";
+    return "frame"; // not_in_db・unidentifiable
+  }
+  // AI の判定が無い（または保留）。型が分からない枠と AI に回す型の枠は、AI が確かめるまで出さない
+  if (!p.type || needsAi({ type: p.type, sub: p.sub }, aiRoutes)) return "pending_ai";
+  if (p.hasWorks) return "work";
+  if (p.unresolvedReason === "not_a_work") return "hidden";
+  if (p.unresolvedReason === "unidentifiable" || p.unresolvedReason === "not_in_db") return "frame";
+  return "pending_ai";
+}

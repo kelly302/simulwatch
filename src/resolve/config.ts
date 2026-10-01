@@ -25,6 +25,8 @@ export interface ExtractConfig {
   description_list_verbs?: string[];
   /** Wikidata のラベルの完全一致で同定する段（Wikipedia に記事が無い作品。「来る」「笑いのカイブツ」）と、同名別作品の照合にラベル検索を使う */
   wikidata_label?: boolean;
+  /** AI に回す型（src/resolve/route.ts の型か層）。この型の枠は AI が確かめるまでサイトに出さない */
+  ai_routes?: string[];
   /** 視聴系列による期の割り当て（src/resolve/series.ts）。false で止める */
   series_assignment?: boolean;
   match_normalize: { strip_chars: string; season_patterns: string[]; fold_chars?: Record<string, string>; fold_kana?: boolean };
@@ -37,6 +39,8 @@ export interface ExtractConfig {
     /** 原作・作品の記事のクラス（小説・漫画など）。Wikidata のラベルの段で、区間と同名の記事がこれでなければ区間は一般の語とみなす */
     source_classes?: string[];
     not_work_classes: Record<string, string>;
+    /** AI の判定（ai:apply）で受け付けるときだけ足す作品のクラス。ルールの照合には使わない */
+    ai_extra_work_classes?: Record<string, "tv" | "movie" | "ova" | "web">;
   };
   /** ルールのバージョン（ファイル内容とリゾルバのコードバージョンのハッシュ） */
   version: string;

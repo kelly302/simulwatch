@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyRoute, routeFlags, zeroErrorUpper95, notAWorkGroups, stratumOf } from "../src/resolve/route.ts";
+import { classifyRoute, routeFlags, zeroErrorUpper95, notAWorkGroups, stratumOf, publishState, needsAi } from "../src/resolve/route.ts";
 import type { RouteFacts } from "../src/resolve/route.ts";
 import { compareAnswer, validateAnswer, siblingTitles } from "../src/report/audit.ts";
 import type { RuleAnswer, RuleWork, AuditAnswer } from "../src/report/audit.ts";
@@ -152,4 +152,19 @@ test("作品ではない語の種類は、設定のコメントの見出しで�
 test("型: 作品ではない語に当たっても、区間が作品に当たる枠は AI に回す型にする", () => {
   assert.equal(classifyRoute(facts({ unresolvedReason: "not_a_work", notAWorkConflict: true })), "not_a_work_conflict");
   assert.equal(classifyRoute(facts({ unresolvedReason: "not_a_work", notAWorkConflict: false })), "not_a_work_rule");
+});
+
+test("サイトでの出し方: AI に回す型の枠は AI が確かめるまで出さない（保留も）。確定の判定が先", () => {
+  const routes = ["redirect", "unresolved", "not_a_work_rule:スポーツ"];
+  const base = { sub: null, ai: null, hasWorks: false, unresolvedReason: null };
+  assert.equal(publishState({ ...base, type: "redirect", hasWorks: true }, routes), "pending_ai");
+  assert.equal(publishState({ ...base, type: "redirect", hasWorks: true, ai: { status: "hold", confidence: "low" } }, routes), "pending_ai");
+  assert.equal(publishState({ ...base, type: "redirect", hasWorks: true, ai: { status: "identified", confidence: "high" } }, routes), "work");
+  assert.equal(publishState({ ...base, type: "unique_exact", hasWorks: true }, routes), "work");
+  assert.equal(publishState({ ...base, type: "not_a_work_rule", sub: "スポーツ", unresolvedReason: "not_a_work" }, routes), "pending_ai");
+  assert.equal(publishState({ ...base, type: "not_a_work_rule", sub: "eスポーツ・大会", unresolvedReason: "not_a_work" }, routes), "hidden");
+  assert.equal(publishState({ ...base, type: "unresolved", ai: { status: "not_in_db", confidence: "high" } }, routes), "frame");
+  assert.equal(publishState({ ...base, type: "unresolved", ai: { status: "identified", confidence: "low" } }, routes), "frame");
+  assert.equal(publishState({ ...base, type: null, hasWorks: true }, routes), "pending_ai");
+  assert.equal(needsAi({ type: "not_a_work_rule", sub: "スポーツ" }, routes), true);
 });

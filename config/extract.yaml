@@ -412,6 +412,13 @@ wikipedia:
     Q220898: ova         # OVA
     Q1107: tv            # アニメ（汎用）
     Q506240: movie       # テレビ映画（「シャークネード」）
+  # AI の判定（ai:apply）で受け付けるときだけ足す作品のクラス。ルールの照合には使わない（名寄せの結果を変えないため）。
+  # 検証（audit-1）で AI が正しく選んだのに受け付けなかった項目のクラス: 仮面ライダーセイバー・ジオウ・ゼロワン（テレビ番組）、
+  # 「薬屋のひとりごと 第1期」など（テレビアニメのシーズン）、「タコピーの原罪」など（アニメのWebシリーズ）
+  ai_extra_work_classes:
+    Q15416: tv           # テレビ番組
+    Q100269041: tv       # テレビアニメのシーズン
+    Q113671041: web      # アニメのWebシリーズ
   # アニメのクラス。アニメのDBで当たった区間を Wikipedia で照合するとき、これらは「同名の別作品」とみなさない
   # （「進撃の巨人 Season3」の記事はアニメ全体の記事へのリダイレクトで、公開年がずれるため）
   # 原作・作品の記事のクラス。Wikidata のラベルの段で、区間と同名の Wikipedia の記事がこれでも作品クラスでもなければ、
@@ -447,3 +454,16 @@ wikipedia:
     Q5: 人物
     Q7889: ゲーム
     Q4167410: 曖昧さ回避
+
+# AI に回す型（src/resolve/route.ts の型、または not_a_work_rule:スポーツ のような層）。この型の枠は AI が確かめるまでサイトに出さない。
+# 2026-10-01 に audit-1〜3（型ごとの抽出と候補を見ない AI との突き合わせ）で誤りが見つかった型。公開後は型ごとの AI との一致率で増減する
+ai_routes:
+  - tiebreak
+  - sub_desc_tag
+  - disambiguation
+  - prefix_sibling
+  - redirect
+  - live_action_tv
+  - not_a_work_conflict
+  - unidentifiable_rule
+  - unresolved

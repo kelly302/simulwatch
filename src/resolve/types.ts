@@ -26,7 +26,7 @@ export interface WorkCandidate {
   isAnime?: boolean;
 }
 
-export type UnresolvedReason = "no_candidate" | "unidentifiable" | "not_found" | "ambiguous" | "not_a_work" | "error";
+export type UnresolvedReason = "no_candidate" | "unidentifiable" | "not_found" | "ambiguous" | "not_a_work" | "not_in_db" | "error";
 
 export const UNRESOLVED_REASON_LABEL: Record<UnresolvedReason, string> = {
   no_candidate: "作品名を切り出せない",
@@ -34,5 +34,6 @@ export const UNRESOLVED_REASON_LABEL: Record<UnresolvedReason, string> = {
   not_found: "照会でヒットしない",
   ambiguous: "候補が複数あり決められない",
   not_a_work: "作品ではない",
+  not_in_db: "作品だが外部DBに無い（AI の判定。枠として出し、作品ページは作らない）",
   error: "照会エラー（次回再試行）",
 };

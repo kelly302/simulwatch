@@ -216,6 +216,15 @@ const MIGRATIONS: string[] = [
   );
   CREATE UNIQUE INDEX ai_decisions_active ON ai_decisions(watch_event_id) WHERE revoked_at IS NULL;
   `,
+  // 6: AI の本番の判定（2026-10-01）。枠の型（同定の経路と危なさ。src/resolve/route.ts）を名寄せのたびに記録し、
+  // AI に回す型（config/extract.yaml の ai_routes）の枠は AI が確かめるまでサイトに出さない。
+  // AI の判定に「作品だが外部DBに無い」（not_in_db）の作品名と、複数作品のうち外部DBに無い作品の名前を持たせる
+  `
+  ALTER TABLE event_resolution ADD COLUMN route TEXT;       -- 型（series / redirect / not_a_work_rule など）
+  ALTER TABLE event_resolution ADD COLUMN route_sub TEXT;   -- 型の中の区分（作品ではないの語の種類）
+  ALTER TABLE event_resolution ADD COLUMN route_at TEXT;
+  ALTER TABLE ai_decisions ADD COLUMN extra TEXT;           -- JSON。{ title（not_in_db の作品名）, missing（外部DBに無い作品の名前）}
+  `,
 ];
 
 export function openDb(path: string = DB_PATH): DB {

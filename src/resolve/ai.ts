@@ -8,8 +8,9 @@ import { upsertWork, getOrCreateEpisode, markUnresolved, markResolved } from "./
 //   確定: 取り消されていない判定（hold 以外）の枠は、resolve が上書きしない（resolve の対象から外し、最後にこの判定を入れ直す）
 //   hold: AI も決められなかった枠。ルールの結果（未同定）のまま残す。判定済みとして次の ai:queue に出さない
 //   確度: high / medium / low。low はサイトに出さない（EventWork の match_method が ai:low）
+//   not_in_db: 作品だが外部DBに無い（作品名は extra.title）。未同定の理由 not_in_db にして、サイトでは枠として出す（作品ページは作らない）
 
-export type AiStatus = "identified" | "not_a_work" | "unidentifiable" | "hold";
+export type AiStatus = "identified" | "not_a_work" | "unidentifiable" | "not_in_db" | "hold";
 export type AiConfidence = "high" | "medium" | "low";
 
 export interface AiWork {
@@ -33,13 +34,14 @@ interface Row {
   confidence: AiConfidence;
   rationale: string;
   batch: string;
+  extra: string | null;
 }
 
 /** 取り消されていない判定を DB に入れ直す（何度実行しても同じ結果）。eventIds を渡せばその枠だけ */
-export function applyAiDecisions(db: DB, ruleVersion: string, eventIds?: number[]): { identified: number; not_a_work: number; unidentifiable: number } {
-  const out = { identified: 0, not_a_work: 0, unidentifiable: 0 };
+export function applyAiDecisions(db: DB, ruleVersion: string, eventIds?: number[]): { identified: number; not_a_work: number; unidentifiable: number; not_in_db: number } {
+  const out = { identified: 0, not_a_work: 0, unidentifiable: 0, not_in_db: 0 };
   const where = eventIds ? `AND watch_event_id IN (${eventIds.map(() => "?").join(",") || "NULL"})` : "";
-  const rows = db.prepare(`SELECT id, watch_event_id, status, works, confidence, rationale, batch FROM ai_decisions
+  const rows = db.prepare(`SELECT id, watch_event_id, status, works, confidence, rationale, batch, extra FROM ai_decisions
     WHERE revoked_at IS NULL AND status != 'hold' ${where}`).all(...(eventIds ?? [])) as unknown as Row[];
   const now = nowIso();
   for (const r of rows) {
@@ -64,6 +66,10 @@ export function applyAiDecisions(db: DB, ruleVersion: string, eventIds?: number[
     } else if (r.status === "not_a_work" || r.status === "unidentifiable") {
       markUnresolved(db, ev, r.status, "(AI の判定)", { ai: info }, ruleVersion);
       out[r.status]++;
+    } else if (r.status === "not_in_db") {
+      const title = (r.extra ? (JSON.parse(r.extra) as { title?: string }).title : undefined) ?? null;
+      markUnresolved(db, ev, "not_in_db", title, { ai: info, title }, ruleVersion);
+      out.not_in_db++;
     }
   }
   return out;

@@ -531,10 +531,10 @@ AI の判定（ゲート2の判断。`src/resolve/ai.ts`・`src/report/ai.ts`）
       roster/           公式サイトからの一覧取得と同期
       detect/           キーワード判定（純粋関数）
       crawl/            巡回ジョブ（取得元・判定と保存・状態の取り直し）
-      resolve/          名寄せ（extract・照合・期と部の表記（markers）・視聴系列の期（series）・AI の判定の反映（ai）・同定の型（route）・
+      resolve/          名寄せ（extract・照合・期と部の表記（markers）・視聴系列の期（series）・AI の判定の反映（ai）・同定の型（route）・型の記録と出し方（routing）・
                         Annict / AniList / Wikipedia のクライアント・保存）
       report/           ローカル確認用のレポート・同定の検証用の抽出・外部DBの照会（lookup）・AI の判定の道具（ai）・
-                        型ごとの抽出と AI との突き合わせ（audit）
+                        型ごとの抽出と AI との突き合わせ（audit）・候補を見せない待ち行列（blind）・AI の答えの形式（answer）・裁定と採点の HTML（review）
     test/               node --test のテスト
     data/               SQLite と生レスポンス（ローカル・コミットしない）
 
@@ -566,10 +566,12 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- unresolved:sample --reason not_found --n 100 --seed nf-1   # 未同定の抽出と分類用の確認表
     npm run cli -- resolve:series    # 視聴系列による期の割り当ての一覧（data/review/series-assign.md。DB は変えない）
     npm run cli -- lookup "来る" "亜人"   # 外部作品DBの照会結果を並べる（判断の確認用）
-    npm run cli -- ai:queue --reason not_found --n 100 --seed ai-trial-1   # AI の判定の待ち行列（data/ai/<batch>/）
-    npm run cli -- ai:apply data/ai/ai-trial-1/decisions.json            # 判定を入れる（確定）
+    npm run cli -- ai:queue --seed ai-run-1 --n 300 --include-hold          # AI に回す型の枠の待ち行列（候補を見せない。data/ai/<batch>/）
+    npm run cli -- ai:queue --reason not_found --n 100 --seed ai-trial-1   # 未同定の理由で選ぶ待ち行列（ai-trial-1 の形）
+    npm run cli -- ai:apply data/ai/ai-run-1/answers                     # 判定を入れる（確定。ファイルかフォルダ）
     npm run cli -- ai:report ai-trial-1                                 # 判定の根拠の一覧（report.md）と採点用の report.html
     npm run cli -- ai:revoke --batch ai-trial-1                         # 判定の取り消しとルールでの名寄せし直し
+    npm run cli -- ai:status                                            # サイトでの出し方ごとの件数と、AI の判定待ちの型の内訳
     npm run cli -- audit:types                     # 同定の型ごとの件数と目印の重なり（data/audit/types.md。DB は変えない）
     npm run cli -- audit:sample --seed audit-1     # 型ごとの抽出。AI に見せる待ち行列と封をしたルールの答え（data/audit/<batch>/）
     npm run cli -- audit:sample --seed audit-2 --exclude audit-1 --n 50 --type "unique_exact,not_a_work_rule:スポーツ"   # 層を絞った測り直し
@@ -662,11 +664,28 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
 - 判定はサブエージェントに GUIDE.md と待ち行列1ファイルだけを渡し、5本ずつ並行で回す。照会の出力は `work/<番号>/` に分ける（共用の一時ファイルで照会結果が混ざったため）。
   audit-1 は 706 件を約40分で判定（1件あたり約7秒、1ファイル約17万トークン）
 
+### AI の本番の判定（2026-10-01 決定・実装）
+
+- **AI に回す型の枠は、AI が確かめるまでサイトに出さない**（決定 (a)）。AI が保留にした枠も出さない。
+  サイトでの出し方は `publishState`（src/resolve/route.ts）: work（作品を付けて出す）／frame（枠として出す: 作品だが外部DBに無い・作品を特定できない・確度 low の同定）／
+  hidden（作品ではない）／pending_ai（AI の判定待ち）。Phase 3 の publish はこれに従う。件数は `ai:status`
+- 枠の型は名寄せ（resolve）のたびに DB 全体で `event_resolution.route`・`route_sub` に記録する（src/resolve/routing.ts の persistRoutes）。
+  AI に回す型は config/extract.yaml の `ai_routes`（型か層）。公開後に一致率で型を上げ下げするときは、ここを変える
+- 待ち行列: `ai:queue`（--reason を付けなければ）は AI に回す型の枠のうち AI の判定が無いもの（--include-hold で保留も）から、シードで先頭 n 件（既定300件）。
+  候補を見せない形（検証と同じ GUIDE と src/report/blind.ts）。判定の前のルールの答えは sealed/ に残し、採点の表に並べる
+- 答えは検証と同じ形（src/report/answer.ts）。`ai:apply data/ai/<batch>/answers` で入れる。**not_in_db（作品だが外部DBに無い）**は ai_decisions.extra に作品名を持ち、
+  未同定の理由 not_in_db にする（サイトでは枠として出し、作品ページは作らない）。複数作品のうち外部DBに無い作品の名前は extra.missing
+- AI が選んだ Wikidata の項目は、ルールの作品クラスに加えて `wikipedia.ai_extra_work_classes`（テレビ番組・テレビアニメのシーズン・アニメのWebシリーズ）も受け付ける。
+  ルールの照合には使わない（仮面ライダーセイバーなどは「テレビ番組」でルールは取りこぼす）
+- 抜き取り検査: `ai:report <batch> --sample 150 --seed S` で、シードで選んだ一部だけの採点用 HTML（scores-sample150.md に書き出す）
+- ai-trial-1 の採点（2026-10-01。ユーザー）: 同定49件は正しい48・判断できない1（るろうに剣心を放送時期で2023年版にした）、作品ではない42件はすべて正しい、
+  保留8件は正しい1・誤り2（「8年越しの花嫁」は原作と映画をまとめた Wikidata の項目を使ってよい、「下僕とハリーポッター」はリンク先が死の秘宝 PART1）・
+  判断できない5（外部DBに無い作品。not_in_db で扱う）。GUIDE に「日付は公開前の作品を外すのにだけ使う」「原作と映画をまとめた項目も使ってよい」を足した
+
 ## 未確定（実装前に確認すること）
 
 - **1枠だけの系列の期**（案c）: 同名で続きの期がある作品に、話数も期の表記もない枠が1枠だけ付いているもの。今は1期（区間と一致する作品）のまま。
   ゲート2の決定で「区間の名前がほかの期の作品名の頭と同じ」型として測り、誤りがあれば AI に回す
-- **作品だが外部DBに無いものの持ち方**: 今は not_found に混ざる。AI の判定に「作品だが外部DBに無い」の区分（枠として出す）を足すか、unresolved の理由を足すか。実装時に決める
 - **AI の判定の Phase 4 での運用**（抜き取り検査の件数は 2026-09-30 に決めた。上の「ゲート2の決定」）: DB は R2 にあり毎時のジョブが書くので、ローカルで判定した decisions.json を R2 の非公開領域に置き、
   resolve のジョブが取り込む案（ai:apply は同じファイルを何度入れても同じ結果）。日次の判定を誰がいつ起動するかも含めて判断待ち
 - **1枠に複数作品が付く枠の表示**（Phase 3 への申し送り）: トップ・配信者ページの枠カードに作品名を並べるか「他2作品」と畳むかは未決。件数を出して決める

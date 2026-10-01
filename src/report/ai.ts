@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Ctx } from "../lib/context.ts";
 import { tx } from "../lib/db.ts";
@@ -16,7 +16,13 @@ import { applyAiDecisions } from "../resolve/ai.ts";
 import type { AiStatus, AiConfidence, AiWork } from "../resolve/ai.ts";
 import type { WorkCandidate } from "../resolve/types.ts";
 import { sampleOrder } from "./sample.ts";
+import { descriptionReader, downloadThumb, writeBlindQueue } from "./blind.ts";
+import { collectRoutes } from "../resolve/routing.ts";
+import type { RuleAnswer } from "../resolve/routing.ts";
+import { needsAi, stratumOf } from "../resolve/route.ts";
 import { writeReviewHtml } from "./review.ts";
+import { validateAnswer } from "./answer.ts";
+import type { AuditAnswer } from "./answer.ts";
 import type { ReviewItem } from "./review.ts";
 
 // AI による判定の道具（ローカルの CLI。定期実行のジョブからは呼ばない）。
@@ -61,55 +67,54 @@ export interface DecisionFile {
   decisions: DecisionInput[];
 }
 
-const SELF = /(今日|本日|今回|この配信|この枠|を見ます|を観ます|みます|見ていく|観ていく|同時視聴)/;
-
 function batchDir(batch: string): string {
   if (!/^[A-Za-z0-9_.-]+$/.test(batch)) throw new Error(`batch の名前は英数字と _ . - だけにしてください: ${batch}`);
   return join(DATA_DIR, "ai", batch);
 }
 
-/**
- * 概要欄の行を AI に見せる形にする。定型文（同じ配信者の枠に繰り返し出る行）と URL の行を除き、
- * その枠を指す行を先に、残りは先頭から（合わせて12行まで、1行120文字まで）
- */
-export function descriptionReader(ctx: Ctx): (streamerId: number, raw: string | null) => string[] {
-  const templates = new Map<number, Set<string>>();
-  const templatesOf = (sid: number) => {
-    let t = templates.get(sid);
-    if (!t) {
-      const ds = (ctx.db.prepare("SELECT description_raw FROM watch_events WHERE streamer_id = ?").all(sid) as { description_raw: string | null }[]).map((x) => x.description_raw);
-      t = templateLines(ds, ctx.detectCfg);
-      templates.set(sid, t);
-    }
-    return t;
-  };
-  return (sid, raw) => {
-    const tpl = templatesOf(sid);
-    const lines = String(raw ?? "").split(/\r?\n/).map((l) => l.trim())
-      .filter((l) => l && !tpl.has(normalize(l, ctx.detectCfg.normalize)) && !/^https?:\/\//.test(l));
-    const self = lines.filter((l) => SELF.test(l));
-    return [...self, ...lines.filter((l) => !SELF.test(l))].slice(0, 12).map((l) => l.slice(0, 120));
-  };
-}
-
-/** サムネイルを判定のためだけにローカルへ落とす（サイトには使わない）。取れなければ null（タイトル・概要欄だけで見る） */
-export async function downloadThumb(ctx: Ctx, url: string | null, dir: string, videoId: string): Promise<string | null> {
-  if (!url || !/^https:\/\/i\d?\.ytimg\.com\//.test(url)) return null;
-  mkdirSync(dir, { recursive: true });
-  const path = join(dir, `${videoId}.jpg`);
-  if (!existsSync(path)) {
-    try {
-      const res = await fetch(url, { headers: { "user-agent": ctx.crawlCfg.http.user_agent }, signal: AbortSignal.timeout(15_000) });
-      if (res.ok) writeFileSync(path, Buffer.from(await res.arrayBuffer()));
-      await new Promise((ok) => setTimeout(ok, 150));
-    } catch {
-      // サムネイルが取れなくても判定はできる
-    }
-  }
-  return existsSync(path) ? path : null;
-}
-
 /** 判定する枠を選んで書き出す。AI の判定がすでにある枠（hold を含む）は選ばない */
+/**
+ * 本番の待ち行列（2026-10-01）。AI に回す型（config/extract.yaml の ai_routes）の枠のうち、AI の判定がまだ無いもの
+ * （includeHold なら保留も）から、sha256(シード:video_id) の昇順で先頭 n 件。候補を見せない形で書き出す（src/report/blind.ts）。
+ * ルールの答えは sealed/ に残し、採点の表（ai:report）で並べる
+ */
+export async function aiQueueRoutes(
+  ctx: Ctx, cfg: ExtractConfig,
+  opts: { batch: string; seed: string; n: number; routes?: string[]; includeHold?: boolean },
+): Promise<string> {
+  const dir = batchDir(opts.batch);
+  if (existsSync(join(dir, "sealed", "answers.json"))) throw new Error(`${dir} はもうあります。別の batch 名にしてください`);
+  const routes = opts.routes ?? cfg.ai_routes ?? [];
+  if (!routes.length) throw new Error("AI に回す型がありません（config/extract.yaml の ai_routes）");
+  const { routed } = await collectRoutes(ctx, cfg);
+  const decided = new Map((ctx.db.prepare("SELECT watch_event_id, status FROM ai_decisions WHERE revoked_at IS NULL").all() as
+    { watch_event_id: number; status: string }[]).map((r) => [r.watch_event_id, r.status]));
+  const pool = routed.filter((r) => needsAi(r.rule, routes) && (!decided.has(r.ev.id) || (opts.includeHold && decided.get(r.ev.id) === "hold")));
+  const byVid = new Map(pool.map((r) => [r.ev.video_id, r]));
+  const rows = sampleOrder(opts.seed, [...byVid.keys()]).slice(0, opts.n).map((v) => byVid.get(v)!);
+  const perRoute: Record<string, number> = {};
+  for (const r of pool) perRoute[stratumOf(r.rule)] = (perRoute[stratumOf(r.rule)] ?? 0) + 1;
+  const picked: Record<string, number> = {};
+  for (const r of rows) picked[stratumOf(r.rule)] = (picked[stratumOf(r.rule)] ?? 0) + 1;
+  const created = nowIso();
+  const { items, chunks } = await writeBlindQueue(ctx, dir, {
+    batch: opts.batch, seed: opts.seed, rows,
+    sealed: { created_at: created, routes, population: pool.length, per_route: perRoute }, sealedNote: "ai:report が採点の表に使う",
+  });
+  const plan = [
+    `# AI の判定の待ち行列（${opts.batch}）`, "",
+    `- 母集団: 一覧に出る枠のうち、AI に回す型（${routes.join("・")}）で、AI の判定がまだ無いもの${opts.includeHold ? "（保留の枠を含む）" : ""}。${pool.length} 枠`,
+    `- 抽出: sha256(シード + ":" + video_id) の昇順で先頭 ${rows.length} 件。シード「${opts.seed}」。待ち行列の並びは sha256(シード + ":queue:" + video_id) の昇順`,
+    "- AI に見せるもの: 配信者・日時・タイトル・概要欄（定型文と URL の行を除き、その枠を指す行を先に12行まで）・サムネイル。型・区間・候補・ルールの答えは見せない（GUIDE.md）",
+    "- 判定のあと: ai:apply data/ai/<batch>/answers で入れ、ai:report <batch> --sample N --seed S で採点の表を作る", "",
+    "| 型 | 母集団 | この待ち行列 |", "| --- | ---: | ---: |",
+    ...Object.entries(perRoute).sort((a, b) => b[1] - a[1]).map(([k, v]) => `| ${k} | ${v} | ${picked[k] ?? 0} |`), "",
+  ];
+  writeFileSync(join(dir, "plan.md"), plan.join("\n"), "utf8");
+  return `母集団 ${pool.length} 枠から ${items.length} 件（${Object.entries(picked).map(([k, v]) => `${k} ${v}`).join("・")}）・待ち行列 ${chunks} ファイル → ${dir}`;
+}
+
+/** 判定する枠を未同定の理由で選ぶ（ai-trial-1 の形。区間と注記を見せる） */
 export async function aiQueue(ctx: Ctx, cfg: ExtractConfig, opts: { reason: string; n: number; seed: string; batch: string }): Promise<string> {
   const db = ctx.db;
   const cutoff = farFutureCutoff(ctx.crawlCfg.upcoming.max_days_ahead);
@@ -173,58 +178,90 @@ export async function fetchWorks(ctx: Ctx, cfg: ExtractConfig, keys: string[]): 
     for (const [id, w] of await annict.byIds(ids("annict:").map(Number))) got.set(`annict:${id}`, w);
   }
   if (ids("anilist:").length) for (const [id, w] of await anilist.byIds(ids("anilist:").map(Number))) got.set(`anilist:${id}`, w);
-  if (ids("wikidata:").length) for (const [q, e] of await wp.entities(ids("wikidata:"))) if (workMedia(e, cfg)) got.set(`wikidata:${q}`, labelCandidate(e, cfg));
+  // AI が選んだ項目は、ルールの作品クラスに加えて ai_extra_work_classes も受け付ける（仮面ライダーの「テレビ番組」など）
+  const extra = cfg.wikipedia.ai_extra_work_classes ?? {};
+  if (ids("wikidata:").length) {
+    for (const [q, e] of await wp.entities(ids("wikidata:"))) {
+      const media = workMedia(e, cfg) ?? e.p31.map((x) => extra[x]).find((m) => !!m) ?? null;
+      if (media) got.set(`wikidata:${q}`, { ...labelCandidate(e, cfg), media });
+    }
+  }
   return got;
 }
 
-/** 判定のファイルを検査して、作品の情報を外部DBから引いて DB に入れる */
+/**
+ * 判定のファイルを検査して、作品の情報を外部DBから引いて DB に入れる。
+ * file はファイルかフォルダ（中の *.json をすべて）。形式は2つ:
+ *   decisions（ai-trial-1 の形）と answers（候補を見ない判定の形。src/report/answer.ts。not_in_db・missing・also を持つ）
+ */
 export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promise<string> {
-  const f = JSON.parse(readFileSync(file, "utf8")) as DecisionFile;
-  if (!f.batch || !f.model || !Array.isArray(f.decisions)) throw new Error("batch・model・decisions が必要です");
+  const files = statSync(file).isDirectory()
+    ? readdirSync(file).filter((x) => x.endsWith(".json")).sort().map((x) => join(file, x))
+    : [file];
   const db = ctx.db;
   const problems: string[] = [];
-  const STATUS = new Set(["identified", "not_a_work", "unidentifiable", "hold"]);
   const CONF = new Set(["high", "medium", "low"]);
   const evOf = db.prepare("SELECT id FROM watch_events WHERE video_id = ?");
-  const valid = f.decisions.filter((d) => {
-    const why = !evOf.get(d.video_id) ? "枠が無い" : !STATUS.has(d.status) ? `status が不正: ${d.status}` : !CONF.has(d.confidence) ? `confidence が不正: ${d.confidence}`
-      : !d.rationale?.trim() ? "rationale が空" : !Array.isArray(d.evidence?.looked) || d.evidence.looked.length === 0 ? "evidence.looked が空"
-        : d.status === "identified" && !(d.works ?? []).length ? "identified なのに works が空"
-          : (d.works ?? []).some((w) => !/^(annict:\d+|anilist:\d+|wikidata:Q\d+)$/.test(w.key)) ? "works の key が不正" : null;
-    if (why) problems.push(`${d.video_id}: ${why}`);
-    return !why;
-  });
+  type Item = DecisionInput & { title?: string; missing?: string[]; model: string; batch: string; finished_at?: string };
+  const items: Item[] = [];
+  for (const f of files) {
+    const j = JSON.parse(readFileSync(f, "utf8")) as Partial<DecisionFile> & { answers?: AuditAnswer[] };
+    if (!j.batch || !j.model || (!Array.isArray(j.decisions) && !Array.isArray(j.answers))) { problems.push(`${f}: batch・model・decisions（または answers）が必要`); continue; }
+    if (j.answers) {
+      for (const a of j.answers) {
+        const why = !evOf.get(a.video_id) ? "枠が無い" : validateAnswer(a);
+        if (why) { problems.push(`${a.video_id}: ${why}`); continue; }
+        items.push({
+          video_id: a.video_id, status: a.status as AiStatus, confidence: a.confidence, evidence: a.evidence, rationale: a.rationale, seconds: a.seconds,
+          works: (a.works ?? []).map((w) => ({ key: w.key, ...(w.episodes?.length ? { episodes: w.episodes } : {}) })),
+          ...(a.title ? { title: a.title } : {}), ...(a.missing?.length ? { missing: a.missing } : {}),
+          model: j.model, batch: j.batch, finished_at: j.finished_at,
+        });
+      }
+    } else {
+      const STATUS = new Set(["identified", "not_a_work", "unidentifiable", "hold"]);
+      for (const d of j.decisions!) {
+        const why = !evOf.get(d.video_id) ? "枠が無い" : !STATUS.has(d.status) ? `status が不正: ${d.status}` : !CONF.has(d.confidence) ? `confidence が不正: ${d.confidence}`
+          : !d.rationale?.trim() ? "rationale が空" : !Array.isArray(d.evidence?.looked) || d.evidence.looked.length === 0 ? "evidence.looked が空"
+            : d.status === "identified" && !(d.works ?? []).length ? "identified なのに works が空"
+              : (d.works ?? []).some((w) => !/^(annict:\d+|anilist:\d+|wikidata:Q\d+)$/.test(w.key)) ? "works の key が不正" : null;
+        if (why) { problems.push(`${d.video_id}: ${why}`); continue; }
+        items.push({ ...d, model: j.model, batch: j.batch, finished_at: j.finished_at });
+      }
+    }
+  }
 
   // 作品の情報を外部DBから引く
-  const got = await fetchWorks(ctx, cfg, [...new Set(valid.flatMap((d) => (d.works ?? []).map((w) => w.key)))]);
+  const got = await fetchWorks(ctx, cfg, [...new Set(items.flatMap((d) => (d.works ?? []).map((w) => w.key)))]);
 
   const applied: number[] = [];
   const now = nowIso();
   tx(db, () => {
-    for (const d of valid) {
+    for (const d of items) {
       const works: AiWork[] = (d.works ?? []).map((w) => ({ key: w.key, work: got.get(w.key), ...(w.episodes?.length ? { episodes: w.episodes } : {}) }));
-      const missing = works.filter((w) => !w.work).map((w) => w.key);
-      if (missing.length) { problems.push(`${d.video_id}: 外部DBで引けない（作品クラスでない Wikidata の項目を含む）: ${missing.join(", ")}`); continue; }
+      const unknown = works.filter((w) => !w.work).map((w) => w.key);
+      if (unknown.length) { problems.push(`${d.video_id}: 外部DBで引けない（作品クラスでない Wikidata の項目を含む）: ${unknown.join(", ")}`); continue; }
       const ev = (evOf.get(d.video_id) as { id: number }).id;
+      const extra = d.title || d.missing?.length ? JSON.stringify({ ...(d.title ? { title: d.title } : {}), ...(d.missing?.length ? { missing: d.missing } : {}) }) : null;
       db.prepare("UPDATE ai_decisions SET revoked_at = ? WHERE watch_event_id = ? AND revoked_at IS NULL").run(now, ev);
-      db.prepare(`INSERT INTO ai_decisions (watch_event_id, status, works, confidence, evidence, rationale, model, batch, seconds, decided_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ev, d.status, works.length ? JSON.stringify(works) : null, d.confidence,
-        JSON.stringify(d.evidence), d.rationale, f.model, f.batch, d.seconds ?? null, f.finished_at ?? now);
+      db.prepare(`INSERT INTO ai_decisions (watch_event_id, status, works, confidence, evidence, rationale, model, batch, seconds, decided_at, extra)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ev, d.status, works.length ? JSON.stringify(works) : null, d.confidence,
+        JSON.stringify(d.evidence), d.rationale, d.model, d.batch, d.seconds ?? null, d.finished_at ?? now, extra);
       applied.push(ev);
     }
     applyAiDecisions(db, cfg.version, applied);
   });
   const by = new Map<string, number>();
-  for (const d of valid) by.set(`${d.status}/${d.confidence}`, (by.get(`${d.status}/${d.confidence}`) ?? 0) + 1);
-  return [`入れた判定 ${applied.length} / ${f.decisions.length}（${[...by].map(([k, v]) => `${k} ${v}`).join("・")}）`, ...problems.map((p) => `  ✖ ${p}`)].join("\n");
+  for (const d of items) by.set(`${d.status}/${d.confidence}`, (by.get(`${d.status}/${d.confidence}`) ?? 0) + 1);
+  return [`入れた判定 ${applied.length} / ${items.length + problems.filter((x) => !x.includes("外部DBで引けない")).length}（${[...by].map(([k, v]) => `${k} ${v}`).join("・")}）`, ...problems.map((x) => `  ✖ ${x}`)].join("\n");
 }
 
 /** 判定の根拠の一覧（採点用の表） */
-export function aiReport(ctx: Ctx, batch: string): string {
+export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?: string } = {}): string {
   const rows = ctx.db.prepare(`SELECT a.status, a.works, a.confidence, a.evidence, a.rationale, a.seconds, a.revoked_at, e.video_id, e.title_raw, e.started_at, s.name AS streamer
     FROM ai_decisions a JOIN watch_events e ON e.id = a.watch_event_id JOIN streamers s ON s.id = e.streamer_id
     WHERE a.batch = ? ORDER BY a.id`).all(batch) as Record<string, string | number | null>[];
-  const label: Record<string, string> = { identified: "同定", not_a_work: "作品ではない", unidentifiable: "作品を特定できない", hold: "保留" };
+  const label: Record<string, string> = { identified: "同定", not_a_work: "作品ではない", unidentifiable: "作品を特定できない", not_in_db: "作品だが外部DBに無い", hold: "保留" };
   const out = [
     `# AI の判定の根拠（${batch}）`,
     "",
@@ -267,8 +304,33 @@ export function aiReport(ctx: Ctx, batch: string): string {
   writeFileSync(path, out.join("\n"), "utf8");
 
   // 採点用の HTML（正しい / 誤り / 判断できない とメモ。scores.md に書き出す）。取り消した判定は出さない
-  const order = ["identified", "not_a_work", "unidentifiable", "hold"];
-  const live = rows.filter((r) => !r.revoked_at);
+  const order = ["identified", "not_a_work", "unidentifiable", "not_in_db", "hold"];
+  let live = rows.filter((r) => !r.revoked_at);
+  // 抜き取り（シードで選んだ一部だけを採点の表に出す）
+  if (opts.sample) {
+    const keep = new Set(sampleOrder(opts.seed ?? `${batch}-score`, live.map((r) => String(r.video_id))).slice(0, opts.sample));
+    live = live.filter((r) => keep.has(String(r.video_id)));
+  }
+  // 判定の前のルールの答え（本番の待ち行列は sealed/ に残している）
+  const sealedRule = new Map<string, RuleAnswer>();
+  if (existsSync(join(dir, "sealed", "answers.json"))) {
+    for (const a of (JSON.parse(readFileSync(join(dir, "sealed", "answers.json"), "utf8")) as { answers: RuleAnswer[] }).answers) sealedRule.set(a.video_id, a);
+  }
+  const ruleBlock = (vid: string, q: QueueItem | undefined) => {
+    const ru = sealedRule.get(vid);
+    if (ru) {
+      return {
+        status: `判定の前のルール（型 ${stratumOf(ru)}）: ${ru.status === "identified" ? "同定" : `未同定（${ru.reason ?? ru.status}）`}`,
+        lines: ru.status === "identified" ? ru.works.map((w) => `${w.title}（${w.keys.join(" ")}・${w.media ?? "?"}・${w.season ?? w.year ?? "?"}）${w.episodes.length ? ` 話 ${w.episodes.join(",")}` : ""}`) : (ru.text ? [`「${ru.text}」`] : []),
+        flags: ru.flags.join("・"),
+      };
+    }
+    return {
+      status: `判定の前のルール: 未同定（${q?.reason ?? "?"}）`,
+      lines: q?.segments?.length ? [`区間: ${q.segments.join(" ／ ")}`] : [],
+      flags: q?.notes?.join(" ／ ") ?? "",
+    };
+  };
   const sections = order.filter((k) => live.some((r) => r.status === k))
     .map((k) => ({ key: k, label: label[k] ?? k, required: true, ...(k === "hold" ? { note: "決められたはずなのに保留にしたものを「誤り」にする" } : {}) }));
   const items: ReviewItem[] = sections.flatMap((sec) => live.filter((r) => r.status === sec.key).map((r, i) => {
@@ -281,7 +343,7 @@ export function aiReport(ctx: Ctx, batch: string): string {
       streamer: String(r.streamer), started_at: String(r.started_at ?? "").slice(0, 10), title: String(r.title_raw),
       url: `https://www.youtube.com/watch?v=${vid}`, thumb: existsSync(join(dir, "thumbs", `${vid}.jpg`)) ? `thumbs/${vid}.jpg` : null,
       desc: q?.description_lines ?? [],
-      rule: { status: `判定の前のルール: 未同定（${q?.reason ?? "?"}）`, lines: q?.segments.length ? [`区間: ${q.segments.join(" ／ ")}`] : [], flags: q?.notes.join(" ／ ") ?? "" },
+      rule: ruleBlock(vid, q),
       ai: {
         status: label[String(r.status)] ?? String(r.status), confidence: String(r.confidence),
         lines: works.map((w) => `${w.work?.title ?? "?"}（${w.key}・${w.work?.media ?? "?"}・${w.work?.releaseYear ?? "?"}）${w.episodes?.length ? ` 話 ${w.episodes.join(",")}` : ""}`),
@@ -292,7 +354,7 @@ export function aiReport(ctx: Ctx, batch: string): string {
     };
   }));
   const html = join(dir, "report.html");
-  writeReviewHtml(html, { mode: "score", batch, source: path, file: "scores.md", sections, items });
+  writeReviewHtml(html, { mode: "score", batch, source: path, file: opts.sample ? `scores-sample${opts.sample}.md` : "scores.md", sections, items });
   return `${rows.length} 件 → ${path}・採点用 ${html}`;
 }
 

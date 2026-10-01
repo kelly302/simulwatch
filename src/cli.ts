@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import { createCtx, finishCtx, runStep } from "./lib/context.ts";
 import type { Ctx } from "./lib/context.ts";
 import { openDb } from "./lib/db.ts";
-import { loadDetectConfig } from "./lib/config.ts";
+import { loadDetectConfig, loadCrawlConfig } from "./lib/config.ts";
 import { syncRoster } from "./roster/sync.ts";
 import { crawlHourly, crawlDaily, refreshAll, fetchOrphans } from "./crawl/jobs.ts";
 import { detectReport, quotaReport, rerunDetect } from "./report/reports.ts";
@@ -12,9 +12,10 @@ import { loadExtractConfig } from "./resolve/config.ts";
 import { extract } from "./resolve/extract.ts";
 import { resolveSummary, unresolvedStats, unresolvedList, exportUnresolved, resolveAudit } from "./report/resolve.ts";
 import { seasonSample, unresolvedSample } from "./report/sample.ts";
-import { aiQueue, aiApply, aiReport, aiRevoke } from "./report/ai.ts";
+import { aiQueue, aiQueueRoutes, aiApply, aiReport, aiRevoke } from "./report/ai.ts";
 import { auditTypes, auditSample, auditCompare } from "./report/audit.ts";
 import { assignSeasons } from "./resolve/series.ts";
+import { persistRoutes, publishSummary } from "./resolve/routing.ts";
 import { ResolveCache } from "./resolve/cache.ts";
 import { AnnictClient } from "./resolve/sources/annict.ts";
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -56,11 +57,13 @@ const HELP = `
   resolve:series  視聴系列による期の割り当ての一覧を data/review/series-assign.md に書き出す（DB は変えない。確認用）
 
 コマンド（AI の判定。人が起動する。定期実行のジョブからは呼ばない）:
-  ai:queue        判定する枠を選び、タイトル・概要欄・区間・サムネイルを data/ai/<batch>/ に書き出す
-                  [--reason not_found] [--n 100] [--seed S] [--batch B（既定はシード）]
-  ai:apply FILE   判定のファイル（decisions.json）を DB に入れる。resolve は上書きしない（確定）
-  ai:report B     判定の根拠の一覧（採点用）を data/ai/<batch>/report.md に書き出す
+  ai:queue        AI に回す型（extract.yaml の ai_routes）の枠のうち AI の判定が無いものを選び、候補を見せない待ち行列を data/ai/<batch>/ に書く
+                  [--n 300] [--seed S] [--batch B（既定はシード）] [--type 型,...（ai_routes の代わり）] [--include-hold（保留の枠も入れる）]
+                  --reason R を付けると未同定の理由で選ぶ（ai-trial-1 の形。区間と注記を見せる）
+  ai:apply PATH   判定のファイル（answers/*.json か decisions.json。フォルダならその中のすべて）を DB に入れる。resolve は上書きしない（確定）
+  ai:report B     判定の根拠の一覧（report.md）と採点用の report.html を書く [--sample N --seed S（シードで選んだ N 件だけを採点の表に出す）]
   ai:revoke       判定を取り消して、ルールで名寄せし直す [--batch B] [--video ID,...]
+  ai:status       サイトでの出し方（作品を付けて出す・枠として出す・出さない・AI の判定待ち）ごとの件数と、判定待ちの型の内訳
 
 コマンド（型ごとの検証。ゲート2の決定。人が起動する）:
   audit:types     枠を同定の型に分け、型ごとの件数と目印の重なりを data/audit/types.md に書く（DB は変えない）
@@ -93,6 +96,8 @@ async function main(): Promise<number> {
       batch: { type: "string" },
       type: { type: "string" },
       exclude: { type: "string" },
+      sample: { type: "string" },
+      "include-hold": { type: "boolean" },
     },
   });
   const cmd = positionals[0];
@@ -107,6 +112,12 @@ async function main(): Promise<number> {
           ? { mode: "videos", videoIds: values.video.split(","), limit }
           : { mode: "new", limit };
     ctx.summary.resolve = await runStep(ctx, `resolve (${opts.mode})`, () => resolveEvents(ctx, opts));
+    await recordRoutes(ctx);
+  };
+
+  // 枠の型を記録する（AI に回す型の枠は AI が確かめるまでサイトに出さない。src/resolve/route.ts の publishState）
+  const recordRoutes = async (ctx: Ctx) => {
+    ctx.summary.routes = await runStep(ctx, "resolve: 型分け", () => persistRoutes(ctx, loadExtractConfig()));
   };
 
   const JOBS: Record<string, { job: string; run: Job }> = {
@@ -151,8 +162,13 @@ async function main(): Promise<number> {
       job: "report",
       run: async (ctx) => {
         const seed = values.seed ?? "ai-1";
-        const r = await runStep(ctx, "ai:queue", () =>
-          aiQueue(ctx, loadExtractConfig(), { reason: values.reason ?? "not_found", n: Number(values.n ?? 100), seed, batch: values.batch ?? seed }));
+        const batch = values.batch ?? seed;
+        // --reason を付けたときは未同定の理由で選ぶ（ai-trial-1 の形）。付けなければ AI に回す型の枠から候補を見せない形で選ぶ
+        const r = await runStep(ctx, "ai:queue", () => values.reason
+          ? aiQueue(ctx, loadExtractConfig(), { reason: values.reason, n: Number(values.n ?? 100), seed, batch })
+          : aiQueueRoutes(ctx, loadExtractConfig(), {
+            batch, seed, n: Number(values.n ?? 300), routes: values.type?.split(","), includeHold: !!values["include-hold"],
+          }));
         if (r) console.log(r);
       },
     },
@@ -170,7 +186,7 @@ async function main(): Promise<number> {
       run: async (ctx) => {
         const batch = positionals[1] ?? values.batch;
         if (!batch) throw new Error("batch を指定してください");
-        console.log(aiReport(ctx, batch));
+        console.log(aiReport(ctx, batch, { ...(values.sample ? { sample: Number(values.sample) } : {}), ...(values.seed ? { seed: values.seed } : {}) }));
       },
     },
     "ai:revoke": {
@@ -178,7 +194,10 @@ async function main(): Promise<number> {
       run: async (ctx) => {
         const videos = aiRevoke(ctx, { batch: values.batch, videos: values.video?.split(",") });
         console.log(`取り消した判定 ${videos.length} 件。ルールで名寄せし直します`);
-        if (videos.length) await runStep(ctx, "resolve (videos)", () => resolveEvents(ctx, { mode: "videos", videoIds: videos }));
+        if (videos.length) {
+          await runStep(ctx, "resolve (videos)", () => resolveEvents(ctx, { mode: "videos", videoIds: videos }));
+          await recordRoutes(ctx);
+        }
       },
     },
     "audit:types": {
@@ -245,6 +264,16 @@ async function main(): Promise<number> {
     case "extract:test": {
       const cfg = loadExtractConfig();
       for (const t of positionals.slice(1)) console.log(JSON.stringify(extract(t, cfg), null, 2));
+      return 0;
+    }
+    case "ai:status": {
+      const s = publishSummary({ db: openDb(), crawlCfg: loadCrawlConfig() } as unknown as Ctx, loadExtractConfig());
+      const label: Record<string, string> = { work: "作品を付けて出す", frame: "枠として出す", hidden: "出さない（作品ではない）", pending_ai: "AI の判定待ち（出さない）" };
+      console.log("サイトでの出し方（一覧に出る枠）");
+      for (const [k, v] of Object.entries(s.states)) console.log(`  ${label[k] ?? k}	${v}`);
+      console.log("AI の判定待ちの内訳（型）");
+      for (const [k, v] of Object.entries(s.pendingByRoute).sort((a, b) => b[1] - a[1])) console.log(`  ${k}	${v}`);
+      if (s.noRoute) console.log(`型が記録されていない枠 ${s.noRoute}（resolve を流すと記録される）`);
       return 0;
     }
     case "resolve:summary":

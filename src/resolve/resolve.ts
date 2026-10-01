@@ -943,7 +943,7 @@ export async function resolveEvents(ctx: Ctx, opts: ResolveOptions): Promise<Res
 
   const stats: ResolveStats = {
     targets: targets.length, resolved: 0,
-    unresolved: { no_candidate: 0, unidentifiable: 0, not_found: 0, ambiguous: 0, not_a_work: 0, error: 0 },
+    unresolved: { no_candidate: 0, unidentifiable: 0, not_found: 0, ambiguous: 0, not_a_work: 0, not_in_db: 0, error: 0 },
     event_works: 0, multi_work_events: 0, episodes_linked: 0, works_total: 0, works_removed: 0, images_linked: 0,
     requests: {}, cache: { hits: 0, misses: 0 }, source_errors: [], rule_version: cfg.version,
     not_a_work_conflicts: conflicts.size,
