@@ -310,9 +310,11 @@ test("映像の種類: アニメのDBの作品はアニメ、Wikidata の作品�
   assert.equal(workKind("wikidata", ["Q5398426"], [], cfg), "live_action");
   // 作品にジャンルが無くても、シリーズ（スーパー戦隊シリーズ）が特撮なら特撮
   assert.equal(workKind("wikidata", ["Q5398426"], [], cfg, ["Q275934"]), "tokusatsu");
-  // 日本の怪獣映画は特撮、原作がゴジラ（特撮）でもハリウッドの制作なら実写
-  assert.equal(workKind("wikidata", ["Q11424"], ["Q1065444"], cfg, [], true), "tokusatsu");
-  assert.equal(workKind("wikidata", ["Q11424"], ["Q1065444"], cfg, ["Q275934"], false), "live_action");
+  // 怪獣映画は実写（シン・ゴジラ）。日本の作品でなければシリーズが特撮でも実写
+  assert.equal(workKind("wikidata", ["Q11424"], ["Q1065444"], cfg, [], true), "live_action");
+  assert.equal(workKind("wikidata", ["Q11424"], [], cfg, ["Q275934"], false), "live_action");
+  // 作品名に「仮面ライダー」があれば特撮（Wikidata に手がかりの無い仮面ライダーギーツ）
+  assert.equal(workKind("wikidata", ["Q5398426"], [], cfg, [], true, "仮面ライダーギーツ"), "tokusatsu");
   // シリーズが特撮でも、作品自体がアニメならアニメ
   assert.equal(workKind("wikidata", ["Q202866"], [], cfg, ["Q275934"], true), "anime");
 });

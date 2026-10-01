@@ -47,6 +47,9 @@ export interface WdAttrs {
   p31: string[];
   /** 英語のラベル（日本語のラベルが無いシリーズの名前の代わり） */
   labelEn: string | null;
+  /** MyAnimeList の ID（P4086）・AniList の ID（P8729）。Wikidata で引いたアニメをアニメのDBの行にまとめるのに使う */
+  mal: string[];
+  anilist: string[];
 }
 
 export interface EntityInfo {
@@ -183,14 +186,14 @@ export class WikipediaClient {
   }
 
   /**
-   * 項目の属性（ジャンル P136・制作国 P495・ISO 3166-1 alpha-2 P297・原作 P144・フランチャイズ P8345・原語 P364・分類 P31・英語のラベル）。UI の絞り込み用（src/resolve/enrich.ts）。
+   * 項目の属性（ジャンル P136・制作国 P495・ISO 3166-1 alpha-2 P297・原作 P144・フランチャイズ P8345・原語 P364・分類 P31・英語のラベル・MyAnimeList と AniList の ID）。UI の絞り込み用（src/resolve/enrich.ts）。
    * 作品の照会（wd_entity）とは別のキャッシュに持つ（既存のキャッシュを作り直さないため）。持つ属性を足したらキャッシュの名前を変える
    */
   async attrs(qids: string[]): Promise<Map<string, WdAttrs>> {
     const out = new Map<string, WdAttrs>();
     const todo: string[] = [];
     for (const id of new Set(qids)) {
-      const c = this.cache.get<WdAttrs>("wd_attrs4", id);
+      const c = this.cache.get<WdAttrs>("wd_attrs5", id);
       if (c) out.set(id, c);
       else todo.push(id);
     }
@@ -210,8 +213,8 @@ export class WikipediaClient {
         const e = j.entities?.[id];
         if (!e || e.missing !== undefined) continue;
         const iso = (e.claims?.P297 ?? []).map((c) => c.mainsnak.datavalue?.value).find((v): v is string => typeof v === "string") ?? null;
-        const a: WdAttrs = { p136: claimIds(e, "P136"), p495: claimIds(e, "P495"), p297: iso, p144: claimIds(e, "P144"), p8345: claimIds(e, "P8345"), p364: claimIds(e, "P364"), p31: claimIds(e, "P31"), labelEn: e.labels?.en?.value ?? null };
-        this.cache.set("wd_attrs4", id, a);
+        const a: WdAttrs = { p136: claimIds(e, "P136"), p495: claimIds(e, "P495"), p297: iso, p144: claimIds(e, "P144"), p8345: claimIds(e, "P8345"), p364: claimIds(e, "P364"), p31: claimIds(e, "P31"), labelEn: e.labels?.en?.value ?? null, mal: claimStrings(e, "P4086"), anilist: claimStrings(e, "P8729") };
+        this.cache.set("wd_attrs5", id, a);
         out.set(id, a);
       }
     }
@@ -312,6 +315,11 @@ export class WikipediaClient {
 interface WdEntity {
   labels?: Record<string, { value: string }>;
   claims?: Record<string, { mainsnak: { datavalue?: { value: unknown } } }[]>;
+}
+
+/** 外部 ID などの文字列の値 */
+function claimStrings(e: WdEntity, prop: string): string[] {
+  return (e.claims?.[prop] ?? []).map((c) => c.mainsnak.datavalue?.value).filter((v): v is string => typeof v === "string");
 }
 
 function claimIds(e: WdEntity | undefined, p: string): string[] {

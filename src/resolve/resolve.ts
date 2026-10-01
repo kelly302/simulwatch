@@ -28,6 +28,7 @@ import { applyAiDecisions, AI_LOCKED_SQL } from "./ai.ts";
 import { assignSeasons } from "./series.ts";
 import { liftLiveSeasons } from "./lift.ts";
 import { enrichWorks } from "./enrich.ts";
+import { linkAnimeIds } from "./link.ts";
 import type { SeriesStats } from "./series.ts";
 
 // 名寄せの本体。
@@ -423,6 +424,8 @@ export interface ResolveStats {
   works_total: number;
   works_removed: number;
   images_linked: number;
+  /** Wikidata で引いたアニメをアニメのDBの行にまとめた件数（src/resolve/link.ts） */
+  anime_linked?: { checked: number; merged: number; converted: number; idsOnly: number; multi: number; byTitle: number };
   requests: Record<string, number>;
   cache: { hits: number; misses: number };
   source_errors: string[];
@@ -1042,6 +1045,11 @@ export async function resolveEvents(ctx: Ctx, opts: ResolveOptions): Promise<Res
       log.info(`視聴系列 ${s.runs} 系列・${s.events} 枠: 期が決まった ${s.events - s.held}（今と同じ ${s.same}・付け替え ${s.changed}・未同定から ${s.rescued}）、保留 ${s.held}（うち付いていた期を外した ${s.removed}）`);
     });
   }
+
+  // Wikidata で引いたアニメの作品を、MyAnimeList・AniList の ID でアニメのDBの行にまとめる（src/resolve/link.ts）
+  await runStep(ctx, "resolve: Wikidata のアニメをまとめる", async () => {
+    stats.anime_linked = await linkAnimeIds(ctx, cfg);
+  });
 
   // Annict で同定した作品に AniList の ID と画像を付ける
   await runStep(ctx, "resolve: AniList の画像", async () => {

@@ -42,6 +42,8 @@ export interface ExtractConfig {
     /** 映像の種類を決めるジャンル（P136）。特撮のジャンルがあれば特撮、アニメーションのジャンルか anime_classes の分類があればアニメ */
     tokusatsu_genres?: string[];
     tokusatsu_origin?: { language: string; country: string };
+    tokusatsu_title_words?: string[];
+    tokusatsu_inherit_classes?: string[];
     series_excluded_classes?: string[];
     series_excluded?: string[];
     animation_genres?: string[];

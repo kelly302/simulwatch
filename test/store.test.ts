@@ -109,3 +109,65 @@ test("AI の判定: 作品だが外部DBに無い（not_in_db）は未同定の�
   const u = db.prepare("SELECT reason, extracted_text FROM unresolved WHERE watch_event_id = 1 AND resolved_at IS NULL").get() as { reason: string; extracted_text: string };
   assert.deepEqual({ ...u }, { reason: "not_in_db", extracted_text: "歩女" });
 });
+
+test("Wikidata で引いたアニメは、MyAnimeList・AniList の ID でアニメのDBの行にまとめる（ID が複数の項目はまとめない）", async () => {
+  const { linkAnimeIds } = await import("../src/resolve/link.ts");
+  const { loadExtractConfig } = await import("../src/resolve/config.ts");
+  const db = freshDb();
+  const annictRow = upsertWork(db, cand({ source: "annict", annictId: 9, anilistId: 2001, malId: 2001, title: "天元突破グレンラガン" }));
+  const wdRow = upsertWork(db, cand({ source: "wikidata", wikidataId: "Q4277", title: "天元突破グレンラガン" }));
+  const comboRow = upsertWork(db, cand({ source: "wikidata", wikidataId: "Q999", title: "期をまとめた項目" }));
+  const lonely = upsertWork(db, cand({ source: "wikidata", wikidataId: "Q85", title: "機動戦士Ζガンダム" }));
+  replaceEventWorks(db, 1, [{ workId: wdRow, episodeId: null, confidence: 1, method: "wikipedia:redirect", extractedText: "グレンラガン" }], "v1");
+  replaceEventWorks(db, 2, [{ workId: annictRow, episodeId: null, confidence: 1, method: "annict:exact", extractedText: "天元突破グレンラガン" }], "v1");
+  const ext = (v: string) => ({ mainsnak: { datavalue: { value: v } } });
+  const claims: Record<string, Record<string, unknown[]>> = {
+    Q4277: { P4086: [ext("2001")], P8729: [ext("2001")] },
+    Q999: { P4086: [ext("1"), ext("2")] },
+    Q85: { P4086: [ext("85")], P8729: [ext("85")] },
+  };
+  const http = {
+    postForm: async (_u: string, form: Record<string, string>) => ({ status: 200, body: JSON.stringify({ entities: Object.fromEntries(form.ids!.split("|").map((id) => [id, { id, claims: claims[id] ?? {} }])) }) }),
+    postJson: async () => ({ status: 200, body: JSON.stringify({ data: { Page: { media: [] } } }) }),
+  };
+  const saved = process.env.ANNICT_TOKEN;
+  delete process.env.ANNICT_TOKEN;
+  try {
+    const r = await linkAnimeIds({ db, http } as never, loadExtractConfig());
+    assert.equal(r.merged, 1);
+    assert.equal(r.idsOnly, 1);
+    assert.equal(r.multi, 1);
+  } finally {
+    if (saved !== undefined) process.env.ANNICT_TOKEN = saved;
+  }
+  // グレンラガンは Annict の行1つにまとまり、Wikidata の ID が付く
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM works WHERE id = ?").get(wdRow)!.n, 0);
+  assert.equal(db.prepare("SELECT wikidata_id FROM works WHERE id = ?").get(annictRow)!.wikidata_id, "Q4277");
+  assert.equal(db.prepare("SELECT COUNT(DISTINCT work_id) n FROM event_works").get()!.n, 1);
+  // Annict の行の無い作品は ID だけ付く。期をまとめた項目はそのまま
+  assert.equal(db.prepare("SELECT mal_id FROM works WHERE id = ?").get(lonely)!.mal_id, 85);
+  assert.equal(db.prepare("SELECT mal_id FROM works WHERE id = ?").get(comboRow)!.mal_id, null);
+});
+
+test("ID の無い Wikidata のアニメは、作品名・映画かシリーズか・公開年（±1年）が合うアニメのDBの行が1つだけならまとめる", async () => {
+  const { linkAnimeIds } = await import("../src/resolve/link.ts");
+  const { loadExtractConfig } = await import("../src/resolve/config.ts");
+  const db = freshDb();
+  const annictRow = upsertWork(db, cand({ source: "annict", annictId: 5, title: "ナイトメアー・ビフォア・クリスマス", media: "movie", releaseYear: 1994 }));
+  const wdRow = upsertWork(db, cand({ source: "wikidata", wikidataId: "Q322328", title: "ナイトメアー・ビフォア・クリスマス", media: "movie", releaseYear: 1993 }));
+  // 実写のリメイク（アニメーションの項目でない）と、公開年が離れたものはまとめない
+  const remake = upsertWork(db, cand({ source: "wikidata", wikidataId: "Q2", title: "アラジン", media: "movie", releaseYear: 2019 }));
+  upsertWork(db, cand({ source: "annict", annictId: 6, title: "アラジン", media: "movie", releaseYear: 1993 }));
+  const far = upsertWork(db, cand({ source: "wikidata", wikidataId: "Q3", title: "ナイトメアー・ビフォア・クリスマス", media: "tv", releaseYear: 1993 }));
+  const item = (p31: string) => ({ P31: [{ mainsnak: { datavalue: { value: { id: p31 } } } }] });
+  const claims: Record<string, unknown> = { Q322328: item("Q202866"), Q2: item("Q11424"), Q3: item("Q202866") };
+  const http = {
+    postForm: async (_u: string, form: Record<string, string>) => ({ status: 200, body: JSON.stringify({ entities: Object.fromEntries(form.ids!.split("|").map((id) => [id, { id, claims: claims[id] ?? {} }])) }) }),
+    postJson: async () => ({ status: 200, body: JSON.stringify({ data: { Page: { media: [] } } }) }),
+  };
+  const r = await linkAnimeIds({ db, http } as never, loadExtractConfig());
+  assert.equal(r.byTitle, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM works WHERE id = ?").get(wdRow)!.n, 0);
+  assert.equal(db.prepare("SELECT wikidata_id FROM works WHERE id = ?").get(annictRow)!.wikidata_id, "Q322328");
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM works WHERE id IN (?, ?)").get(remake, far)!.n, 2);
+});

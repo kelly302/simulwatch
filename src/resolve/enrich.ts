@@ -12,11 +12,13 @@ import type { WorkKind } from "../shared/types.ts";
 // 作品の属性（UI の絞り込み用。2026-10-02 の決定）を外部DBから自動で埋める。手で分類しない。
 //   kind         映像の種類。anime / tokusatsu / live_action
 //                Annict・AniList の作品はアニメ。Wikidata の作品は、次の順で決める
-//                  1. 作品のジャンル（P136）に特撮（tokusatsu_genres。怪獣を含む）があれば特撮
+//                  1. 作品のジャンル（P136）に特撮（tokusatsu_genres）があれば特撮
 //                  2. アニメーションのジャンルか anime_classes の分類（P31）があればアニメ
-//                  3. シリーズ（P179。2段まで）・原作（P144）・フランチャイズ（P8345）のジャンルに特撮があれば特撮
-//                     （仮面ライダーシリーズ・スーパー戦隊シリーズ・劇場版の原作のテレビシリーズ。作品自体のアニメの分類を上書きしない）
-//                  4. それ以外は実写
+//                  3. 作品名に tokusatsu_title_words（仮面ライダー）があれば特撮（Wikidata に手がかりの無い仮面ライダーギーツ）
+//                  4. シリーズ（P179。2段まで）・原作（P144）・フランチャイズ（P8345）のジャンルに特撮があれば特撮
+//                     （仮面ライダーシリーズ・スーパー戦隊シリーズ・劇場版の原作のテレビシリーズ。作品自体のアニメの分類を上書きしない）。
+//                     受け継ぐのは、その項目が作品・シリーズ・フランチャイズのときだけ（原作がキャラクターの「ゴジラ」はジャンルが特撮だが受け継がない）
+//                  5. それ以外は実写。怪獣映画（ゴジラ・ガメラ）は実写（2026-10-02 決定）
 //                特撮は日本の作品に限る（tokusatsu_origin。原語（P364）が日本語。原語が無ければ制作国に日本。どちらも無ければ限らない）。
 //                ハリウッドのゴジラは原作がゴジラでも実写（制作国には日本も入っているので原語で見る）
 //   countries    制作国（ISO 3166-1 alpha-2 の並び）。Wikidata の P495（国の項目の P297）、無ければ AniList の countryOfOrigin。
@@ -29,6 +31,7 @@ import type { WorkKind } from "../shared/types.ts";
 //                （シリーズが複数なら、DB のほかの作品が多く付いているもの。「アイカツオンパレード！」は「アイカツ！」）
 //                Wikidata の P179 には一覧記事（「BBC's 100 Greatest Films of the 21st Century」）やスタジオの作品一覧が入ることがあるので、
 //                series_excluded_classes・series_excluded の項目はシリーズにしない（series_title を NULL にする）
+//   title        Wikidata に日本語のラベルが無い項目（AI の判定で選んだ「We Are Zombies」）は作品名が QID になるので、英語のラベルに直す
 // 映画かどうかは既存の media（movie）で見る。名寄せ（resolve）のたびと ai:apply のあとに、まだ埋めていない作品だけを埋める（all で全部）
 
 export interface WorkAttrs {
@@ -40,12 +43,13 @@ export interface WorkAttrs {
  * 映像の種類（純粋関数）。p31・p136 は Wikidata の作品のときだけ。related はシリーズ（P179。2段まで）・原作（P144）・フランチャイズ（P8345）のジャンル。
  * japanese は日本の作品か（原語・制作国で見る。分からなければ null）
  */
-export function workKind(source: string, p31: string[], p136: string[], cfg: ExtractConfig, related: string[] = [], japanese: boolean | null = null): WorkKind {
+export function workKind(source: string, p31: string[], p136: string[], cfg: ExtractConfig, related: string[] = [], japanese: boolean | null = null, title = ""): WorkKind {
   if (source === "annict" || source === "anilist") return "anime";
   const tok = (gs: string[]) => japanese !== false && gs.some((g) => (cfg.wikipedia.tokusatsu_genres ?? []).includes(g));
   if (tok(p136)) return "tokusatsu";
   const animation = new Set([...(cfg.wikipedia.anime_classes ?? []), ...(cfg.wikipedia.animation_genres ?? [])]);
   if (p31.some((c) => animation.has(c)) || p136.some((g) => animation.has(g))) return "anime";
+  if (japanese !== false && (cfg.wikipedia.tokusatsu_title_words ?? []).some((w) => title.includes(w))) return "tokusatsu";
   if (tok(related)) return "tokusatsu";
   return "live_action";
 }
@@ -76,9 +80,12 @@ export async function enrichWorks(ctx: Ctx, cfg: ExtractConfig, opts: { all?: bo
   const up2 = await wp.entities([...up1.values()].map((e) => e.series).filter((q): q is string => !!q));
   const related = [...attrs.values()].flatMap((a) => [...a.p144, ...a.p8345]);
   const upAttrs = await wp.attrs([...up1.keys(), ...up2.keys(), ...related]);
+  // 受け継ぐのは作品・シリーズ・フランチャイズの項目だけ（キャラクターの項目は除く）。シリーズ（P179）は項目の分類を問わない
+  const inheritable = new Set([...Object.keys(cfg.wikipedia.work_classes), ...(cfg.wikipedia.tokusatsu_inherit_classes ?? [])]);
   const relatedGenres = (q: string | null | undefined, a: WdAttrs | undefined): string[] => {
     const parent = q ? up1.get(q)?.series : null;
-    return [q, parent, ...(a?.p144 ?? []), ...(a?.p8345 ?? [])].flatMap((x) => (x ? upAttrs.get(x)?.p136 ?? [] : []));
+    const via = [...(a?.p144 ?? []), ...(a?.p8345 ?? [])].filter((x) => (upAttrs.get(x)?.p31 ?? []).some((c) => inheritable.has(c)));
+    return [q, parent, ...via].flatMap((x) => (x ? upAttrs.get(x)?.p136 ?? [] : []));
   };
   const countryQ = [...new Set([...attrs.values()].flatMap((a) => a.p495))];
   const countryIso = new Map([...(await wp.attrs(countryQ))].map(([q, a]) => [q, a.p297]));
@@ -116,6 +123,7 @@ export async function enrichWorks(ctx: Ctx, cfg: ExtractConfig, opts: { all?: bo
   const now = new Date().toISOString();
   const seriesUse = new Map((db.prepare("SELECT series_id, COUNT(*) n FROM works WHERE series_id IS NOT NULL GROUP BY series_id").all() as { series_id: string; n: number }[]).map((x) => [x.series_id, x.n]));
   const up = db.prepare("UPDATE works SET kind = ?, countries = ?, series_title = ?, series_id = COALESCE(series_id, ?), attrs_at = ? WHERE id = ?");
+  const retitle = db.prepare("UPDATE works SET title = ? WHERE id = ?");
   tx(db, () => {
     for (const r of rows) {
       const e = r.wikidata_id ? ents.get(r.wikidata_id) : undefined;
@@ -127,7 +135,7 @@ export async function enrichWorks(ctx: Ctx, cfg: ExtractConfig, opts: { all?: bo
       const japanese = !origin ? null
         : a?.p364.length ? a.p364.includes(origin.language)
         : countries ? countries.includes(origin.country) : null;
-      const kind = workKind(r.source, e?.p31 ?? [], a?.p136 ?? [], cfg, relatedGenres(e?.series, a), japanese);
+      const kind = workKind(r.source, e?.p31 ?? [], a?.p136 ?? [], cfg, relatedGenres(e?.series, a), japanese, r.title);
       let seriesTitle: string | null = null;
       let fillSeries: string | null = null;
       if (r.series_id?.startsWith("wikidata:")) {
@@ -149,6 +157,7 @@ export async function enrichWorks(ctx: Ctx, cfg: ExtractConfig, opts: { all?: bo
         }
       }
       up.run(kind, countries ? JSON.stringify(countries) : null, seriesTitle, fillSeries, now, r.id);
+      if (/^Q\d+$/.test(r.title) && a?.labelEn) retitle.run(a.labelEn, r.id);
       out.updated++;
       out.kinds[kind] = (out.kinds[kind] ?? 0) + 1;
       if (!countries) out.noCountry++;
