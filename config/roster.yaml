@@ -21,7 +21,7 @@ nijisanji:
 hololive:
   group_url: "https://hololive.hololivepro.com/talents?gp={group}"
   detail_url: "https://hololive.hololivepro.com/talents/{slug}/"
-  # 対象の所属グループ。ID（area15・holoro・holoh3ro）・卒業生（alum）・スタッフは含めない。
+  # 対象の所属グループ。ID（area15・holoro・holoh3ro）・卒業生（alum）・スタッフ・holoAN（公式アナウンサー。holoAN room は番組「昼ホロ」のチャンネル。2026-10-03 決定）は含めない。
   # EN（myth・council・promise・advent・justice・project-hope）は 2026-10-02 決定で対象に入れた（区分は group_branch）
   groups:
     - gen-0
@@ -35,7 +35,6 @@ hololive:
     - regloss
     - flow-glow
     - asobi-mawari-tai
-    - holoan
     - myth
     - council
     - promise

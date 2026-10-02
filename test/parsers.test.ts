@@ -86,16 +86,18 @@ test("VSPO!: 日本の所属だけ、重複を除いて取る", () => {
   ]);
 });
 
-test("共用チャンネル（複数タレントが同じ handle / channel_id）は登録しない", async () => {
-  const { markSharedChannels } = await import("../src/roster/sync.ts");
-  const e = (key: string, handle: string | null, channelId: string | null = null) =>
-    ({ sourceKey: key, name: key, affiliation: "hololive" as const, channelId, handle, inactive: false, branch: "jp" as const });
-  const entries = [e("a", "holoANroom"), e("b", "HoloANroom"), e("c", "solo"), e("d", null, "UCdddddddddddddddddddddd")];
-  const shared = markSharedChannels(entries);
-  assert.deepEqual(shared, { "@holoanroom": ["a", "b"] });
-  assert.deepEqual(entries.map((x) => x.handle ?? x.channelId), [null, null, "solo", "UCdddddddddddddddddddddd"]);
+test("1つのチャンネルで配信する組（FUWAMOCO）は1配信者にまとめる", async () => {
+  const { mergeSharedChannels } = await import("../src/roster/sync.ts");
+  const e = (key: string, name: string, handle: string | null, channelId: string | null = null) =>
+    ({ sourceKey: key, name, affiliation: "hololive" as const, channelId, handle, inactive: false, branch: "en" as const });
+  const entries = [e("hololive:fuwawa-abyssgard", "フワワ・アビスガード", null, "UCfuwamoco"), e("hololive:mococo-abyssgard", "モココ・アビスガード", null, "UCfuwamoco"), e("c", "c", "solo")];
+  const shared = mergeSharedChannels(entries);
+  assert.deepEqual(shared, { UCfuwamoco: ["hololive:fuwawa-abyssgard", "hololive:mococo-abyssgard"] });
+  assert.deepEqual(entries.map((x) => [x.sourceKey, x.name, x.channelId ?? x.handle]), [
+    ["hololive:fuwawa-abyssgard+hololive:mococo-abyssgard", "フワワ・アビスガード＆モココ・アビスガード", "UCfuwamoco"],
+    ["c", "c", "solo"],
+  ]);
 });
-
 test("にじさんじの区分: プロフィールの項目名が韓国語・インドネシア語なら旧 KR・旧 ID、ほかは日本", async () => {
   const { nijisanjiBranch } = await import("../src/roster/sources.ts");
   const markers = { kr: ["생일", "팬클럽 이름"], id: ["Ulang Tahun", "Nama Fans"] };

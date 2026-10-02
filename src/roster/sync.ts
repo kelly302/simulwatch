@@ -27,7 +27,8 @@ interface OrgResult {
 
 function knownChannels(ctx: Ctx): KnownChannels {
   const rows = ctx.db.prepare("SELECT source_key, channel_id FROM streamers WHERE source_key IS NOT NULL").all() as { source_key: string; channel_id: string }[];
-  return new Map(rows.map((r) => [r.source_key, r.channel_id]));
+  // まとめた配信者（source_key が「a+b」）は、まとめる前のそれぞれの source_key でも引けるようにする（詳細ページを毎回取らない）
+  return new Map(rows.flatMap((r) => [[r.source_key, r.channel_id] as [string, string], ...(r.source_key.includes("+") ? r.source_key.split("+").map((k) => [k, r.channel_id] as [string, string]) : [])]));
 }
 
 async function resolveHandles(ctx: Ctx, entries: RosterEntry[]): Promise<void> {
@@ -107,19 +108,21 @@ async function syncOrg(
     throw new Error(`${affiliation}: 取得件数 ${activeCount} が min_count ${minCount} 未満。抜き出しが壊れた可能性があるため前回の一覧を保持します`);
   }
   // 同じ handle を何度も解決しないよう解決前に一度、別の handle が同じチャンネルを指す場合に備えて解決後にもう一度見る
-  const sharedBefore = markSharedChannels(entries);
+  const sharedBefore = mergeSharedChannels(entries);
   await resolveHandles(ctx, entries);
-  const sharedAfter = markSharedChannels(entries);
+  const sharedAfter = mergeSharedChannels(entries);
   const r = applyOrg(ctx, affiliation, entries);
   return { ...r, shared_channel: { ...sharedBefore, ...sharedAfter } };
 }
 
 /**
- * 複数のタレントが同じチャンネルを共用している（例: holoAN の @holoANroom）。
- * 1配信者ではないので対象外とし、登録しない（ゲート1で決定）。
- * 該当エントリの channelId を外し、「チャンネルなし」と同じ扱いにする。
+ * 複数のタレントが1つのチャンネルで配信している組（FUWAMOCO のフワワ・モココ）は、1配信者にまとめる（2026-10-03 決定）。
+ * 名前は公式の一覧の順に「＆」でつなぎ、source_key は「hololive:fuwawa-abyssgard+hololive:mococo-abyssgard」のようにつなぐ。
+ * （ゲート1では共用チャンネルを対象外にしていたが、外したかった holoAN room は公式アナウンサーの番組チャンネルなので、
+ *  名簿の対象のグループから holoAN を外す形に改めた。config/roster.yaml）
+ * 戻り値はまとめたチャンネル → まとめる前の source_key。entries はその場で書き換える
  */
-export function markSharedChannels(entries: RosterEntry[]): Record<string, string[]> {
+export function mergeSharedChannels(entries: RosterEntry[]): Record<string, string[]> {
   const byChannel = new Map<string, RosterEntry[]>();
   for (const e of entries) {
     const key = e.channelId ?? (e.handle ? `@${e.handle.toLowerCase()}` : null);
@@ -130,10 +133,10 @@ export function markSharedChannels(entries: RosterEntry[]): Record<string, strin
   for (const [key, es] of byChannel) {
     if (es.length < 2) continue;
     shared[key] = es.map((e) => e.sourceKey);
-    for (const e of es) {
-      e.channelId = null;
-      e.handle = null;
-    }
+    const merged: RosterEntry = { ...es[0]!, name: es.map((e) => e.name).join("＆"), sourceKey: es.map((e) => e.sourceKey).join("+") };
+    const at = entries.indexOf(es[0]!);
+    for (const e of es) entries.splice(entries.indexOf(e), 1);
+    entries.splice(at, 0, merged);
   }
   return shared;
 }
