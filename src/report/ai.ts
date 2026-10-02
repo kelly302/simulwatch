@@ -329,8 +329,10 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
   // 採点の表に出す枠。抽出（--sample）や採点済みの除外（--exclude-scored）をしても、
   // 保留・作品を特定できない・外部DBに無い（must）と --video で指定した枠は必ず全部出す（2026-10-02 決定。抽出の外に保留が残っていた）
   const MUST = new Set(["hold", "unidentifiable", "not_in_db"]);
-  const scored = new Set((opts.excludeScored ?? []).flatMap((f) => scoredVideos(readFileSync(f, "utf8"))));
-  const forced = new Set(opts.videos ?? []);
+  const scoredMd = (opts.excludeScored ?? []).map((f) => readFileSync(f, "utf8"));
+  const scored = new Set(scoredMd.flatMap((md) => scoredVideos(md)));
+  // 採点の表に出したのに採点していない枠（「（未）」）は、残りの表にも出す（抽出を最後まで採点するため）
+  const forced = new Set([...(opts.videos ?? []), ...scoredMd.flatMap((md) => scoredVideos(md, true))]);
   let live = rows.filter((r) => !r.revoked_at && !scored.has(String(r.video_id)));
   const must = live.filter((r) => MUST.has(String(r.status)) || forced.has(String(r.video_id)));
   if (opts.sample !== undefined || scored.size) {
@@ -390,13 +392,13 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
   return `${rows.length} 件 → ${path}・採点用 ${html}（${items.length} 件: ${byStatus}。必ず出す保留・特定できない・外部DBに無い・指定の枠 ${must.length}${scored.size ? `、採点済みで除いた ${scored.size}` : ""}）`;
 }
 
-/** 採点の書き出し（scores*.md）から、採点済みの枠（「採点: （未）」でないもの）の動画 ID */
-export function scoredVideos(md: string): string[] {
+/** 採点の書き出し（scores*.md）から、採点済みの枠（「採点: （未）」でないもの）の動画 ID。unscored なら採点していない枠 */
+export function scoredVideos(md: string, unscored = false): string[] {
   const out: string[] = [];
   for (const block of md.split(/\n(?=### )/)) {
     const id = block.match(/^### \d+\. (\S+)　/)?.[1];
     const score = block.match(/\n- 採点: (.*)/)?.[1]?.trim();
-    if (id && score && score !== "（未）") out.push(id);
+    if (id && score && (score === "（未）") === unscored) out.push(id);
   }
   return out;
 }

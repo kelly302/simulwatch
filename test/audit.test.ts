@@ -204,4 +204,5 @@ test("採点の書き出しから採点済みの枠を読む（「（未）」�
   const { scoredVideos } = await import("../src/report/ai.ts");
   const md = "# 採点\n\n## 同定\n\n### 1. aaa　型 同定\n- タイトル: x\n- 採点: 正しい\n- メモ: \n\n### 2. bbb　型 同定\n- タイトル: y\n- 採点: （未）\n- メモ: \n\n## 保留\n\n### 1. ccc　型 保留\n- 採点: 誤り\n- メモ: z\n";
   assert.deepEqual(scoredVideos(md), ["aaa", "ccc"]);
+  assert.deepEqual(scoredVideos(md, true), ["bbb"]);
 });
