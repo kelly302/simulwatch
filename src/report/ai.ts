@@ -362,7 +362,7 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
     };
   };
   const sections = order.filter((k) => live.some((r) => r.status === k))
-    .map((k) => ({ key: k, label: label[k] ?? k, required: true, ...(k === "hold" ? { note: "決められたはずなのに保留にしたものを「誤り」にする" } : {}) }));
+    .map((k) => ({ key: k, label: label[k] ?? k, required: true, ...(k === "hold" ? { note: "決められたはずなのに保留にしたものを「誤り」にする（英語のタイトルの枠は無理に同定しないので、保留を誤りにしない）" } : {}) }));
   const items: ReviewItem[] = sections.flatMap((sec) => live.filter((r) => r.status === sec.key).map((r, i) => {
     const works = r.works ? (JSON.parse(String(r.works)) as AiWork[]) : [];
     const ev = JSON.parse(String(r.evidence)) as DecisionInput["evidence"];
