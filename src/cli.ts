@@ -62,7 +62,8 @@ const HELP = `
                   [--n 300] [--seed S] [--batch B（既定はシード）] [--type 型,...（ai_routes の代わり）] [--include-hold（保留の枠も入れる）] [--video ID,...（動画を指定する。判定し直し用）]
                   --reason R を付けると未同定の理由で選ぶ（ai-trial-1 の形。区間と注記を見せる）
   ai:apply PATH   判定のファイル（answers/*.json か decisions.json。フォルダならその中のすべて）を DB に入れる。resolve は上書きしない（確定）
-  ai:report B     判定の根拠の一覧（report.md）と採点用の report.html を書く [--sample N --seed S（同定・作品ではないからシードで N 件。保留・特定できない・外部DBに無いは必ず全部）]
+  ai:report B     判定の根拠の一覧（report.md）と採点用の report.html を書く。採点の表は確度 high 以外・保留・特定できないを全部
+                  [--sample N --seed S（確度 high からシードで N 件を抜き取り）] [--include-high（確度 high も全部）]
                   [--exclude-scored F（採点済みの scores*.md を除いた残りを report-rest.html に）] [--video ID,…（必ず出す枠）]
   ai:revoke       判定を取り消して、ルールで名寄せし直す [--batch B] [--video ID,...]
   works:enrich    作品の属性（映像の種類・制作国・シリーズの名前）を外部DBから埋める [--all（全部埋め直す）]
@@ -101,6 +102,7 @@ async function main(): Promise<number> {
       exclude: { type: "string" },
       sample: { type: "string" },
       "exclude-scored": { type: "string" },
+      "include-high": { type: "boolean" },
       "include-hold": { type: "boolean" },
     },
   });
@@ -195,6 +197,7 @@ async function main(): Promise<number> {
           ...(values.sample !== undefined ? { sample: Number(values.sample) } : {}), ...(values.seed ? { seed: values.seed } : {}),
           ...(values["exclude-scored"] ? { excludeScored: values["exclude-scored"].split(",") } : {}),
           ...(values.video ? { videos: values.video.split(",") } : {}),
+          ...(values["include-high"] ? { includeHigh: true } : {}),
         }));
       },
     },

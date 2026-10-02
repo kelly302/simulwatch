@@ -278,7 +278,7 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promi
 }
 
 /** 判定の根拠の一覧（採点用の表） */
-export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?: string; excludeScored?: string[]; videos?: string[] } = {}): string {
+export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?: string; excludeScored?: string[]; videos?: string[]; includeHigh?: boolean } = {}): string {
   const rows = ctx.db.prepare(`SELECT a.status, a.works, a.confidence, a.evidence, a.rationale, a.seconds, a.revoked_at, e.video_id, e.title_raw, e.started_at, s.name AS streamer
     FROM ai_decisions a JOIN watch_events e ON e.id = a.watch_event_id JOIN streamers s ON s.id = e.streamer_id
     WHERE a.batch = ? ORDER BY a.id`).all(batch) as Record<string, string | number | null>[];
@@ -326,16 +326,17 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
 
   // 採点用の HTML（正しい / 誤り / 判断できない とメモ。scores.md に書き出す）。取り消した判定は出さない
   const order = ["identified", "not_a_work", "unidentifiable", "not_in_db", "hold"];
-  // 採点の表に出す枠。抽出（--sample）や採点済みの除外（--exclude-scored）をしても、
-  // 保留・作品を特定できない・外部DBに無い（must）と --video で指定した枠は必ず全部出す（2026-10-02 決定。抽出の外に保留が残っていた）
-  const MUST = new Set(["hold", "unidentifiable", "not_in_db"]);
+  // 採点の表に出す枠（2026-10-03 決定。AI の判定は正しそうなので、確度 high は見せない）:
+  // 確度が high でない判定・保留・作品を特定できない・--video で指定した枠は全部出す。確度 high は出さない
+  // （--sample N で high からシードで N 件を抜き取りで出す。--include-high で全部出す）
+  const MUST = new Set(["hold", "unidentifiable"]);
   const scoredMd = (opts.excludeScored ?? []).map((f) => readFileSync(f, "utf8"));
   const scored = new Set(scoredMd.flatMap((md) => scoredVideos(md)));
   // 採点の表に出したのに採点していない枠（「（未）」）は、残りの表にも出す（抽出を最後まで採点するため）
   const forced = new Set([...(opts.videos ?? []), ...scoredMd.flatMap((md) => scoredVideos(md, true))]);
   let live = rows.filter((r) => !r.revoked_at && !scored.has(String(r.video_id)));
-  const must = live.filter((r) => MUST.has(String(r.status)) || forced.has(String(r.video_id)));
-  if (opts.sample !== undefined || scored.size) {
+  const must = live.filter((r) => MUST.has(String(r.status)) || String(r.confidence) !== "high" || forced.has(String(r.video_id)));
+  if (!opts.includeHigh) {
     const mustIds = new Set(must.map((r) => String(r.video_id)));
     const rest = live.filter((r) => !mustIds.has(String(r.video_id)));
     const keep = new Set(sampleOrder(opts.seed ?? `${batch}-score`, rest.map((r) => String(r.video_id))).slice(0, opts.sample ?? 0));
@@ -386,10 +387,10 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
   // 採点済みを除いた「残り」の表は、別のファイル・別の保存先（ブラウザの記録）にする
   const rest = scored.size > 0;
   const html = join(dir, rest ? "report-rest.html" : "report.html");
-  const file = rest ? "scores-rest.md" : opts.sample !== undefined ? `scores-sample${opts.sample}.md` : "scores.md";
+  const file = rest ? "scores-rest.md" : "scores.md";
   writeReviewHtml(html, { mode: "score", batch: rest ? `${batch}（残り）` : batch, source: path, file, sections, items });
   const byStatus = [...new Set(items.map((x) => x.section))].map((k) => `${label[k] ?? k} ${items.filter((x) => x.section === k).length}`).join("・");
-  return `${rows.length} 件 → ${path}・採点用 ${html}（${items.length} 件: ${byStatus}。必ず出す保留・特定できない・外部DBに無い・指定の枠 ${must.length}${scored.size ? `、採点済みで除いた ${scored.size}` : ""}）`;
+  return `${rows.length} 件 → ${path}・採点用 ${html}（${items.length} 件: ${byStatus}。確度 high 以外・保留・特定できない・指定の枠 ${must.length}${opts.includeHigh ? "（確度 high も全部）" : opts.sample ? `、確度 high から抜き取り ${opts.sample}` : ""}${scored.size ? `、採点済みで除いた ${scored.size}` : ""}）`;
 }
 
 /** 採点の書き出し（scores*.md）から、採点済みの枠（「採点: （未）」でないもの）の動画 ID。unscored なら採点していない枠 */
