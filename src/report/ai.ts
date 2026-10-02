@@ -283,6 +283,13 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
     FROM ai_decisions a JOIN watch_events e ON e.id = a.watch_event_id JOIN streamers s ON s.id = e.streamer_id
     WHERE a.batch = ? ORDER BY a.id`).all(batch) as Record<string, string | number | null>[];
   const label: Record<string, string> = { identified: "同定", not_a_work: "作品ではない", unidentifiable: "作品を特定できない", not_in_db: "作品だが外部DBに無い", hold: "保留" };
+  // 作品名は DB の今の行から出す（判定の記録の作品名は判定のときのまま。日本語のラベルが無い項目は QID になっていた）
+  const nowTitle = (key: string, fallback: string | undefined) => {
+    const [src, id] = key.split(":");
+    const col = src === "annict" ? "annict_id" : src === "anilist" ? "anilist_id" : src === "wikidata" ? "wikidata_id" : null;
+    const row = col && id ? (ctx.db.prepare(`SELECT title FROM works WHERE ${col} = ?`).get(src === "wikidata" ? id : Number(id)) as { title: string } | undefined) : undefined;
+    return row?.title ?? fallback ?? "?";
+  };
   const out = [
     `# AI の判定の根拠（${batch}）`,
     "",
@@ -312,7 +319,7 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
     out.push(`- 判定: **${label[String(r.status)] ?? r.status}**（確度 ${r.confidence}）`);
     for (const w of works) {
       const c = w.work;
-      out.push(`  - ${w.key} ${c?.title ?? "?"}（${c?.media ?? "?"}・${c?.releaseYear ?? "?"}）${w.episodes?.length ? ` 話数 ${w.episodes.join(",")}` : ""}`);
+      out.push(`  - ${w.key} ${nowTitle(w.key, c?.title)}（${c?.media ?? "?"}・${c?.releaseYear ?? "?"}）${w.episodes?.length ? ` 話数 ${w.episodes.join(",")}` : ""}`);
     }
     out.push(`- 見たもの: ${ev.looked.join("・")}${ev.queries?.length ? `（照会: ${ev.queries.join(" ／ ")}）` : ""}`);
     if (ev.thumbnail) out.push(`- サムネイル: ${ev.thumbnail}`);
@@ -377,7 +384,7 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
       rule: ruleBlock(vid, q),
       ai: {
         status: label[String(r.status)] ?? String(r.status), confidence: String(r.confidence),
-        lines: works.map((w) => `${w.work?.title ?? "?"}（${w.key}・${w.work?.media ?? "?"}・${w.work?.releaseYear ?? "?"}）${w.episodes?.length ? ` 話 ${w.episodes.join(",")}` : ""}`),
+        lines: works.map((w) => `${nowTitle(w.key, w.work?.title)}（${w.key}・${w.work?.media ?? "?"}・${w.work?.releaseYear ?? "?"}）${w.episodes?.length ? ` 話 ${w.episodes.join(",")}` : ""}`),
         looked: `${ev.looked.join("・")}${ev.queries?.length ? `（照会: ${ev.queries.join(" ／ ")}）` : ""}`,
         thumbnail: ev.thumbnail ?? "", rationale: String(r.rationale),
       },
