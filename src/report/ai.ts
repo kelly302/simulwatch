@@ -109,7 +109,7 @@ export async function aiQueueRoutes(
     `# AI の判定の待ち行列（${opts.batch}）`, "",
     `- 母集団: 一覧に出る枠のうち、AI に回す型（${routes.join("・")}）で、AI の判定がまだ無いもの${opts.includeHold ? "（保留の枠を含む）" : ""}${opts.videos ? `のうち、指定した動画（${opts.videos.join("・")}）` : ""}。${pool.length} 枠`,
     `- 抽出: sha256(シード + ":" + video_id) の昇順で先頭 ${rows.length} 件。シード「${opts.seed}」。待ち行列の並びは sha256(シード + ":queue:" + video_id) の昇順`,
-    "- AI に見せるもの: 配信者・日時・タイトル・概要欄（定型文と URL の行を除き、その枠を指す行を先に12行まで）・サムネイル。型・区間・候補・ルールの答えは見せない（GUIDE.md）",
+    "- AI に見せるもの: 配信者・日時・タイトル・概要欄（定型文と URL の行を除き、その枠を指す行を先に12行まで）・サムネイル・概要欄のリンク先の題名・同じ配信者の同じ作品名の枠と前後の枠（タイトルと日付だけ）。型・区間・候補・ルールの答えは見せない（GUIDE.md）",
     "- 判定のあと: ai:apply data/ai/<batch>/answers で入れ、ai:report <batch> --sample N --seed S で採点の表を作る", "",
     "| 型 | 母集団 | この待ち行列 |", "| --- | ---: | ---: |",
     ...Object.entries(perRoute).sort((a, b) => b[1] - a[1]).map(([k, v]) => `| ${k} | ${v} | ${picked[k] ?? 0} |`), "",
