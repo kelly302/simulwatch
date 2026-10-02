@@ -618,6 +618,7 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- ai:queue --reason not_found --n 100 --seed ai-trial-1   # 未同定の理由で選ぶ待ち行列（ai-trial-1 の形）
     npm run cli -- ai:apply data/ai/ai-run-1/answers                     # 判定を入れる（確定。ファイルかフォルダ）
     npm run cli -- ai:report ai-trial-1                                 # 判定の根拠の一覧（report.md）と採点用の report.html
+    npm run cli -- ai:report ai-run-1 --exclude-scored data/ai/ai-run-1/scores-sample150.md   # 採点済みを除いた残り（保留・特定できない・外部DBに無いは全部）
     npm run cli -- ai:revoke --batch ai-trial-1                         # 判定の取り消しとルールでの名寄せし直し
     npm run cli -- ai:status                                            # サイトでの出し方ごとの件数と、AI の判定待ちの型の内訳
     npm run cli -- works:enrich [--all]                                 # 作品の属性（映像の種類・制作国・シリーズの名前）を外部DBから埋める
@@ -726,7 +727,10 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
   未同定の理由 not_in_db にする（サイトでは枠として出し、作品ページは作らない）。複数作品のうち外部DBに無い作品の名前は extra.missing
 - AI が選んだ Wikidata の項目は、ルールの作品クラスに加えて `wikipedia.ai_extra_work_classes`（テレビ番組・テレビアニメのシーズン・アニメのWebシリーズ）も受け付ける。
   ルールの照合には使わない（仮面ライダーセイバーなどは「テレビ番組」でルールは取りこぼす）
-- 抜き取り検査: `ai:report <batch> --sample 150 --seed S` で、シードで選んだ一部だけの採点用 HTML（scores-sample150.md に書き出す）
+- 抜き取り検査: `ai:report <batch> --sample 150 --seed S` で、シードで選んだ一部だけの採点用 HTML（scores-sample150.md に書き出す）。
+  **保留・作品を特定できない・外部DBに無いは、抽出とは別に必ず全部載せる**（2026-10-02 決定。ai-run-1 の150件の抽出の外に、保留6件・特定できない2件・外部DBに無い2件が残っていた）。
+  抽出の N 件は同定・作品ではないから選ぶ。`--exclude-scored scores-sample150.md` で採点済み（「（未）」以外）を除いた残りを report-rest.html（書き出しは scores-rest.md）に、
+  `--video` で指定した枠（判定し直した枠など）も必ず載せる
 - ai-trial-1 の採点（2026-10-01。ユーザー）: 同定49件は正しい48・判断できない1（るろうに剣心を放送時期で2023年版にした）、作品ではない42件はすべて正しい、
   保留8件は正しい1・誤り2（「8年越しの花嫁」は原作と映画をまとめた Wikidata の項目を使ってよい、「下僕とハリーポッター」はリンク先が死の秘宝 PART1）・
   判断できない5（外部DBに無い作品。not_in_db で扱う）。GUIDE に「日付は公開前の作品を外すのにだけ使う」「原作と映画をまとめた項目も使ってよい」を足した

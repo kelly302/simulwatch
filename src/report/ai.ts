@@ -278,7 +278,7 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promi
 }
 
 /** 判定の根拠の一覧（採点用の表） */
-export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?: string } = {}): string {
+export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?: string; excludeScored?: string[]; videos?: string[] } = {}): string {
   const rows = ctx.db.prepare(`SELECT a.status, a.works, a.confidence, a.evidence, a.rationale, a.seconds, a.revoked_at, e.video_id, e.title_raw, e.started_at, s.name AS streamer
     FROM ai_decisions a JOIN watch_events e ON e.id = a.watch_event_id JOIN streamers s ON s.id = e.streamer_id
     WHERE a.batch = ? ORDER BY a.id`).all(batch) as Record<string, string | number | null>[];
@@ -326,11 +326,18 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
 
   // 採点用の HTML（正しい / 誤り / 判断できない とメモ。scores.md に書き出す）。取り消した判定は出さない
   const order = ["identified", "not_a_work", "unidentifiable", "not_in_db", "hold"];
-  let live = rows.filter((r) => !r.revoked_at);
-  // 抜き取り（シードで選んだ一部だけを採点の表に出す）
-  if (opts.sample) {
-    const keep = new Set(sampleOrder(opts.seed ?? `${batch}-score`, live.map((r) => String(r.video_id))).slice(0, opts.sample));
-    live = live.filter((r) => keep.has(String(r.video_id)));
+  // 採点の表に出す枠。抽出（--sample）や採点済みの除外（--exclude-scored）をしても、
+  // 保留・作品を特定できない・外部DBに無い（must）と --video で指定した枠は必ず全部出す（2026-10-02 決定。抽出の外に保留が残っていた）
+  const MUST = new Set(["hold", "unidentifiable", "not_in_db"]);
+  const scored = new Set((opts.excludeScored ?? []).flatMap((f) => scoredVideos(readFileSync(f, "utf8"))));
+  const forced = new Set(opts.videos ?? []);
+  let live = rows.filter((r) => !r.revoked_at && !scored.has(String(r.video_id)));
+  const must = live.filter((r) => MUST.has(String(r.status)) || forced.has(String(r.video_id)));
+  if (opts.sample !== undefined || scored.size) {
+    const mustIds = new Set(must.map((r) => String(r.video_id)));
+    const rest = live.filter((r) => !mustIds.has(String(r.video_id)));
+    const keep = new Set(sampleOrder(opts.seed ?? `${batch}-score`, rest.map((r) => String(r.video_id))).slice(0, opts.sample ?? 0));
+    live = live.filter((r) => mustIds.has(String(r.video_id)) || keep.has(String(r.video_id)));
   }
   // 判定の前のルールの答え（本番の待ち行列は sealed/ に残している）
   const sealedRule = new Map<string, RuleAnswer>();
@@ -374,10 +381,26 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
       why: "",
     };
   }));
-  const html = join(dir, "report.html");
-  writeReviewHtml(html, { mode: "score", batch, source: path, file: opts.sample ? `scores-sample${opts.sample}.md` : "scores.md", sections, items });
-  return `${rows.length} 件 → ${path}・採点用 ${html}`;
+  // 採点済みを除いた「残り」の表は、別のファイル・別の保存先（ブラウザの記録）にする
+  const rest = scored.size > 0;
+  const html = join(dir, rest ? "report-rest.html" : "report.html");
+  const file = rest ? "scores-rest.md" : opts.sample !== undefined ? `scores-sample${opts.sample}.md` : "scores.md";
+  writeReviewHtml(html, { mode: "score", batch: rest ? `${batch}（残り）` : batch, source: path, file, sections, items });
+  const byStatus = [...new Set(items.map((x) => x.section))].map((k) => `${label[k] ?? k} ${items.filter((x) => x.section === k).length}`).join("・");
+  return `${rows.length} 件 → ${path}・採点用 ${html}（${items.length} 件: ${byStatus}。必ず出す保留・特定できない・外部DBに無い・指定の枠 ${must.length}${scored.size ? `、採点済みで除いた ${scored.size}` : ""}）`;
 }
+
+/** 採点の書き出し（scores*.md）から、採点済みの枠（「採点: （未）」でないもの）の動画 ID */
+export function scoredVideos(md: string): string[] {
+  const out: string[] = [];
+  for (const block of md.split(/\n(?=### )/)) {
+    const id = block.match(/^### \d+\. (\S+)　/)?.[1];
+    const score = block.match(/\n- 採点: (.*)/)?.[1]?.trim();
+    if (id && score && score !== "（未）") out.push(id);
+  }
+  return out;
+}
+
 
 /** 判定を取り消す。取り消した枠の video_id を返す（呼び出し側でルールの名寄せをし直す） */
 export function aiRevoke(ctx: Ctx, opts: { batch?: string; videos?: string[] }): string[] {

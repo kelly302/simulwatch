@@ -199,3 +199,9 @@ test("判定役に見せる手がかり: 同じ作品名の枠（日付順・こ
   assert.deepEqual(pickLinks(["https://www.amazon.co.jp/gp/video/detail/B01BODDI64/ref=x", "https://twitter.com/a", "https://www.disneyplus.com/ja-jp/movies/x/1"], cfg),
     ["https://www.amazon.co.jp/gp/video/detail/B01BODDI64/ref=x"]);
 });
+
+test("採点の書き出しから採点済みの枠を読む（「（未）」は採点済みにしない）", async () => {
+  const { scoredVideos } = await import("../src/report/ai.ts");
+  const md = "# 採点\n\n## 同定\n\n### 1. aaa　型 同定\n- タイトル: x\n- 採点: 正しい\n- メモ: \n\n### 2. bbb　型 同定\n- タイトル: y\n- 採点: （未）\n- メモ: \n\n## 保留\n\n### 1. ccc　型 保留\n- 採点: 誤り\n- メモ: z\n";
+  assert.deepEqual(scoredVideos(md), ["aaa", "ccc"]);
+});
