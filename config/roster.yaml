@@ -4,8 +4,12 @@
 # - 取得件数が min_count を下回ったら、サイト改修で抜き出しが壊れたとみなして失敗扱いにする
 
 nijisanji:
-  # 公式サイトのライバー一覧API（affiliation=nijisanji は日本の所属のみ）
+  # 公式サイトのライバー一覧API（affiliation=nijisanji は日本の所属。統合した旧 KR・旧 ID を含む）
   list_url: "https://www.nijisanji.jp/api/livers?limit=300&orderKey=subscriber_count&order=desc&affiliation=nijisanji&locale=ja"
+  # ほかの一覧と、その区分（2026-10-02 決定で NIJISANJI EN を対象に入れた）
+  extra_lists:
+    - url: "https://www.nijisanji.jp/api/livers?limit=300&orderKey=subscriber_count&order=desc&affiliation=nijisanjien&locale=ja"
+      branch: en
   detail_url: "https://www.nijisanji.jp/talents/l/{slug}"
   min_count: 100
   # 所属の中の区分（UI の絞り込み用）。一覧には統合した旧 NIJISANJI KR・ID のライバーも入っていて、プロフィールの項目名がその言語になっている。
@@ -17,7 +21,8 @@ nijisanji:
 hololive:
   group_url: "https://hololive.hololivepro.com/talents?gp={group}"
   detail_url: "https://hololive.hololivepro.com/talents/{slug}/"
-  # 日本の所属グループ。EN（myth など）・ID（area15 など）・卒業生（alum）・スタッフは含めない
+  # 対象の所属グループ。ID（area15・holoro・holoh3ro）・卒業生（alum）・スタッフは含めない。
+  # EN（myth・council・promise・advent・justice・project-hope）は 2026-10-02 決定で対象に入れた（区分は group_branch）
   groups:
     - gen-0
     - 1stgen
@@ -31,6 +36,20 @@ hololive:
     - flow-glow
     - asobi-mawari-tai
     - holoan
+    - myth
+    - council
+    - promise
+    - advent
+    - justice
+    - project-hope
+  # グループの区分（書いていないグループは jp）
+  group_branch:
+    myth: en
+    council: en
+    promise: en
+    advent: en
+    justice: en
+    project-hope: en
   # 名前にこれを含むタレントは巡回しない（卒業・活動終了・退職）
   inactive_name_markers:
     - 【卒業生】

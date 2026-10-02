@@ -21,6 +21,12 @@ title:
     - ウォッチパーティ     # 「ウォッチパーティー」も部分一致で拾う
     - watchalong           # watch along / watch-along も strip_chars で同じ形になる
     - 同時鑑賞
+    # 英語のタイトル（2026-10-02。NIJISANJI EN・hololive EN を対象に入れたとき、保存済みの全タイトルで確かめた）
+    - watching party       # 大空スバルの「Fate/stay night watching party」など。16本すべて同時視聴
+    - movie night          # EN の「【MEMBER'S ONLY】Movie Night! Hogfather (2006)」など。9本すべて同時視聴
+    # タイトルの先頭か括弧の直後の「Watching ...」（「Watching Breaking Bad S5 part 2」）。25本中24本が同時視聴（外れは「Watching My Own Stream」）。
+    # 文中の watching（「BIG ROCO IS WATCHING YOU」「while watching the MAP」）は拾わない。「watch party」は eスポーツの観戦が大半なので入れない
+    - 're:(^|[】\])|｜>(\[【「『])watching'
   # include に当たっても、これを含むタイトルは同時視聴枠として扱わない
   exclude:
     - 同時視聴者           # 「同時視聴者数◯万人記念」など
@@ -94,6 +100,11 @@ members_only:
     - membersonly
     - memberonly
     - membershiponly     # 「Membership Only」。予定枠の段階ではメン限プレイリストに載らないため、タイトルで拾う
+    - member'sonly        # 「【member's only】」（EN）。アポストロフィは取り除かない
+    - membersstream       # 「【MEMBERS STREAM】」（EN）
+    - member'sstream
+    - memberswatchalong   # 「【MEMBERS WATCHALONG】」（EN）
+    - "[member's]"        # 「[MEMBER'S]」（EN）
 
 # 判定には使わない。取りこぼし調査用に「ヒットしなかったがこれを含むタイトル」を抽出する
 review_hints:

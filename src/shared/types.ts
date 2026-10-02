@@ -27,7 +27,7 @@ export type WorkMedia = "tv" | "movie" | "ova" | "web";
 /**
  * 所属の中の区分（streamers.branch。公式サイトから自動で埋める）。UI の所属の絞り込みで、事務所の下のチェックボックスにする。
  * にじさんじの公式の一覧には、統合した旧 NIJISANJI KR・旧 NIJISANJI ID のライバーも入っている（2026-10-02 決定: 外さずに区分で絞れるようにする）。
- * EN（NIJISANJI EN・hololive EN など）は対象外なので今は無い
+ * NIJISANJI EN・hololive EN も対象（2026-10-02 決定）。区分は en
  */
 export type Branch = "jp" | "kr" | "id" | "en";
 

@@ -26,11 +26,12 @@ export interface DetectConfig {
 }
 
 export interface RosterConfig {
-  nijisanji: { list_url: string; detail_url: string; min_count: number; branch_markers?: Record<string, string[]> };
+  nijisanji: { list_url: string; detail_url: string; min_count: number; branch_markers?: Record<string, string[]>; extra_lists?: { url: string; branch: string }[] };
   hololive: {
     group_url: string;
     detail_url: string;
     groups: string[];
+    group_branch?: Record<string, string>;
     inactive_name_markers: string[];
     exclude_channel_ids: string[];
     min_count: number;

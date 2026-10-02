@@ -63,10 +63,15 @@ export function nijisanjiBranch(l: NijiLiver, markers: Record<string, string[]> 
 }
 
 export async function fetchNijisanji(http: Http, cfg: RosterConfig["nijisanji"], known: KnownChannels): Promise<RosterEntry[]> {
-  const res = await http.get(cfg.list_url);
-  const livers = JSON.parse(res.body) as NijiLiver[];
+  // 日本の一覧（区分はプロフィールの項目名で決める）と、ほかの一覧（NIJISANJI EN。区分は一覧ごとに決まっている）。
+  // どれか1つでも取れなければ全体を失敗にする（前回の一覧を保持する。一部だけで卒業扱いにしない）
+  const lists: { livers: NijiLiver[]; branch: Branch | null }[] = [];
+  for (const l of [{ url: cfg.list_url, branch: null }, ...(cfg.extra_lists ?? [])]) {
+    const res = await http.get(l.url);
+    lists.push({ livers: JSON.parse(res.body) as NijiLiver[], branch: (l.branch as Branch | null) ?? null });
+  }
   const out: RosterEntry[] = [];
-  for (const l of livers) {
+  for (const { livers, branch } of lists) for (const l of livers) {
     const sourceKey = `nijisanji:${l.slug}`;
     let channelId = known.get(sourceKey) ?? null;
     let handle: string | null = null;
@@ -80,7 +85,7 @@ export async function fetchNijisanji(http: Http, cfg: RosterConfig["nijisanji"],
         log.warn(`nijisanji detail failed ${l.slug}: ${errorMessage(e)}`);
       }
     }
-    out.push({ sourceKey, name: l.name, affiliation: "nijisanji", channelId, handle, inactive: l.hidden, branch: nijisanjiBranch(l, cfg.branch_markers) });
+    out.push({ sourceKey, name: l.name, affiliation: "nijisanji", channelId, handle, inactive: l.hidden, branch: branch ?? nijisanjiBranch(l, cfg.branch_markers) });
   }
   return out;
 }
@@ -107,11 +112,15 @@ export function parseHololiveDetail(html: string, exclude: string[]): { channelI
 
 export async function fetchHololive(http: Http, cfg: RosterConfig["hololive"], known: KnownChannels): Promise<RosterEntry[]> {
   const bySlug = new Map<string, string>();
+  const branchOf = new Map<string, Branch>();
   for (const g of cfg.groups) {
     const res = await http.get(cfg.group_url.replace("{group}", g));
     const members = parseHololiveGroup(res.body);
     if (members.length === 0) log.warn(`hololive group ${g}: メンバーを抜き出せませんでした`);
-    for (const m of members) if (!bySlug.has(m.slug)) bySlug.set(m.slug, m.name);
+    for (const m of members) {
+      if (!bySlug.has(m.slug)) bySlug.set(m.slug, m.name);
+      if (!branchOf.has(m.slug)) branchOf.set(m.slug, (cfg.group_branch?.[g] as Branch | undefined) ?? "jp");
+    }
   }
   const out: RosterEntry[] = [];
   for (const [slug, rawName] of bySlug) {
@@ -130,7 +139,7 @@ export async function fetchHololive(http: Http, cfg: RosterConfig["hololive"], k
         log.warn(`hololive detail failed ${slug}: ${errorMessage(e)}`);
       }
     }
-    out.push({ sourceKey, name, affiliation: "hololive", channelId, handle, inactive, branch: "jp" });
+    out.push({ sourceKey, name, affiliation: "hololive", channelId, handle, inactive, branch: branchOf.get(slug) ?? "jp" });
   }
   return out;
 }
