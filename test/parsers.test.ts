@@ -98,6 +98,13 @@ test("1つのチャンネルで配信する組（FUWAMOCO）は1配信者にま�
     ["c", "c", "solo"],
   ]);
 });
+test("まとめた配信者の名前はチャンネル名の「Ch.」より前（取れなければ null）", async () => {
+  const { sharedChannelName } = await import("../src/roster/sync.ts");
+  assert.equal(sharedChannelName("FUWAMOCO Ch. hololive"), "FUWAMOCO");
+  assert.equal(sharedChannelName("Some Unit Channel"), "Some Unit");
+  assert.equal(sharedChannelName("栞葉るり / Shioriha Ruri【にじさんじ】"), null);
+  assert.equal(sharedChannelName(null), null);
+});
 test("にじさんじの区分: プロフィールの項目名が韓国語・インドネシア語なら旧 KR・旧 ID、ほかは日本", async () => {
   const { nijisanjiBranch } = await import("../src/roster/sources.ts");
   const markers = { kr: ["생일", "팬클럽 이름"], id: ["Ulang Tahun", "Nama Fans"] };

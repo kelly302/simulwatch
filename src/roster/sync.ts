@@ -49,8 +49,8 @@ function applyOrg(ctx: Ctx, affiliation: Affiliation, entries: RosterEntry[]): O
   const { db } = ctx;
   const now = nowIso();
   const r: OrgResult = { fetched: entries.length, active: 0, inactive: 0, inserted: 0, reactivated: 0, deactivated: 0, no_channel: [] };
-  const bySource = db.prepare("SELECT id, is_active FROM streamers WHERE source_key = ?");
-  const byChannel = db.prepare("SELECT id, is_active FROM streamers WHERE channel_id = ?");
+  const bySource = db.prepare("SELECT id, is_active, channel_title FROM streamers WHERE source_key = ?");
+  const byChannel = db.prepare("SELECT id, is_active, channel_title FROM streamers WHERE channel_id = ?");
   const insert = db.prepare(`
     INSERT INTO streamers (name, affiliation, branch, channel_id, platform, tier, is_active, source_key, first_seen_at, last_listed_at, updated_at)
     VALUES (?, ?, ?, ?, 'youtube', 1, 1, ?, ?, ?, ?)`);
@@ -63,7 +63,7 @@ function applyOrg(ctx: Ctx, affiliation: Affiliation, entries: RosterEntry[]): O
   tx(db, () => {
     for (const e of entries) {
       const existing = (bySource.get(e.sourceKey) ?? (e.channelId ? byChannel.get(e.channelId) : undefined)) as
-        | { id: number; is_active: number }
+        | { id: number; is_active: number; channel_title: string | null }
         | undefined;
       if (e.inactive) {
         r.inactive++;
@@ -79,7 +79,9 @@ function applyOrg(ctx: Ctx, affiliation: Affiliation, entries: RosterEntry[]): O
       }
       if (existing) {
         if (!existing.is_active) r.reactivated++;
-        update.run(e.name, affiliation, e.branch, e.channelId, e.sourceKey, now, now, existing.id);
+        // まとめた配信者の名前は、チャンネル名から取れればそれを使う（FUWAMOCO）
+        const name = e.sourceKey.includes("+") ? sharedChannelName(existing.channel_title) ?? e.name : e.name;
+        update.run(name, affiliation, e.branch, e.channelId, e.sourceKey, now, now, existing.id);
         listedIds.add(existing.id);
       } else {
         const res = insert.run(e.name, affiliation, e.branch, e.channelId, e.sourceKey, now, now, now);
@@ -117,7 +119,8 @@ async function syncOrg(
 
 /**
  * 複数のタレントが1つのチャンネルで配信している組（FUWAMOCO のフワワ・モココ）は、1配信者にまとめる（2026-10-03 決定）。
- * 名前は公式の一覧の順に「＆」でつなぎ、source_key は「hololive:fuwawa-abyssgard+hololive:mococo-abyssgard」のようにつなぐ。
+ * 名前はチャンネル名から取る（sharedChannelName。「FUWAMOCO」。2026-10-09 決定）。取れるまで・取れないときは公式の一覧の順に「＆」でつなぐ。
+ * source_key は「hololive:fuwawa-abyssgard+hololive:mococo-abyssgard」のようにつなぐ。
  * （ゲート1では共用チャンネルを対象外にしていたが、外したかった holoAN room は公式アナウンサーの番組チャンネルなので、
  *  名簿の対象のグループから holoAN を外す形に改めた。config/roster.yaml）
  * 戻り値はまとめたチャンネル → まとめる前の source_key。entries はその場で書き換える
@@ -139,6 +142,29 @@ export function mergeSharedChannels(entries: RosterEntry[]): Record<string, stri
     entries.splice(at, 0, merged);
   }
   return shared;
+}
+
+/**
+ * まとめた配信者（共用チャンネル）の名前。チャンネル名の「Ch.」「Channel」より前（「FUWAMOCO Ch. hololive」→「FUWAMOCO」）。
+ * その形でなければ null（タレントの名前を「＆」でつないだままにする）
+ */
+export function sharedChannelName(channelTitle: string | null | undefined): string | null {
+  const m = /^(.+?)\s+(?:Ch\.|Channel(?:\s|$))/i.exec((channelTitle ?? "").trim());
+  return m?.[1]?.trim() || null;
+}
+
+/** まとめた配信者の名前を、いま持っているチャンネル名で付け直す（新しくまとめた回は channels.list のあとでチャンネル名が入る） */
+function nameSharedChannels(ctx: Ctx): { renamed: string[] } {
+  const rows = ctx.db.prepare("SELECT id, name, channel_title FROM streamers WHERE source_key LIKE '%+%'").all() as { id: number; name: string; channel_title: string | null }[];
+  const out = { renamed: [] as string[] };
+  const upd = ctx.db.prepare("UPDATE streamers SET name = ?, updated_at = ? WHERE id = ?");
+  for (const r of rows) {
+    const name = sharedChannelName(r.channel_title);
+    if (!name || name === r.name) continue;
+    upd.run(name, nowIso(), r.id);
+    out.renamed.push(`${r.name} → ${name}`);
+  }
+  return out;
 }
 
 /** channels.list でアイコンとチャンネル名を更新する（50件で1ユニット） */
@@ -172,6 +198,7 @@ export async function syncRoster(ctx: Ctx): Promise<void> {
   results.vspo = await runStep(ctx, "roster: vspo", () =>
     syncOrg(ctx, "vspo", cfg.vspo.min_count, () => fetchVspo(ctx.http, cfg.vspo)));
   results.channel_meta = await runStep(ctx, "roster: channels.list", () => refreshChannelMeta(ctx));
+  results.shared_names = await runStep(ctx, "roster: 共用チャンネルの名前", async () => nameSharedChannels(ctx));
   const counts = ctx.db
     .prepare("SELECT affiliation, SUM(is_active) AS active, COUNT(*) AS total FROM streamers GROUP BY affiliation ORDER BY affiliation")
     .all();

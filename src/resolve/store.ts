@@ -68,7 +68,7 @@ export function upsertWork(db: DB, c: WorkCandidate): number {
     if (conflicts(cur, other)) ids[col] = null;
     else mergeWorks(db, ex.id, other.id);
   }
-  // 主軸（Annict）の作品名・種別を優先し、補完側（AniList）は空欄だけを埋める
+  // 主軸（Annict）の作品名・種別・話数を優先し、補完側（AniList）は空欄だけを埋める
   const primary = c.source === "annict";
   db.prepare(`UPDATE works SET
       annict_id = COALESCE(annict_id, ?), anilist_id = COALESCE(anilist_id, ?), wikidata_id = COALESCE(wikidata_id, ?),
@@ -77,7 +77,7 @@ export function upsertWork(db: DB, c: WorkCandidate): number {
       title_kana = COALESCE(title_kana, ?),
       media = CASE WHEN ? THEN COALESCE(?, media) ELSE COALESCE(media, ?) END,
       season_name = COALESCE(season_name, ?), series_id = COALESCE(series_id, ?),
-      episodes_count = COALESCE(episodes_count, ?), image_url = COALESCE(image_url, ?),
+      episodes_count = CASE WHEN ? THEN COALESCE(?, episodes_count) ELSE COALESCE(episodes_count, ?) END, image_url = COALESCE(image_url, ?),
       release_year = COALESCE(release_year, ?),
       source = CASE WHEN ? THEN 'annict' ELSE source END,
       updated_at = ?
@@ -85,7 +85,7 @@ export function upsertWork(db: DB, c: WorkCandidate): number {
     ids.annict_id, ids.anilist_id, ids.wikidata_id, c.malId,
     primary ? 1 : 0, c.title, c.titleKana,
     primary ? 1 : 0, c.media, c.media,
-    c.seasonName, c.seriesId, c.episodesCount, c.imageUrl, c.releaseYear,
+    c.seasonName, c.seriesId, primary ? 1 : 0, c.episodesCount, c.episodesCount, c.imageUrl, c.releaseYear,
     primary ? 1 : 0, now, ex.id,
   );
   return ex.id;

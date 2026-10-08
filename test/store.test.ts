@@ -31,6 +31,19 @@ test("Annict と AniList の同じ作品は MyAnimeList の ID で1行にまと�
   assert.deepEqual({ ...w[0] }, { annict_id: 9, anilist_id: 50, title: "ぼっち・ざ・ろっく！", image_url: "img", source: "annict" });
 });
 
+test("話数は Annict を正にする（AniList で先に作られた行も Annict の話数にし、AniList では上書きしない）", () => {
+  const db = freshDb();
+  const id = upsertWork(db, cand({ source: "anilist", anilistId: 15061, malId: 15061, title: "Aikatsu!", episodesCount: 50 }));
+  const eps = () => (db.prepare("SELECT episodes_count FROM works WHERE id = ?").get(id) as { episodes_count: number | null }).episodes_count;
+  upsertWork(db, cand({ source: "annict", annictId: 51, malId: 15061, title: "アイカツ！", episodesCount: 178 }));
+  assert.equal(eps(), 178);
+  upsertWork(db, cand({ source: "anilist", anilistId: 15061, malId: 15061, title: "Aikatsu!", episodesCount: 50 }));
+  assert.equal(eps(), 178);
+  // Annict に話数が無ければ、今の値を残す
+  upsertWork(db, cand({ source: "annict", annictId: 51, malId: 15061, title: "アイカツ！", episodesCount: null }));
+  assert.equal(eps(), 178);
+});
+
 test("別々に作られた同じ作品の行は、ID が重なった時点でまとめる（一意制約で落ちない）", () => {
   const db = freshDb();
   const annictRow = upsertWork(db, cand({ source: "annict", annictId: 9, title: "A" }));

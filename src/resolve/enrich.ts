@@ -54,12 +54,12 @@ export function workKind(source: string, p31: string[], p136: string[], cfg: Ext
   return "live_action";
 }
 
-export async function enrichWorks(ctx: Ctx, cfg: ExtractConfig, opts: { all?: boolean } = {}): Promise<{ updated: number; kinds: Record<string, number>; noCountry: number; series: number; countryViaWikipedia: number; countryViaSeries: number }> {
+export async function enrichWorks(ctx: Ctx, cfg: ExtractConfig, opts: { all?: boolean } = {}): Promise<{ updated: number; kinds: Record<string, number>; noCountry: number; series: number; countryViaWikipedia: number; countryViaSeries: number; episodes: number }> {
   const db = ctx.db;
   const rows = db.prepare(`SELECT id, title, release_year, source, annict_id, anilist_id, wikidata_id, series_id FROM works ${opts.all ? "" : "WHERE attrs_at IS NULL"}`).all() as {
     id: number; title: string; release_year: number | null; source: string; annict_id: number | null; anilist_id: number | null; wikidata_id: string | null; series_id: string | null;
   }[];
-  const out = { updated: 0, kinds: {} as Record<string, number>, noCountry: 0, series: 0, countryViaWikipedia: 0, countryViaSeries: 0 };
+  const out = { updated: 0, kinds: {} as Record<string, number>, noCountry: 0, series: 0, countryViaWikipedia: 0, countryViaSeries: 0, episodes: 0 };
   if (rows.length === 0) return out;
   log.info(`作品の属性: ${rows.length} 件`);
   const cache = new ResolveCache(db, 30);
@@ -95,6 +95,8 @@ export async function enrichWorks(ctx: Ctx, cfg: ExtractConfig, opts: { all?: bo
   const annictSeries = annict
     ? await annict.seriesNames(rows.filter((r) => r.annict_id !== null && (r.series_id === null || r.series_id.startsWith("annict:"))).map((r) => r.annict_id!))
     : new Map<number, { id: number; name: string }[]>();
+  // 話数は Annict を正にする（AniList で先に作られた行は AniList の話数のまま残る。アイカツ！が50話、Annict は178話）
+  const annictWorks = annict ? await annict.byIds(rows.filter((r) => r.annict_id !== null).map((r) => r.annict_id!)) : new Map<number, { episodesCount: number | null }>();
 
   // Annict にだけある作品の制作国: 同名の Wikipedia の記事の Wikidata 項目（アニメーションの作品で公開年が±1年のときだけ）
   const animation = new Set([...(cfg.wikipedia.anime_classes ?? []), ...(cfg.wikipedia.animation_genres ?? [])]);
@@ -124,6 +126,7 @@ export async function enrichWorks(ctx: Ctx, cfg: ExtractConfig, opts: { all?: bo
   const seriesUse = new Map((db.prepare("SELECT series_id, COUNT(*) n FROM works WHERE series_id IS NOT NULL GROUP BY series_id").all() as { series_id: string; n: number }[]).map((x) => [x.series_id, x.n]));
   const up = db.prepare("UPDATE works SET kind = ?, countries = ?, series_title = ?, series_id = COALESCE(series_id, ?), attrs_at = ? WHERE id = ?");
   const retitle = db.prepare("UPDATE works SET title = ? WHERE id = ?");
+  const setEpisodes = db.prepare("UPDATE works SET episodes_count = ? WHERE id = ? AND episodes_count IS NOT ?");
   tx(db, () => {
     for (const r of rows) {
       const e = r.wikidata_id ? ents.get(r.wikidata_id) : undefined;
@@ -158,6 +161,8 @@ export async function enrichWorks(ctx: Ctx, cfg: ExtractConfig, opts: { all?: bo
       }
       up.run(kind, countries ? JSON.stringify(countries) : null, seriesTitle, fillSeries, now, r.id);
       if (/^Q\d+$/.test(r.title) && a?.labelEn) retitle.run(a.labelEn, r.id);
+      const eps = r.annict_id !== null ? annictWorks.get(r.annict_id)?.episodesCount : null;
+      if (eps && setEpisodes.run(eps, r.id, eps).changes > 0) out.episodes++;
       out.updated++;
       out.kinds[kind] = (out.kinds[kind] ?? 0) + 1;
       if (!countries) out.noCountry++;
