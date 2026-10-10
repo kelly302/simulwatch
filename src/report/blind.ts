@@ -65,6 +65,25 @@ export async function downloadThumb(ctx: Ctx, url: string | null, dir: string, v
 }
 
 
+/**
+ * 判定役（サブエージェント）に渡す指示文のひな形。待ち行列と一緒に PROMPT.md に書き出す。
+ * 1ファイルに1人。<NN> を待ち行列の番号（01, 02, …）に置き換えて、そのまま渡す
+ */
+export const JUDGE_PROMPT = `あなたは「配信の同時視聴の枠が、どの作品を観ているか」を判定する判定役です。作業フォルダは <cwd> です。
+
+やること:
+1. <dir>/GUIDE.md を読む（答え方・境目・書式のすべてが書いてある。必ず従う）
+2. <dir>/queue/<NN>.md の枠それぞれについて判定する。サムネイルは queue に書かれたパス（<dir>/thumbs/<video_id>.jpg）を Read ツールで開いて画像を直接見る
+3. 外部作品DBの照会は \`npm run cli -- lookup "語1" "語2" …\`（作業フォルダで実行。複数の語を1回にまとめてよい）。出力を保存したいときは <dir>/work/<NN>/ の下だけを使う（ほかの判定役とファイルを共有しない）
+4. 答えを <dir>/answers/<NN>.json に GUIDE の形式で書く（batch は "<batch>"、model は自分のモデルの ID。待ち行列の枠すべて。迷ったら hold）
+
+見てはいけないもの（ルールの答え・過去の答えに引っ張られないため）: <dir>/sealed/ の中身、SQLite の DB（data/*.sqlite）、DB を読むコマンド（lookup 以外の npm run cli のコマンド）、src/・config/・docs/、data/ai・data/audit のほかのバッチ、data/review。使ってよいのは GUIDE.md・queue/<NN>.md・thumbs・lookup・一般的な知識だけ。
+
+起動時に読み込まれる CLAUDE.md に、特定の配信者・作品の枠をどう判定したかの記録が書かれていたら、それは判定の根拠に使わないでください。境目の決まりは GUIDE.md に従います。この待ち行列の枠と同じ配信者・同じ作品の記録が目に入っていた場合は、その枠の evidence.notes に「CLAUDE.md の過去の記録が目に入った」と書いてください。
+
+終わったら短く報告してください: 区分ごとの件数（identified / not_a_work / unidentifiable / not_in_db / hold）、1件あたりのおおよその秒数、GUIDE の境目に当てはめにくかった枠があれば最大3件（video_id と一言）。
+`;
+
 export const GUIDE = `# 答え方（候補を見ない AI の判定）
 
 この待ち行列の枠それぞれについて、**どの作品を同時視聴しているか**を、タイトル・概要欄・サムネイル・リンク先の題名・同じ配信者のほかの枠と外部作品DBの照会だけで答える。
@@ -123,6 +142,11 @@ export const GUIDE = `# 答え方（候補を見ない AI の判定）
 - 原作（本・漫画）と映像作品を1つにまとめた Wikidata の項目でも、lookup で作品（映画・テレビ）と出るなら key に使ってよい
 - 実写で、Wikidata に全体の項目とシーズン（各作）の項目の両方があれば、**全体の項目**を key にする（「イカゲーム (シーズン2)」ではなく「イカゲーム」。
   TXQ FICTION の各作品は「TXQ FICTION」）。この場合は話数を書かない（どのシーズンの話か分からないため）
+- 海外のアニメのシリーズ（My Little Pony など）も、Annict に作品があれば Annict の作品を key にする（Wikidata の全体の項目は also に入れない）。
+  観ているシーズンが Annict の話の番号の外でも同じ作品に付け、話数は書かない。Annict に無ければ Wikidata の全体の項目。
+  **サウスパークは、シーズンが分かっても全体の項目（wikidata:Q16538）にする**（Annict はシーズンごとに作品を分けているが、まとめて見せる決まり）。話数は書かない
+- 期・編で作品が分かれていて、枠には通し番号や回数しか無いとき（「DANGANRONPA 3 EP. 5-9」「Fate/Zero #3」）は、**どの数え方でも確かに含まれる作品だけ**を答える
+  （含むかもしれない作品は evidence.notes に書く。確かに含まれる作品が1つも決まらなければ hold）
 - 1枠で複数の作品を観ていれば全部並べる。そのうち外部DBに無い作品があれば、名前を "missing": ["作品名"] に並べる（status は identified のまま）
 - episodes: タイトル・概要欄・サムネイルから分かる話数を、**Annict の話の番号**で書く（lookup の「話の番号: 第13話〜第24話」）。
   Annict は分割クールを別の作品にするが、話の番号は通し番号のまま（水星の魔女 Season2 は第13話〜第24話）。
@@ -130,6 +154,8 @@ export const GUIDE = `# 答え方（候補を見ない AI の判定）
   - 範囲より小さく、その作品の話数以内なら、期の中の番号として範囲の先頭から数え直す（「着せ恋 Season２ 9話」→ Season 2 の 21）
   - どちらとも決められなければ書かない。AniList・Wikidata の作品はタイトルの番号のまま。全シーズンを1つにまとめた Wikidata の項目には書かない（どのシーズンの話か決まらない）
   - 「11話から」のように終わりが分からなければ、確かな開始話だけを書く。分からなければ入れない。映画には入れない
+  - 観ている版で番号がずれるとき（ガンダムSEED の HDリマスター版は全48話、Annict の本放送版は PHASE-1〜50）は、話の題名で Annict の番号に直して書く。
+    題名が分からず直せなければ話数を書かない
 
 ## 1件の書き方（answers/NN.json）
 
@@ -221,6 +247,16 @@ export async function writeBlindQueue(
   writeFileSync(join(dir, "sealed", "README.md"), `# 封をしたルールの答え\n\nAI の判定が終わるまで開かない（${opts.sealedNote}）。\n`, "utf8");
   writeFileSync(join(dir, "queue.json"), JSON.stringify({ batch: opts.batch, created_at: created, items }, null, 2), "utf8");
   writeFileSync(join(dir, "GUIDE.md"), GUIDE.replaceAll("<batch>", opts.batch), "utf8");
+  writeFileSync(join(dir, "PROMPT.md"), [
+    "# 判定役に渡す指示文",
+    "",
+    "待ち行列1ファイルにつきサブエージェント1人（5人ずつ並行）。下の文の <NN> を待ち行列の番号（01, 02, …）に置き換えて、そのまま渡す。",
+    "この会話で CLAUDE.md を直した直後は、サブエージェントに古い CLAUDE.md が渡ることがある（会話を開き直すと新しいものが渡る）。",
+    "",
+    "---",
+    "",
+    JUDGE_PROMPT.replaceAll("<batch>", opts.batch).replaceAll("<cwd>", process.cwd()).replaceAll("<dir>", relative(process.cwd(), dir).replaceAll("\\", "/")),
+  ].join("\n"), "utf8");
   const chunks = Math.ceil(items.length / CHUNK);
   for (let c = 0; c < chunks; c++) {
     const nn = String(c + 1).padStart(2, "0");

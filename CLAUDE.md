@@ -366,7 +366,8 @@ src/resolve/ と config/extract.yaml を変えるときは先に読み、同じ�
 - 1つの区間の照会の順: Annict → AniList → 日本語版 Wikipedia の記事名 → Wikipedia の全文検索 → Wikidata のラベル。前で決まらなかったときだけ次へ
 - **区間の照合キーが作品名（原題・英題・ローマ字）と完全一致したときだけ採用する**。部分一致・別名（AniList の synonyms・Wikidata の alias）・別名の辞書・誤字の吸収は使わない
 - 期は外部DBの区切りのまま別作品として扱う。**作品の単位も話の番号も Annict に従う**（分割クールか本当の2期かはこちらで決めない。2026-09-30）
-- **実写は Wikidata のシリーズ全体の項目にそろえる**（シーズンの項目に当たったら P179 のシリーズに付け替え、話数を付けない。src/resolve/lift.ts。2026-10-02）
+- **実写は Wikidata のシリーズ全体の項目にそろえる**（シーズンの項目に当たったら P179 のシリーズに付け替え、話数を付けない。src/resolve/lift.ts。2026-10-02）。
+  アニメでもサウスパークは、Annict がシーズンごとに作品を分けているが、全体の項目（wikidata:Q16538）にまとめる（2026-10-03 のユーザーの決定。AI の判定で付ける）
 - 同じ配信者が同じ区間で2枠以上観ている**視聴系列**で、期を割り当てる（src/resolve/series.ts）
 - Wikidata で引いたアニメは、MyAnimeList・AniList の ID でアニメのDBの行にまとめる（src/resolve/link.ts）。同じ MyAnimeList の ID を持つ別作品があるので、
   ID を持つ作品が複数あるときはまとめない
@@ -409,7 +410,11 @@ src/resolve/ と config/extract.yaml を変えるときは先に読み、同じ�
 ### AI の判定のしかた（src/resolve/ai.ts・src/report/ai.ts・blind.ts・neighbors.ts・answer.ts）
 
 - **人が起動するコマンドでだけ入れる**（定期実行のジョブからは呼ばない。有料APIを使わない）。Claude Code のセッションから、サブエージェントに判定させる
-- 手順: `ai:queue --seed <batch> --n N --include-hold` → サブエージェント（1ファイル50件。5本ずつ並行）→ `ai:apply data/ai/<batch>/answers` → `ai:report <batch>`
+- 手順: `ai:queue --seed <batch> --n N --include-hold` → サブエージェント（1ファイル50件。5本ずつ並行）→ `ai:apply data/ai/<batch>/answers` → `ai:report <batch>`。
+  判定役に渡す指示文は `ai:queue` が data/ai/<batch>/PROMPT.md に書き出す（<NN> を待ち行列の番号に置き換えて、そのまま渡す）
+- 判定のあと、同じ配信者・同じ作品の枠を DB で並べ、判定役のあいだで答えが割れていないか確かめてそろえる（期・編で分かれた作品、版でずれる話数、Annict と Wikidata の両方にある作品で割れやすい）
+- **CLAUDE.md を直した会話のままサブエージェントを起動すると、古い CLAUDE.md が渡る**（会話が始まったときに読み込んだ写しが渡る。2026-10-09 に確かめた）。
+  直した直後に判定を回すときは、会話を開き直してから起動する
 - **判定役は候補を見ずに自分で答える**（候補を見せると同意に引っ張られる）。渡すのは data/ai/<batch>/GUIDE.md と queue/NN.md だけ。
   使えるのは thumbs/ のサムネイル（画像を直接見る）と `lookup`。sealed/・DB・src/・config/・ほかのバッチ・data/review・data/audit・docs/ は開かせない。
   照会の出力は `work/<番号>/` に分ける（共用の一時ファイルで照会結果が混ざったため）
@@ -419,6 +424,7 @@ src/resolve/ と config/extract.yaml を変えるときは先に読み、同じ�
 - 答えの区分: identified / not_a_work / not_in_db（作品だが外部DBに無い）/ unidentifiable / hold。確度は high / medium / low（**low はサイトに作品を出さない**）。
   not_a_work・not_in_db は lookup の記録が無ければ受け付けない。not_in_db は作品名・kind・movie を ai_decisions.extra に持つ
 - **迷ったら hold**（埋めることが目的ではない）。ただし手がかり（同じ配信者のほかの枠・リンク先）まで見て決められるなら決める。
+  期・編で作品が分かれていて通し番号や回数しか無い枠は、どの数え方でも確かに含まれる作品だけを答える。
   **英語のタイトルの枠は無理に同定しない**（はっきり分かるときだけ答える。保留でよい）
 - **確定**: 判定は `ai_decisions` に1枠1行（取り消しは `revoked_at`。行は残す）。取り消されていない判定（hold 以外）の枠は resolve の対象から外し、最後に判定を入れ直す。
   ルールを直して `resolve --all` しても上書きしない。hold の枠は `--include-hold` を付けたときだけ次の待ち行列に出す
