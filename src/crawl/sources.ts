@@ -113,7 +113,9 @@ export async function collectPlaylistHeads(
       (db.prepare("SELECT channel_id, playlist_scanned_at FROM crawl_state").all() as { channel_id: string; playlist_scanned_at: string | null }[])
         .map((r) => [r.channel_id, r.playlist_scanned_at]),
     );
-    const perRun = Math.ceil(channels.length / Math.max(1, interval));
+    // 1回に見るチャンネルの数は、こまめな巡回を何時間ごとに回すか（run_interval_hours）で決める（2時間ごとなら 1/6 ずつ）
+    const every = ctx.crawlCfg.hourly.run_interval_hours ?? 1;
+    const perRun = Math.ceil((channels.length * every) / Math.max(1, interval));
     targets = channels
       .filter((c) => hoursAgo(state.get(c.channel_id) ?? null) >= interval - 0.25)
       .sort((a, b) => (state.get(a.channel_id) ?? "").localeCompare(state.get(b.channel_id) ?? ""))

@@ -42,7 +42,7 @@ export interface RosterConfig {
 export interface CrawlConfig {
   quota: { daily_limit: number; stop_at: number; per_run: Record<string, number> };
   rss: { url: string };
-  hourly: { playlist_scan_interval_hours: number; playlist_scan_page_size: number };
+  hourly: { run_interval_hours?: number; playlist_scan_interval_hours: number; playlist_scan_page_size: number };
   upcoming: { max_days_ahead: number };
   daily: { playlist_page_size: number; members_playlist: boolean };
   backfill: { enabled: boolean; max_units_per_run: number; since: string | null };

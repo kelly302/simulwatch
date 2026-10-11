@@ -46,6 +46,8 @@ export interface ResolveOptions {
   reason?: UnresolvedReason;
   videoIds?: string[];
   limit?: number;
+  /** やり直し（all・reason・videos）でも、期限切れの照会結果を使わずに取り直す */
+  refresh?: boolean;
 }
 
 interface Target {
@@ -119,10 +121,11 @@ class Resolver {
   readonly wikipedia: WikipediaClient;
   readonly errors: string[] = [];
 
-  constructor(ctx: Ctx, cfg: ExtractConfig) {
+  /** stale: 期限切れの照会結果も使う（ルールを直したあとのやり直し。新しい枠の照会では使わない） */
+  constructor(ctx: Ctx, cfg: ExtractConfig, stale = false) {
     this.ctx = ctx;
     this.cfg = cfg;
-    this.cache = new ResolveCache(ctx.db, 30);
+    this.cache = new ResolveCache(ctx.db, 30, { stale });
     const token = process.env.ANNICT_TOKEN;
     this.annict = token ? new AnnictClient(ctx.http, this.cache, token, cfg.annict) : null;
     if (!token) log.warn("ANNICT_TOKEN が未設定のため Annict を使わずに名寄せします（AniList・Wikipedia のみ）");
@@ -427,7 +430,7 @@ export interface ResolveStats {
   /** Wikidata で引いたアニメをアニメのDBの行にまとめた件数（src/resolve/link.ts） */
   anime_linked?: { checked: number; merged: number; converted: number; idsOnly: number; multi: number; byTitle: number };
   requests: Record<string, number>;
-  cache: { hits: number; misses: number };
+  cache: { hits: number; misses: number; stale?: number };
   source_errors: string[];
   rule_version: string;
   /** AI の判定（確定）を入れ直した枠 */
@@ -820,7 +823,8 @@ export function episodesFor(plan: Plan, p: Picked, cfg: ExtractConfig): EpisodeR
 export async function resolveEvents(ctx: Ctx, opts: ResolveOptions): Promise<ResolveStats> {
   const cfg = loadExtractConfig();
   planCfg = cfg;
-  const r = new Resolver(ctx, cfg);
+  // 新しい枠の照会は30日で取り直す。やり直し（all・reason・videos）は期限切れの結果も使う（--refresh で取り直す）
+  const r = new Resolver(ctx, cfg, opts.mode !== "new" && !opts.refresh);
   const targets = loadTargets(ctx, opts);
   log.info(`名寄せ対象 ${targets.length} 件（mode=${opts.mode}, rule=${cfg.version}）`);
   const selfWords = ctx.detectCfg.description.line_require;
@@ -1090,7 +1094,7 @@ export async function resolveEvents(ctx: Ctx, opts: ResolveOptions): Promise<Res
   await runStep(ctx, "resolve: 作品の属性", () => enrichWorks(ctx, cfg));
   stats.works_total = (ctx.db.prepare("SELECT COUNT(*) AS n FROM works").get() as { n: number }).n;
   stats.requests = { annict: r.annict?.requests ?? 0, anilist: r.anilist.requests, wikipedia: r.wikipedia.requests };
-  stats.cache = { hits: r.cache.hits, misses: r.cache.misses };
+  stats.cache = { hits: r.cache.hits, misses: r.cache.misses, stale: r.cache.staleHits };
   stats.source_errors = [...r.errors, ...r.wikipedia.errors].map((e) => e.slice(0, 200)).slice(0, 20);
   return stats;
 }

@@ -14,6 +14,24 @@ const work = (id: number, title: string): WorkCandidate => ({
 const plan = (title: string): Plan => ({ target: { id: 1, video_id: "v", title_raw: title, description_raw: null, started_at: "2025-01-01T00:00:00Z" }, ex: extract(title, cfg), desc: [] });
 const match = (w: WorkCandidate): Outcome => ({ kind: "match", work: w, method: "exact", source: "annict" });
 
+test("照会のキャッシュ: 期限切れは取り直す。やり直しでは期限切れも使うが、シリーズ・話の一覧は期限どおり", async () => {
+  const { ResolveCache } = await import("../src/resolve/cache.ts");
+  const { openDb } = await import("../src/lib/db.ts");
+  const db = openDb(":memory:");
+  const old = new Date(Date.now() - 40 * 86_400_000).toISOString();
+  const ins = db.prepare("INSERT INTO resolve_cache (source, query, response, fetched_at) VALUES (?, ?, ?, ?)");
+  ins.run("annict", "古い", JSON.stringify([1]), old);
+  ins.run("annict_series", "9", JSON.stringify([2]), old);
+  ins.run("annict", "新しい", JSON.stringify([3]), new Date().toISOString());
+  const fresh = new ResolveCache(db, 30);
+  assert.equal(fresh.get("annict", "古い"), undefined);
+  assert.deepEqual(fresh.get("annict", "新しい"), [3]);
+  const stale = new ResolveCache(db, 30, { stale: true });
+  assert.deepEqual(stale.get("annict", "古い"), [1]);
+  assert.equal(stale.get("annict_series", "9"), undefined);
+  assert.deepEqual([stale.hits, stale.staleHits, stale.misses], [1, 1, 1]);
+});
+
 test("括弧の中身で作品が決まれば、括弧の外の区間（配信者の決まり文句など）は採用しない", () => {
   const p = plan("【同時視聴】王覇山軍「天気の子」");
   // 別の枠のために「王覇山軍」が照会され、何かの作品に当たってしまった場合でも

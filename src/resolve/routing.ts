@@ -120,7 +120,8 @@ export async function collectRoutes(ctx: Ctx, cfg: ExtractConfig): Promise<{ rou
   }
 
   // 照会（キャッシュ優先）
-  const cache = new ResolveCache(db, 30);
+  // 型分けは毎回 DB 全体で付け直すので、期限切れの照会結果も使う（新しい枠の区間は名寄せで照会したばかり）
+  const cache = new ResolveCache(db, 30, { stale: true });
   const wp = new WikipediaClient(ctx.http, cache);
   const token = process.env.ANNICT_TOKEN;
   const annict = token ? new AnnictClient(ctx.http, cache, token, cfg.annict) : null;
@@ -269,7 +270,7 @@ export async function persistRoutes(ctx: Ctx, cfg: ExtractConfig): Promise<Recor
 /** サイトでの出し方ごとの件数（publishState。AI の判定待ちの内訳は型ごと） */
 export function publishSummary(ctx: Ctx, cfg: ExtractConfig): { states: Record<string, number>; pendingByRoute: Record<string, number>; noRoute: number } {
   const cutoff = farFutureCutoff(ctx.crawlCfg.upcoming.max_days_ahead);
-  const rows = ctx.db.prepare(`SELECT e.id, er.route, er.route_sub,
+  const rows = ctx.db.prepare(`SELECT e.id, e.status AS event_status, er.route, er.route_sub,
       (SELECT a.status FROM ai_decisions a WHERE a.watch_event_id = e.id AND a.revoked_at IS NULL) AS ai_status,
       (SELECT a.confidence FROM ai_decisions a WHERE a.watch_event_id = e.id AND a.revoked_at IS NULL) AS ai_conf,
       EXISTS (SELECT 1 FROM event_works ew WHERE ew.watch_event_id = e.id) AS has_works,
@@ -283,7 +284,7 @@ export function publishSummary(ctx: Ctx, cfg: ExtractConfig): { states: Record<s
     const s = publishState({
       type: r.route as string | null, sub: r.route_sub as string | null,
       ai: r.ai_status ? { status: String(r.ai_status), confidence: String(r.ai_conf) } : null,
-      hasWorks: !!r.has_works, unresolvedReason: r.reason as string | null,
+      hasWorks: !!r.has_works, unresolvedReason: r.reason as string | null, eventStatus: r.event_status as string | null,
     }, cfg.ai_routes ?? []);
     states[s] = (states[s] ?? 0) + 1;
     if (s === "pending_ai") {

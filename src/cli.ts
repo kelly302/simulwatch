@@ -41,7 +41,8 @@ const HELP = `
 
 コマンド（名寄せ）:
   resolve         未処理の枠と、前回照会エラーだった枠を名寄せする
-    --all           有効な枠をすべて再処理する（抽出ルールを直したあと。照会結果はキャッシュを使う）
+    --all           有効な枠をすべて再処理する（抽出ルールを直したあと。照会結果はキャッシュを使う。期限切れの結果も使う）
+    --refresh       再処理（--all・--reason・--video）でも、期限切れの照会結果は取り直す
     --reason R      未同定の理由が R の枠だけ再処理する（no_candidate / not_found / ambiguous / not_a_work / error）
     --video ID,...  指定した動画だけ再処理する
     --limit N       件数を絞る
@@ -94,6 +95,7 @@ async function main(): Promise<number> {
       days: { type: "string" },
       "backfill-units": { type: "string" },
       all: { type: "boolean" },
+      refresh: { type: "boolean" },
       reason: { type: "string" },
       video: { type: "string" },
       n: { type: "string" },
@@ -112,11 +114,11 @@ async function main(): Promise<number> {
 
   const resolveJob: Job = async (ctx) => {
     const opts: ResolveOptions = values.all
-      ? { mode: "all", limit }
+      ? { mode: "all", limit, refresh: !!values.refresh }
       : values.reason
-        ? { mode: "reason", reason: values.reason as UnresolvedReason, limit }
+        ? { mode: "reason", reason: values.reason as UnresolvedReason, limit, refresh: !!values.refresh }
         : values.video
-          ? { mode: "videos", videoIds: values.video.split(","), limit }
+          ? { mode: "videos", videoIds: values.video.split(","), limit, refresh: !!values.refresh }
           : { mode: "new", limit };
     ctx.summary.resolve = await runStep(ctx, `resolve (${opts.mode})`, () => resolveEvents(ctx, opts));
     await recordRoutes(ctx);
