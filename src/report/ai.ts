@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import type { Ctx } from "../lib/context.ts";
 import { tx } from "../lib/db.ts";
 import { DATA_DIR } from "../lib/paths.ts";
@@ -277,11 +277,11 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promi
   return [`入れた判定 ${applied.length} / ${items.length + problems.filter((x) => !x.includes("外部DBで引けない")).length}（${[...by].map(([k, v]) => `${k} ${v}`).join("・")}）`, ...problems.map((x) => `  ✖ ${x}`)].join("\n");
 }
 
-/** 判定の根拠の一覧（採点用の表） */
+/** 判定の根拠の一覧（採点用の表）。batch をカンマでつなぐと、複数の回を1つの表にまとめる（出力は data/ai/<回を _ でつないだ名前>/） */
 export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?: string; excludeScored?: string[]; videos?: string[]; includeHigh?: boolean } = {}): string {
   const rows = ctx.db.prepare(`SELECT a.status, a.works, a.confidence, a.evidence, a.rationale, a.seconds, a.revoked_at, e.video_id, e.title_raw, e.started_at, s.name AS streamer
     FROM ai_decisions a JOIN watch_events e ON e.id = a.watch_event_id JOIN streamers s ON s.id = e.streamer_id
-    WHERE a.batch = ? ORDER BY a.id`).all(batch) as Record<string, string | number | null>[];
+    WHERE a.batch IN (${batch.split(",").map(() => "?").join(",")}) ORDER BY a.id`).all(...batch.split(",")) as Record<string, string | number | null>[];
   const label: Record<string, string> = { identified: "同定", not_a_work: "作品ではない", unidentifiable: "作品を特定できない", not_in_db: "作品だが外部DBに無い", hold: "保留" };
   // 作品名は DB の今の行から出す（判定の記録の作品名は判定のときのまま。日本語のラベルが無い項目は QID になっていた）
   const nowTitle = (key: string, fallback: string | undefined) => {
@@ -298,11 +298,21 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
     "",
   ];
   // 採点に使う材料（待ち行列に書き出した概要欄の行とサムネイル）
-  const dir = batchDir(batch);
+  const batches = batch.split(",");
+  const dirs = batches.map(batchDir);
+  const dir = batchDir(batches.join("_"));
   const queued = new Map<string, QueueItem>();
-  if (existsSync(join(dir, "queue.json"))) {
-    for (const x of (JSON.parse(readFileSync(join(dir, "queue.json"), "utf8")) as { items: QueueItem[] }).items) queued.set(x.video_id, x);
+  for (const d of dirs) {
+    if (!existsSync(join(d, "queue.json"))) continue;
+    for (const x of (JSON.parse(readFileSync(join(d, "queue.json"), "utf8")) as { items: QueueItem[] }).items) queued.set(x.video_id, x);
   }
+  // サムネイルは回ごとのフォルダにある（複数の回をまとめた表では、あとの回のフォルダから探して相対パスで指す）
+  const thumbOf = (vid: string): string | null => {
+    for (const d of [...dirs].reverse()) {
+      if (existsSync(join(d, "thumbs", `${vid}.jpg`))) return batches.length > 1 ? `../${basename(d)}/thumbs/${vid}.jpg` : `thumbs/${vid}.jpg`;
+    }
+    return null;
+  };
   const count = new Map<string, number>();
   for (const r of rows) if (!r.revoked_at) count.set(String(r.status), (count.get(String(r.status)) ?? 0) + 1);
   out.push(`件数（取り消していないもの）: ${[...count].map(([k, v]) => `${label[k] ?? k} ${v}`).join("・")}`, "");
@@ -310,9 +320,9 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
     const works = r.works ? (JSON.parse(String(r.works)) as AiWork[]) : [];
     const ev = JSON.parse(String(r.evidence)) as DecisionInput["evidence"];
     const q = queued.get(String(r.video_id));
-    const thumb = join(dir, "thumbs", `${r.video_id}.jpg`);
+    const thumb = thumbOf(String(r.video_id));
     out.push(`## ${i + 1}. ${r.video_id}　${r.streamer}　${String(r.started_at).slice(0, 10)}${r.revoked_at ? "（取り消し済み）" : ""}`);
-    if (existsSync(thumb)) out.push(`![サムネイル](thumbs/${r.video_id}.jpg)`, "");
+    if (thumb) out.push(`![サムネイル](${thumb})`, "");
     out.push(`- タイトル: ${r.title_raw}`);
     out.push(`- URL: https://www.youtube.com/watch?v=${r.video_id}`);
     if (q) out.push(`- 概要欄（ローカルの確認用・公開しない）: ${q.description_lines.join(" ／ ") || "なし"}`);
@@ -351,8 +361,9 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
   }
   // 判定の前のルールの答え（本番の待ち行列は sealed/ に残している）
   const sealedRule = new Map<string, RuleAnswer>();
-  if (existsSync(join(dir, "sealed", "answers.json"))) {
-    for (const a of (JSON.parse(readFileSync(join(dir, "sealed", "answers.json"), "utf8")) as { answers: RuleAnswer[] }).answers) sealedRule.set(a.video_id, a);
+  for (const d of dirs) {
+    if (!existsSync(join(d, "sealed", "answers.json"))) continue;
+    for (const a of (JSON.parse(readFileSync(join(d, "sealed", "answers.json"), "utf8")) as { answers: RuleAnswer[] }).answers) sealedRule.set(a.video_id, a);
   }
   const ruleBlock = (vid: string, q: QueueItem | undefined) => {
     const ru = sealedRule.get(vid);
@@ -379,7 +390,7 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
     return {
       id: vid, no: i + 1, section: sec.key, type: sec.label, typeLabel: `AI の判定: ${sec.label}`,
       streamer: String(r.streamer), started_at: String(r.started_at ?? "").slice(0, 10), title: String(r.title_raw),
-      url: `https://www.youtube.com/watch?v=${vid}`, thumb: existsSync(join(dir, "thumbs", `${vid}.jpg`)) ? `thumbs/${vid}.jpg` : null,
+      url: `https://www.youtube.com/watch?v=${vid}`, thumb: thumbOf(vid),
       desc: q?.description_lines ?? [],
       rule: ruleBlock(vid, q),
       ai: {
