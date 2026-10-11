@@ -128,6 +128,25 @@ export class AnnictClient {
     return out;
   }
 
+  /**
+   * 1語だけで照会した候補（lookup 用）。search は複数の語をまとめて照会し、返ってきた作品の集まりを語それぞれの結果として覚えるので、
+   * 1語で引き直しても、最初に一緒に照会された別の語の作品が混ざる（名寄せは完全一致で選ぶので困らないが、人が見る一覧には紛らわしい）。
+   * キャッシュは "annict_one"
+   */
+  async searchOne(q: string): Promise<WorkCandidate[]> {
+    const c = this.cache.get<WorkCandidate[]>("annict_one", q);
+    if (c) return c;
+    const d = await this.gql<{ searchWorks: { nodes: AnnictWork[] } }>(
+      `query($titles: [String!], $first: Int) {
+        searchWorks(titles: $titles, first: $first, orderBy: { field: WATCHERS_COUNT, direction: DESC }) { nodes { ${WORK_FIELDS} } }
+      }`,
+      { titles: [q], first: this.perQuery },
+    );
+    const ws = d.searchWorks.nodes.map(annictToCandidate);
+    this.cache.set("annict_one", q, ws);
+    return ws;
+  }
+
   /** Annict の ID から作品を引く（AI の判定を反映するときに使う）。キャッシュは "annict_id" */
   async byIds(annictIds: number[]): Promise<Map<number, WorkCandidate>> {
     const out = new Map<number, WorkCandidate>();

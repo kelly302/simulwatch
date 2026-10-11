@@ -30,7 +30,9 @@ export async function lookup(ctx: Ctx, cfg: ExtractConfig, texts: string[], opts
     const key = matchKey(text, cfg);
     out.push(`■ 「${text}」（照合キー ${key}）`);
     if (annict) {
-      const r = (await annict.search([text])).get(text) ?? [];
+      // 1語だけで照会する（名寄せのキャッシュは、まとめて照会した別の語の作品が混ざる）。照合キーが一致・前方一致する作品を先に出す
+      const rank = (w: { title: string }) => { const k = matchKey(w.title, cfg); return k === key ? 0 : k.startsWith(key) ? 1 : 2; };
+      const r = [...(await annict.searchOne(text))].sort((a, b) => rank(a) - rank(b));
       // 話の番号の範囲（分割クールの後半は通し番号のまま。水星の魔女 Season2 は第13話〜第24話）
       const eps = await annict.episodes(r.slice(0, limit).filter((w) => w.media !== "movie" && w.annictId).map((w) => w.annictId!));
       const range = (id: number | null) => {
