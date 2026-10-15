@@ -118,6 +118,23 @@ export class YouTubeApi {
     return (JSON.parse(res.body).items ?? []) as ChannelItem[];
   }
 
+  /**
+   * 動画のコメント（上位。order=relevance）。AI の判定役に見せる手がかり（視聴者のタイムスタンプ・感想）。
+   * メン限の動画・コメントを閉じた動画は 403・404 になり null を返す。1回1ユニット
+   */
+  async commentThreads(videoId: string, maxResults: number): Promise<string[] | null> {
+    const res = await this.call("commentThreads.list", "commentThreads", {
+      part: "snippet", videoId, maxResults: String(maxResults), order: "relevance", textFormat: "plainText",
+    }, [403, 404]);
+    if (res.status === 403) {
+      if (/quotaExceeded|dailyLimitExceeded/.test(res.body)) throw new QuotaExhausted("YouTube API quotaExceeded");
+      return null;
+    }
+    if (res.status === 404) return null;
+    const items = (JSON.parse(res.body).items ?? []) as { snippet: { topLevelComment: { snippet: { textDisplay: string } } } }[];
+    return items.map((i) => i.snippet.topLevelComment.snippet.textDisplay);
+  }
+
   /** @handle からチャンネルを引く */
   async channelByHandle(handle: string): Promise<ChannelItem | null> {
     const res = await this.call("channels.list", "channels", { part: "snippet", forHandle: handle.replace(/^@/, "") });

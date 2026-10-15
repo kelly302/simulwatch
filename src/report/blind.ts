@@ -7,7 +7,7 @@ import { normalize, templateLines } from "../detect/detect.ts";
 import type { Routed } from "../resolve/routing.ts";
 import { sampleOrder } from "./sample.ts";
 import { loadExtractConfig } from "../resolve/config.ts";
-import { streamerFrames, frameContext, pickLinks, linkTitles } from "./neighbors.ts";
+import { streamerFrames, frameContext, pickLinks, linkTitles, videoComments } from "./neighbors.ts";
 
 // 候補を見せない AI の判定の待ち行列（型ごとの検証 audit:sample と本番の ai:queue が使う）。
 //   queue/NN.md（50件ずつ）・queue.json・GUIDE.md・thumbs/（サムネイル）・sealed/answers.json（その時点のルールの答え。判定が終わるまで開かない）・answers/（AI の答え）
@@ -102,7 +102,7 @@ export const GUIDE = `# 答え方（候補を見ない AI の判定）
   MV・テレビのバラエティ（水曜どうでしょう）・M-1 など。**答える前に必ず lookup で照会する**（「ホロぐら」は外部DBにある）
   配信者本人の生誕祭の映像は、ミュージカル仕立てでも作品ではない。配信者自身・同僚のボイス商品・ASMR、配信者本人の周年記念配信、
   ゲーム会社の番組（中でショートアニメ・PV・ファン制作のアニメが流れても）、ほかの配信者の企画配信（にじさんじ甲子園・ミリしら杯）、
-  自分の MV のプレミア公開、同時視聴の枠の切り抜き（#shorts）も作品ではない。テレビの特番（本編の総復習ダイジェストなど）も作品ではない（劇場総集編は作品）。
+  自分の MV のプレミア公開、同時視聴の枠の切り抜き（#shorts・見どころまとめの動画）、PV・ティザー映像も作品ではない。テレビの特番（本編の総復習ダイジェストなど）も作品ではない（劇場総集編は作品）。
   リアリティ番組（恋愛リアリティのバチェラー・ジャパンなど）も作品ではない（テレビのバラエティと同じ）。歌の映像でできたアニメーションの作品（ALIEN STAGE）は作品。
   #shorts でもライブ配信（縦型配信）は普通の枠として作品を答える（作品ではないのは同時視聴の枠の切り抜きの動画だけ）
   テレビのドキュメンタリー（メーデー！：航空機事故の真実と真相、自然・歴史のドキュメンタリー番組。配信サービスのドキュメンタリーのシリーズも同じ）は作品ではない。
@@ -116,10 +116,13 @@ export const GUIDE = `# 答え方（候補を見ない AI の判定）
 - hold: 決められない。**迷ったら hold**（埋めることが目的ではない）。ただし、リンク先の題名・同じ配信者のほかの枠まで見て決められるなら決める
   （採点では、決められたはずなのに保留にしたものは誤りになる）
 
-## リンク先の題名・同じ配信者のほかの枠
+## リンク先の題名・コメント欄・同じ配信者のほかの枠
 
 - リンク先の題名: 概要欄のリンク先（Amazon Prime Video・Netflix・ABEMA・Hulu・映画.com など）のページの題名。作品を決める強い手がかり。
   「(吹替版)」「(字幕版)」は作品の違いではない。題名の取れないサイト（Disney+・U-NEXT など）のリンクは開けない
+- コメント欄（公開の枠だけ。メン限の枠には無い）: 視聴者のコメントの上位。タイムスタンプに話数・作品名・どの版かが書かれていることが多い
+  （「46話『壁の王』」「今日観るのは TIGER & BUNNY -The Rising-」「after S1 ends」）。冗談・推測・ほかの作品の話もあるので、タイトル・サムネイルと合うかで確かめる。
+  コメントで決めたら evidence.looked に comments を入れる
 - 同じ作品名の枠: 同じ配信者が同じ作品名を書いた枠（日付順。「← この枠」がこの枠の位置）。シリーズを順に観ていれば、話数の続き・最終話（「（終）」「最終回」）・
   全部で何話かで、どの作品（期・リメイク）か決まることがある（「刃牙（バキ）」の枠が第26話（終）で終わる → 26話のバキ 最凶死刑囚編。グラップラー刃牙は24話）
 - 前後の枠: 時期の近い枠。観ている作品の傾向（ディズニーのアニメ映画が続く、ジュラシック・パークのシリーズを順に観ている）は手がかりにしてよい。
@@ -198,6 +201,8 @@ export interface BlindItem {
   around: { date: string; title: string }[];
   /** 概要欄のリンク先の題名・公開年・あらすじの冒頭（題名が取れなければ title が null） */
   links: { url: string; title: string | null; year: number | null; summary: string | null }[];
+  /** 公開の枠の YouTube のコメント（上位。メン限の枠は空） */
+  comments: string[];
 }
 
 
@@ -230,12 +235,14 @@ export async function writeBlindQueue(
     const fc = frameContext(framesOf(r.ev.streamer_id), r.ev.id, r.ev.title_raw, cfg, r.ev.streamer);
     const urls = pickLinks(desc.links(r.ev.streamer_id, r.ev.description_raw), cfg);
     const titles = await linkTitles(ctx, cfg, urls);
+    const comments = r.ev.is_members_only ? [] : await videoComments(ctx, cfg, vid);
     items.push({
       no: ++i, video_id: vid, streamer: r.ev.streamer, started_at: jst(r.ev.started_at), title: r.ev.title_raw,
       description_lines: lines, thumbnail: thumb ? relative(dir, thumb).replaceAll("\\", "/") : null,
       same_name: fc.sameName.map(({ date, title, self }) => ({ date, title, ...(self ? { self } : {}) })),
       around: fc.around.map(({ date, title }) => ({ date, title })),
       links: urls.map((url) => ({ url, title: null, year: null, summary: null, ...titles.get(url) })),
+      comments,
     });
     if (i % 100 === 0) log.info(`  待ち行列 ${i}/${order.length}`);
   }
@@ -272,6 +279,7 @@ export async function writeBlindQueue(
         ...(x.links.length ? [`- リンク先の題名: ${x.links.map((l) => `${l.url} →「${l.title ?? "取れなかった"}」${l.year ? `（${l.year}年）` : ""}${l.summary ? ` あらすじ: ${l.summary}` : ""}`).join(" ／ ")}`] : []),
         ...(x.same_name.length ? [`- 同じ配信者の同じ作品名の枠: ${x.same_name.map((f) => `${f.date} ${f.title}${f.self ? "（← この枠）" : ""}`).join(" ／ ")}`] : []),
         ...(x.around.length ? [`- 同じ配信者の前後の枠: ${x.around.map((f) => `${f.date} ${f.title}`).join(" ／ ")}`] : []),
+        ...(x.comments.length ? [`- コメント欄（視聴者の上位${x.comments.length}件）: ${x.comments.join(" ／ ")}`] : []),
         "",
       ]),
     ];

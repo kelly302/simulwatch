@@ -33,6 +33,9 @@ export interface ExtractConfig {
     link_patterns?: string[];
     generic_titles?: string[];
     max_links?: number;
+    /** 公開の枠で見せるコメントの数（0 で見せない）と1件の文字数 */
+    comments?: number;
+    comment_chars?: number;
   };
   ai_routes?: string[];
   /** 視聴系列による期の割り当て（src/resolve/series.ts）。false で止める */

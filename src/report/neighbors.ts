@@ -4,6 +4,7 @@ import { ResolveCache } from "../resolve/cache.ts";
 import { extract } from "../resolve/extract.ts";
 import { matchKey } from "../resolve/normalize.ts";
 import { HttpError } from "../lib/http.ts";
+import { log } from "../lib/log.ts";
 
 // AI の判定役に見せる手がかり（2026-10-02 決定。ai-run-1 の採点で、保留の6件中5件が決められたはずだった）。
 //   - 同じ配信者の同じ作品名の枠（日付順）: シリーズを順に観ているとき、話数の続き・最終話で、どの作品（期・リメイク）か決まる（刃牙（バキ）は第26話（終）で終わる）
@@ -121,6 +122,23 @@ export function pickLinks(lines: string[], cfg: ExtractConfig): string[] {
 }
 
 /** リンク先の題名・公開年・あらすじ（題名が取れなければ title が null）。照会結果は resolve_cache（link_page、30日）に持つ */
+/**
+ * 公開の枠の YouTube のコメント（上位）。DB には持たない（YouTube のデータを溜めない）。
+ * API キーが無い・メン限・コメントを閉じている・クォータが尽きたときは空
+ */
+export async function videoComments(ctx: Ctx, cfg: ExtractConfig, videoId: string): Promise<string[]> {
+  const n = cfg.ai_context?.comments ?? 0;
+  if (!ctx.yt || n <= 0) return [];
+  const chars = cfg.ai_context?.comment_chars ?? 200;
+  try {
+    const list = await ctx.yt.commentThreads(videoId, n);
+    return (list ?? []).map((t) => t.replace(/\s+/g, " ").trim()).filter((t) => t).map((t) => (t.length > chars ? `${t.slice(0, chars)}…` : t));
+  } catch (e) {
+    log.warn(`コメントを取れなかった ${videoId}: ${String(e).slice(0, 120)}`);
+    return [];
+  }
+}
+
 export async function linkTitles(ctx: Ctx, cfg: ExtractConfig, urls: string[]): Promise<Map<string, LinkPage>> {
   const cache = new ResolveCache(ctx.db, 30);
   const generic = (cfg.ai_context?.generic_titles ?? []).map((p) => new RegExp(p));

@@ -9,6 +9,7 @@ export const QUOTA_COST: Record<string, number> = {
   "videos.list": 1,
   "playlistItems.list": 1,
   "channels.list": 1,
+  "commentThreads.list": 1,
   "search.list": 100,
 };
 
