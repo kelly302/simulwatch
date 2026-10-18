@@ -188,7 +188,11 @@ async function main(): Promise<number> {
         const file = positionals[1];
         if (!file) throw new Error("判定のファイルを指定してください");
         const r = await runStep(ctx, "ai:apply", () => aiApply(ctx, loadExtractConfig(), file));
-        if (r) console.log(r);
+        if (r) console.log(r.text);
+        if (r?.reresolve.length) {
+          await runStep(ctx, "resolve (videos)", () => resolveEvents(ctx, { mode: "videos", videoIds: r.reresolve }));
+          await recordRoutes(ctx);
+        }
       },
     },
     "ai:report": {

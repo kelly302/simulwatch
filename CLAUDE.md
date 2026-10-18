@@ -441,7 +441,8 @@ src/resolve/ と config/extract.yaml を変えるときは先に読み、同じ�
   期・編で作品が分かれていて通し番号や回数しか無い枠は、どの数え方でも確かに含まれる作品だけを答える。
   **英語のタイトルの枠は無理に同定しない**（はっきり分かるときだけ答える。保留でよい）
 - **確定**: 判定は `ai_decisions` に1枠1行（取り消しは `revoked_at`。行は残す）。取り消されていない判定（hold 以外）の枠は resolve の対象から外し、最後に判定を入れ直す。
-  ルールを直して `resolve --all` しても上書きしない。hold の枠は `--include-hold` を付けたときだけ次の待ち行列に出す
+  ルールを直して `resolve --all` しても上書きしない。hold の枠は `--include-hold` を付けたときだけ次の待ち行列に出す。
+  確定した判定を `ai:apply` で hold に置き換えた枠は、ルールで名寄せし直す（取り消した判定の結果が残らないように。`ai:revoke` と同じ）
 - AI が選んだ Wikidata の項目は、ルールの作品クラスに加えて `wikipedia.ai_extra_work_classes` も受け付ける（ルールの照合には使わない）
 - 採点: `ai:report` の表（report.html）は**確度 high 以外・保留・特定できない・`--video` の枠を全部**出す（2026-10-03 決定。AI の判定はある程度任せる）。
   `--sample N` は high からの抜き取り、`--include-high` で全部。採点は scores.md に書き出す。回をカンマでつなぐと複数の回を1つの表にまとめる（`ai:report ai-run-3,ai-run-4`）

@@ -206,7 +206,7 @@ export async function fetchWorks(ctx: Ctx, cfg: ExtractConfig, keys: string[]): 
  * file はファイルかフォルダ（中の *.json をすべて）。形式は2つ:
  *   decisions（ai-trial-1 の形）と answers（候補を見ない判定の形。src/report/answer.ts。not_in_db・missing・also を持つ）
  */
-export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promise<string> {
+export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promise<{ text: string; reresolve: string[] }> {
   const files = statSync(file).isDirectory()
     ? readdirSync(file).filter((x) => x.endsWith(".json")).sort().map((x) => join(file, x))
     : [file];
@@ -250,6 +250,9 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promi
   const got = await fetchWorks(ctx, cfg, [...new Set(items.flatMap((d) => (d.works ?? []).map((w) => w.key)))]);
 
   const applied: number[] = [];
+  // 確定した判定（hold 以外）を hold に置き換えた枠。取り消した判定の結果（未同定の理由など）が残るので、ルールで名寄せし直す（ai:revoke と同じ）
+  const reresolve: string[] = [];
+  const locked = db.prepare("SELECT 1 FROM ai_decisions WHERE watch_event_id = ? AND revoked_at IS NULL AND status != 'hold'");
   const now = nowIso();
   tx(db, () => {
     for (const d of items) {
@@ -262,6 +265,7 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promi
         ...(d.title ? { title: d.title } : {}), ...(d.missing?.length ? { missing: d.missing } : {}),
         ...(d.kind ? { kind: d.kind } : {}), ...(d.movie !== undefined ? { movie: d.movie } : {}),
       }) : null;
+      if (d.status === "hold" && locked.get(ev)) reresolve.push(d.video_id);
       db.prepare("UPDATE ai_decisions SET revoked_at = ? WHERE watch_event_id = ? AND revoked_at IS NULL").run(now, ev);
       db.prepare(`INSERT INTO ai_decisions (watch_event_id, status, works, confidence, evidence, rationale, model, batch, seconds, decided_at, extra)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ev, d.status, works.length ? JSON.stringify(works) : null, d.confidence,
@@ -279,7 +283,9 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promi
   }
   const by = new Map<string, number>();
   for (const d of items) by.set(`${d.status}/${d.confidence}`, (by.get(`${d.status}/${d.confidence}`) ?? 0) + 1);
-  return [`入れた判定 ${applied.length} / ${items.length + problems.filter((x) => !x.includes("外部DBで引けない")).length}（${[...by].map(([k, v]) => `${k} ${v}`).join("・")}）`, ...problems.map((x) => `  ✖ ${x}`)].join("\n");
+  const text = [`入れた判定 ${applied.length} / ${items.length + problems.filter((x) => !x.includes("外部DBで引けない")).length}（${[...by].map(([k, v]) => `${k} ${v}`).join("・")}）`,
+    ...(reresolve.length ? [`確定した判定を保留に置き換えた ${reresolve.length} 件はルールで名寄せし直す`] : []), ...problems.map((x) => `  ✖ ${x}`)].join("\n");
+  return { text, reresolve };
 }
 
 /** 判定の根拠の一覧（採点用の表）。batch をカンマでつなぐと、複数の回を1つの表にまとめる（出力は data/ai/<回を _ でつないだ名前>/） */
