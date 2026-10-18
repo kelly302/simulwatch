@@ -21,6 +21,22 @@ test("表記ゆれ（全角・空白・ハイフン・大文字）を吸収す�
   assert.equal(d("ウォッチパーティー！").hit, true);
 });
 
+test("題名に同時視聴の語が無く取りこぼしていた語（誤字・nobar・映画鑑賞。2026-10-19）", () => {
+  assert.equal(d("HUNTER X HUNTER WATCHALON never stops (ep 22 - 32)").hit, true);
+  assert.equal(d("LIZ AND THE BLUE BIRD WATCHLONG!!!!").hit, true);
+  assert.equal(d("【NOBAR STREAM】Let's Watch \"The Liberator\" EP 1&2 Together").hit, true);
+  assert.equal(d("Live Commentary - NOBAR \"Lupin\" EP 01-03!").hit, true);
+  assert.equal(d("【 映画鑑賞会＊メン限 】「アイアンマン IRON MAN」一緒に観ようなのら").hit, true);
+  // 既存の語の判定の語（detect_keyword）は変わらない
+  assert.deepEqual(d("【MEMBERSHIP STREAM】ARCANE WATCHALONG PART 1"), { hit: true, source: "title", keyword: "watchalong" });
+  // 空白を落とすので「watch alone」は watchalon に当たりうる。釘崎野薔薇（Nobara）も nobar を含む
+  assert.equal(d("I can't watch alone, so I'm playing").hit, false);
+  assert.equal(d("【呪術廻戦 戦華双乱】Nobara main!").hit, false);
+  // 「鑑賞」単独・「一緒に観る」は入れていない（切り抜き鑑賞会・Direct・告知に当たる）
+  assert.equal(d("【切り抜き鑑賞会】みんなでホロ金策サバイバルの切り抜き観よう！").hit, false);
+  assert.equal(d("Nintendo Direct 2026.9.9 いっしょに見る枠やよ～。").hit, false);
+});
+
 test("同時視聴者数の記念枠は除外する", () => {
   const r = d("【祝】同時視聴者数1万人ありがとう！");
   assert.equal(r.hit, false);
