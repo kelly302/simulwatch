@@ -218,6 +218,66 @@ test("判定役に見せる手がかり: 同じ作品名の枠（日付順・こ
     ["https://www.amazon.co.jp/gp/video/detail/B01BODDI64/ref=x"]);
 });
 
+test("判定役に見せる手がかり: 同時視聴枠にならなかった動画（同じ作品名の動画・メン限の枠の前後のメン限の動画）", async () => {
+  const { streamerFrames, streamerVideos, otherVideos } = await import("../src/report/neighbors.ts");
+  const { loadExtractConfig } = await import("../src/resolve/config.ts");
+  const { openDb } = await import("../src/lib/db.ts");
+  const cfg = loadExtractConfig();
+  const db = openDb(":memory:");
+  db.exec(`INSERT INTO streamers (id, name, affiliation, channel_id, tier, first_seen_at, updated_at) VALUES (1, 'ルカ・カネシロ', 'nijisanji', 'UCx', 1, 'n', 'n')`);
+  const ev = db.prepare(`INSERT INTO watch_events (streamer_id, video_id, title_raw, url, status, is_members_only, started_at, excluded_at, detected_at, detect_source, detect_keyword, found_via, updated_at)
+    VALUES (1, ?, ?, 'u', 'completed', ?, ?, ?, 'n', 'title', 'k', 'rss', 'n')`);
+  const seen = db.prepare(`INSERT INTO videos_seen (video_id, channel_id, title, published_at, first_seen_at, first_seen_via, last_seen_at, detect_result, detect_version, is_members_hint)
+    VALUES (?, 'UCx', ?, ?, 'n', 'rss', 'n', 'miss', 'v', ?)`);
+  const tail = "【NIJISANJI EN | Luca Kaneshiro】";
+  const frame = (vid: string, title: string, at: string, members: number, excluded: string | null = null) => {
+    ev.run(vid, title, members, at, excluded);
+    seen.run(vid, title, at, members);
+  };
+  frame("a1", `【MEMBERSHIP STREAM】ARCANE WATCHALONG PART 1${tail}`, "2024-12-21T10:00:00Z", 1);
+  frame("a4", `【MEMBERSHIP STREAM】ARCANE WATCHALONG EPISODE 7 AND 8 AND MAYBE 9?${tail}`, "2025-01-11T10:00:00Z", 1);
+  frame("air", "【同時視聴】「AIR」最終回までみる", "2025-02-10T10:00:00Z", 0);
+  // 判定から外した枠は「同時視聴枠でない動画」に入る
+  frame("x1", `【MEMBERSHIP STREAM】ARCANE RECAP${tail}`, "2025-02-01T10:00:00Z", 1, "2025-03-01T00:00:00Z");
+  seen.run("s2", `【MEMBERSHIP STREAM】STARTING SEASON 2 HELL YEEEE${tail}`, "2025-01-17T10:00:00Z", 1);
+  seen.run("s3", `【MEMBERSHIP STREAM】SEASON 2 EPISODE 3 AND 4${tail}`, "2025-01-23T10:00:00Z", 1);
+  seen.run("fin", `【MEMBERSHIP STREAM】FINISHING ARCANE ONCE AND FOR ALL${tail}`, "2025-03-15T10:00:00Z", 1);
+  seen.run("old", `【MEMBERSHIP STREAM】chat${tail}`, "2024-10-01T10:00:00Z", 1);
+  seen.run("dbz", `【DRAGON BALL Z: KAKAROT】PART 1 TURNING SUPER SAIYAN${tail}`, "2024-12-22T10:00:00Z", 0);
+  seen.run("cl", "SisterCleaire un♡Live", "2025-02-11T10:00:00Z", 0);
+  seen.run("air5", "AIR 第5話から 感想", "2025-02-12T10:00:00Z", 0);
+  for (let i = 0; i < 12; i++) seen.run(`apex${i}`, `【APEX】ランク #${i}`, `2025-02-${String(i + 1).padStart(2, "0")}T10:00:00Z`, 0);
+  frame("ap", "【APEX】ALGS 決勝を同時視聴", "2025-02-20T10:00:00Z", 0);
+
+  const videos = streamerVideos({ db }, cfg)(1);
+  const titles = (xs: { title: string }[]) => xs.map((x) => x.title.replace(tail, ""));
+  // 同時視聴枠（判定から外した枠を除く）は入れない
+  assert.ok(!videos.some((v) => /WATCHALONG|「AIR」|ALGS/.test(v.title)));
+  assert.ok(videos.some((v) => v.title.includes("ARCANE RECAP")));
+  const frames = streamerFrames({ db })(1);
+  const of = (title: string, startedAt: string, membersOnly: boolean, c = cfg) => otherVideos(videos, frames, { startedAt, title, membersOnly }, c, "ルカ・カネシロ");
+
+  // PART 1: 同じ作品名の動画は期間を限らない。メン限の動画は前後30日（s2 は27日後、s3 は33日後）。
+  // 「STREAM」「PART 1」は作品名でない区間（ignore_keys）なので、ほかのメン限の動画・ゲームの「PART 1」には当てない
+  const p1 = of(`【MEMBERSHIP STREAM】ARCANE WATCHALONG PART 1${tail}`, "2024-12-21T10:00:00Z", true);
+  assert.deepEqual(titles(p1.sameName), ["【MEMBERSHIP STREAM】ARCANE RECAP", "【MEMBERSHIP STREAM】FINISHING ARCANE ONCE AND FOR ALL"]);
+  assert.deepEqual(titles(p1.members), ["【MEMBERSHIP STREAM】STARTING SEASON 2 HELL YEEEE"]);
+  // EPISODE 7〜9: 同じ作品名の動画に出したもの（ARCANE RECAP）はメン限の動画に重ねない
+  const p4 = of(`【MEMBERSHIP STREAM】ARCANE WATCHALONG EPISODE 7 AND 8 AND MAYBE 9?${tail}`, "2025-01-11T10:00:00Z", true);
+  assert.deepEqual(titles(p4.members), ["【MEMBERSHIP STREAM】STARTING SEASON 2 HELL YEEEE", "【MEMBERSHIP STREAM】SEASON 2 EPISODE 3 AND 4"]);
+  // 件数の上限はこの枠に近いものから
+  const one = { ...cfg, ai_context: { ...cfg.ai_context, other_videos: { ...cfg.ai_context?.other_videos, same_name: 1, members: 0 } } };
+  const p1one = of(`【MEMBERSHIP STREAM】ARCANE WATCHALONG PART 1${tail}`, "2024-12-21T10:00:00Z", true, one);
+  assert.deepEqual(titles(p1one.sameName), ["【MEMBERSHIP STREAM】ARCANE RECAP"]);
+  assert.equal(p1one.members.length, 0);
+  // 公開の枠はメン限の動画を見せない。英数字のキーは単語の切れ目で照合する（「AIR」を「SisterCleaire」に当てない）
+  const air = of("【同時視聴】「AIR」最終回までみる", "2025-02-10T10:00:00Z", false);
+  assert.deepEqual(titles(air.sameName), ["AIR 第5話から 感想"]);
+  assert.equal(air.members.length, 0);
+  // チャンネルの動画の3%を超える動画（10本以上）に出る区間は決まり文句として使わない
+  assert.equal(of("【APEX】ALGS 決勝を同時視聴", "2025-02-20T10:00:00Z", false).sameName.length, 0);
+});
+
 test("採点の書き出しから採点済みの枠を読む（「（未）」は採点済みにしない）", async () => {
   const { scoredVideos } = await import("../src/report/ai.ts");
   const md = "# 採点\n\n## 同定\n\n### 1. aaa　型 同定\n- タイトル: x\n- 採点: 正しい\n- メモ: \n\n### 2. bbb　型 同定\n- タイトル: y\n- 採点: （未）\n- メモ: \n\n## 保留\n\n### 1. ccc　型 保留\n- 採点: 誤り\n- メモ: z\n";

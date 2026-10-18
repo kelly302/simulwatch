@@ -7,11 +7,12 @@ import { normalize, templateLines } from "../detect/detect.ts";
 import type { Routed } from "../resolve/routing.ts";
 import { sampleOrder } from "./sample.ts";
 import { loadExtractConfig } from "../resolve/config.ts";
-import { streamerFrames, frameContext, pickLinks, linkTitles, videoComments } from "./neighbors.ts";
+import { streamerFrames, streamerVideos, frameContext, otherVideos, pickLinks, linkTitles, videoComments } from "./neighbors.ts";
 
 // 候補を見せない AI の判定の待ち行列（型ごとの検証 audit:sample と本番の ai:queue が使う）。
 //   queue/NN.md（50件ずつ）・queue.json・GUIDE.md・thumbs/（サムネイル）・sealed/answers.json（その時点のルールの答え。判定が終わるまで開かない）・answers/（AI の答え）
-// AI に見せるのは配信者・日時・タイトル・概要欄（定型文と URL の行を除く）・サムネイルだけ。型・区間・候補・ルールの答えは見せず、並びはシードで混ぜる
+// AI に見せるのは配信者・日時・タイトル・概要欄（定型文と URL の行を除く）・サムネイルと、判定の手がかり（src/report/neighbors.ts。同じ配信者のほかの枠・
+// 同時視聴枠でない動画・リンク先の題名・コメント欄）だけ。型・区間・候補・ルールの答えは見せず、並びはシードで混ぜる
 
 export const CHUNK = 50;
 
@@ -86,11 +87,11 @@ export const JUDGE_PROMPT = `あなたは「配信の同時視聴の枠が、ど
 
 export const GUIDE = `# 答え方（候補を見ない AI の判定）
 
-この待ち行列の枠それぞれについて、**どの作品を同時視聴しているか**を、タイトル・概要欄・サムネイル・リンク先の題名・同じ配信者のほかの枠と外部作品DBの照会だけで答える。
+この待ち行列の枠それぞれについて、**どの作品を同時視聴しているか**を、タイトル・概要欄・サムネイル・リンク先の題名・コメント欄・同じ配信者のほかの枠と動画・外部作品DBの照会だけで答える。
 
 ## 見てよいもの・見てはいけないもの
 
-- 見てよい: この待ち行列（queue/NN.md。リンク先の題名・同じ配信者のほかの枠を含む）、thumbs/ のサムネイル（画像を直接開いて見る）、\`npm run cli -- lookup "語" …\` の照会結果、一般的な知識
+- 見てよい: この待ち行列（queue/NN.md。リンク先の題名・コメント欄・同じ配信者のほかの枠と動画を含む）、thumbs/ のサムネイル（画像を直接開いて見る）、\`npm run cli -- lookup "語" …\` の照会結果、一般的な知識
 - 見てはいけない: sealed/ の中身、DB（SQLite を開く・resolve:audit・unresolved:list・resolve:sample・ai:report など DB を読むコマンド）、
   data/review・data/ai の過去の判定と確認表、docs/ の記録（過去の回の結果と採点）。**ルールの答え・過去の答えに引っ張られないため**
 - 待ち行列には、ルールがどう判定したか（型・区間・候補）を書いていない。並び順も型と関係ない
@@ -113,10 +114,10 @@ export const GUIDE = `# 答え方（候補を見ない AI の判定）
 - not_in_db: 作品（映画・ドラマ・アニメ・舞台やミュージカルの映像・事務所のアニメやドラマ）だが、外部DBに無い。title に作品名。**lookup で照会してから答える**
 - not_a_work には、その枠でそもそも作品を観ていないもの（開封配信の中で別の枠を予告しているだけ、など）も入れる。evidence.notes に「同時視聴枠でない」と書く
 - unidentifiable: 同時視聴だが、どの作品か書かれていない・見て取れない（「映画同時視聴！」・企画名だけ）
-- hold: 決められない。**迷ったら hold**（埋めることが目的ではない）。ただし、リンク先の題名・同じ配信者のほかの枠まで見て決められるなら決める
+- hold: 決められない。**迷ったら hold**（埋めることが目的ではない）。ただし、リンク先の題名・コメント欄・同じ配信者のほかの枠と動画まで見て決められるなら決める
   （採点では、決められたはずなのに保留にしたものは誤りになる）
 
-## リンク先の題名・コメント欄・同じ配信者のほかの枠
+## リンク先の題名・コメント欄・同じ配信者のほかの枠と動画
 
 - リンク先の題名: 概要欄のリンク先（Amazon Prime Video・Netflix・ABEMA・Hulu・映画.com など）のページの題名。作品を決める強い手がかり。
   「(吹替版)」「(字幕版)」は作品の違いではない。題名の取れないサイト（Disney+・U-NEXT など）のリンクは開けない
@@ -127,7 +128,14 @@ export const GUIDE = `# 答え方（候補を見ない AI の判定）
   全部で何話かで、どの作品（期・リメイク）か決まることがある（「刃牙（バキ）」の枠が第26話（終）で終わる → 26話のバキ 最凶死刑囚編。グラップラー刃牙は24話）
 - 前後の枠: 時期の近い枠。観ている作品の傾向（ディズニーのアニメ映画が続く、ジュラシック・パークのシリーズを順に観ている）は手がかりにしてよい。
   傾向だけで決めたときは confidence を medium にする
-- ほかの枠の作品をこの枠の答えにはしない（この枠の作品を決める根拠にだけ使う）
+- 同時視聴枠でない動画（題名だけ）: 同じ配信者の動画のうち、題名に同時視聴の語が無く同時視聴枠にならなかったもの（ゲーム・雑談・歌枠なども入る）。
+  「同じ作品名の動画」はこの枠の作品名を題名に含む動画（期間を限らない）、「前後<members_days>日のメン限の動画」はこの枠がメン限のときの前後のメン限の動画。
+  日付は動画を公開した日（ライブ配信は枠を作った日で、配信日と数日ずれることがある）
+  - 同時視聴の続きの回が、題名に同時視聴の語を書かずに配信されていることがある。**続きの回の題名は強い手がかり**
+    （「ARCANE WATCHALONG PART 1〜3」「EPISODE 7 AND 8」の枠のあとに、同じ形式のメン限の「STARTING SEASON 2」「SEASON 2 EPISODE 3 AND 4」が続けば、前の枠はシーズン1）
+  - ただし、同じ作品名のゲームの実況・感想の雑談・歌ってみた・別の企画のこともある。題名の書き方（同じ形式の見出し・話数の続き）と日付の並びが、この枠と合うかで確かめる
+  - これで決めたら evidence.looked に other_videos を入れる
+- ほかの枠・動画の作品をこの枠の答えにはしない（この枠の作品を決める根拠にだけ使う）
 - 「〇〇同時視聴４」のように作品名と回数だけで、テレビシリーズと劇場版・外伝がある作品は、前後の枠で劇場版・外伝に進んでいなければテレビシリーズにする（話数は書かない）
 - タイトルに書かれた作品名を優先する（「モノノ怪 化猫」は『モノノ怪』の化猫の章。同じ章のある『怪 ～ayakashi～』にはしない）
 
@@ -184,7 +192,8 @@ export const GUIDE = `# 答え方（候補を見ない AI の判定）
     live_action はそれ以外（怪獣映画（ゴジラ・ガメラ）、実写と CG の合成、舞台・ミュージカルの映像を含む）
   - movie: 映画（劇場公開か配信の単発の長編）なら true。テレビ・Web のシリーズ、特番、舞台の映像は false
 - confidence: high / medium / low（hold は low）
-- evidence.looked: 見たもの（title / description / thumbnail / lookup / link（リンク先の題名）/ same_streamer（同じ配信者のほかの枠））。not_a_work と not_in_db は lookup と queries が必須
+- evidence.looked: 見たもの（title / description / thumbnail / lookup / link（リンク先の題名）/ comments（コメント欄）/ same_streamer（同じ配信者のほかの枠）/
+  other_videos（同時視聴枠でない動画））。not_a_work と not_in_db は lookup と queries が必須
 `;
 
 
@@ -199,6 +208,9 @@ export interface BlindItem {
   /** 同じ配信者の同じ作品名の枠（日付順。self がこの枠）・前後の枠（src/report/neighbors.ts） */
   same_name: { date: string; title: string; self?: boolean }[];
   around: { date: string; title: string }[];
+  /** 同時視聴枠にならなかった同じ配信者の動画（題名だけ）: 同じ作品名の動画・前後のメン限の動画（src/report/neighbors.ts の otherVideos） */
+  other_same_name: { date: string; title: string; members?: boolean }[];
+  other_members: { date: string; title: string }[];
   /** 概要欄のリンク先の題名・公開年・あらすじの冒頭（題名が取れなければ title が null） */
   links: { url: string; title: string | null; year: number | null; summary: string | null }[];
   /** 公開の枠の YouTube のコメント（上位。メン限の枠は空） */
@@ -226,6 +238,8 @@ export async function writeBlindQueue(
   const desc = descriptionReader(ctx);
   const cfg = loadExtractConfig();
   const framesOf = streamerFrames(ctx);
+  const videosOf = streamerVideos(ctx, cfg);
+  const daysLabel = String(cfg.ai_context?.other_videos?.members_days ?? 30);
   const items: BlindItem[] = [];
   let i = 0;
   for (const vid of order) {
@@ -233,6 +247,8 @@ export async function writeBlindQueue(
     const thumb = await downloadThumb(ctx, r.ev.thumbnail_url, join(dir, "thumbs"), vid);
     const lines = desc(r.ev.streamer_id, r.ev.description_raw);
     const fc = frameContext(framesOf(r.ev.streamer_id), r.ev.id, r.ev.title_raw, cfg, r.ev.streamer);
+    const ov = otherVideos(videosOf(r.ev.streamer_id), framesOf(r.ev.streamer_id),
+      { startedAt: r.ev.started_at, title: r.ev.title_raw, membersOnly: !!r.ev.is_members_only }, cfg, r.ev.streamer);
     const urls = pickLinks(desc.links(r.ev.streamer_id, r.ev.description_raw), cfg);
     const titles = await linkTitles(ctx, cfg, urls);
     const comments = r.ev.is_members_only ? [] : await videoComments(ctx, cfg, vid);
@@ -241,6 +257,8 @@ export async function writeBlindQueue(
       description_lines: lines, thumbnail: thumb ? relative(dir, thumb).replaceAll("\\", "/") : null,
       same_name: fc.sameName.map(({ date, title, self }) => ({ date, title, ...(self ? { self } : {}) })),
       around: fc.around.map(({ date, title }) => ({ date, title })),
+      other_same_name: ov.sameName.map(({ date, title, members }) => ({ date, title, ...(members ? { members } : {}) })),
+      other_members: ov.members.map(({ date, title }) => ({ date, title })),
       links: urls.map((url) => ({ url, title: null, year: null, summary: null, ...titles.get(url) })),
       comments,
     });
@@ -253,7 +271,7 @@ export async function writeBlindQueue(
   }, null, 2), "utf8");
   writeFileSync(join(dir, "sealed", "README.md"), `# 封をしたルールの答え\n\nAI の判定が終わるまで開かない（${opts.sealedNote}）。\n`, "utf8");
   writeFileSync(join(dir, "queue.json"), JSON.stringify({ batch: opts.batch, created_at: created, items }, null, 2), "utf8");
-  writeFileSync(join(dir, "GUIDE.md"), GUIDE.replaceAll("<batch>", opts.batch), "utf8");
+  writeFileSync(join(dir, "GUIDE.md"), GUIDE.replaceAll("<batch>", opts.batch).replaceAll("<members_days>", daysLabel), "utf8");
   writeFileSync(join(dir, "PROMPT.md"), [
     "# 判定役に渡す指示文",
     "",
@@ -279,6 +297,8 @@ export async function writeBlindQueue(
         ...(x.links.length ? [`- リンク先の題名: ${x.links.map((l) => `${l.url} →「${l.title ?? "取れなかった"}」${l.year ? `（${l.year}年）` : ""}${l.summary ? ` あらすじ: ${l.summary}` : ""}`).join(" ／ ")}`] : []),
         ...(x.same_name.length ? [`- 同じ配信者の同じ作品名の枠: ${x.same_name.map((f) => `${f.date} ${f.title}${f.self ? "（← この枠）" : ""}`).join(" ／ ")}`] : []),
         ...(x.around.length ? [`- 同じ配信者の前後の枠: ${x.around.map((f) => `${f.date} ${f.title}`).join(" ／ ")}`] : []),
+        ...(x.other_same_name.length ? [`- 同じ作品名の動画（同時視聴枠でないもの）: ${x.other_same_name.map((f) => `${f.date}${f.members ? "（メン限）" : ""} ${f.title}`).join(" ／ ")}`] : []),
+        ...(x.other_members.length ? [`- 前後${daysLabel}日のメン限の動画（同時視聴枠でないもの）: ${x.other_members.map((f) => `${f.date} ${f.title}`).join(" ／ ")}`] : []),
         ...(x.comments.length ? [`- コメント欄（視聴者の上位${x.comments.length}件）: ${x.comments.join(" ／ ")}`] : []),
         "",
       ]),

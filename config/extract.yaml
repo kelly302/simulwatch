@@ -505,6 +505,18 @@ ai_context:
   # メン限の枠は取れない（403）。DB には持たず、待ち行列を作るたびに取る（1枠1ユニット）
   comments: 15
   comment_chars: 200
+  # 同時視聴枠にならなかった同じ配信者の動画（videos_seen の題名だけ。2026-10-18 決定）。続きの回が題名に同時視聴の語を書かずに配信されていることがある
+  # （ルカ・カネシロの ARCANE のメン限の4枠は、続きの「STARTING SEASON 2」「SEASON 2 EPISODE 3 AND 4」が枠にならず、シーズン1かシーズン2かで保留になっていた）
+  other_videos:
+    same_name: 5          # この枠の作品名の区間を題名に含む動画（期間を限らない）。この枠に近いものから
+    members: 8            # この枠がメン限のとき、前後 members_days 日のメン限の動画。この枠に近いものから
+    members_days: 30      # ARCANE の PART 1（2024-12-21）から STARTING SEASON 2（2025-01-17）までは27日
+    boilerplate_ratio: 0.03   # チャンネルの動画のこの割合を超える動画（10本以上）に出る区間は決まり文句として使わない（「APEX」「MEMBERSHIP STREAM」）
+    # 作品名でない区間（照合キー。2026-10-18 の DB で、同じ作品名の動画に多く当たっていたもの）。期・部・日の番号はゲームの連続配信に当たる
+    ignore_keys:
+      - '^(part|ep|eps|episode|season|day|vol|no)\d+$'
+      - '^(members?|membersstream|membership|stream|letswatch|anime|movie|movienight|concert|collab)$'
+      - '^(予告番組|切リ抜キ|ミラー|振リ返リ|ラジオ)$'
   # 題名を取りに行くリンク（正規表現）。ページの題名が取れないサイト（Disney+・U-NEXT・FOD）は入れない
   link_patterns:
     - '^https?://(www\.)?amazon\.co\.jp/(gp/video|dp|-/[a-z]+/dp)/'

@@ -36,6 +36,18 @@ export interface ExtractConfig {
     /** 公開の枠で見せるコメントの数（0 で見せない）と1件の文字数 */
     comments?: number;
     comment_chars?: number;
+    /** 同時視聴枠にならなかった同じ配信者の動画（videos_seen の題名だけ。src/report/neighbors.ts の otherVideos） */
+    other_videos?: {
+      /** この枠の作品名の区間を題名に含む動画の数（期間を限らない。0 で見せない） */
+      same_name?: number;
+      /** メン限の枠で見せる、前後 members_days 日のメン限の動画の数（0 で見せない） */
+      members?: number;
+      members_days?: number;
+      /** チャンネルの動画のこの割合を超える動画（10本以上）に出る区間は、決まり文句として使わない */
+      boilerplate_ratio?: number;
+      /** 作品名でない区間の照合キー（正規表現） */
+      ignore_keys?: string[];
+    };
   };
   ai_routes?: string[];
   /** 視聴系列による期の割り当て（src/resolve/series.ts）。false で止める */

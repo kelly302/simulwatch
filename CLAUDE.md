@@ -429,7 +429,10 @@ src/resolve/ と config/extract.yaml を変えるときは先に読み、同じ�
   使えるのは thumbs/ のサムネイル（画像を直接見る）と `lookup`。sealed/・DB・src/・config/・ほかのバッチ・data/review・data/audit・docs/ は開かせない。
   照会の出力は `work/<番号>/` に分ける（共用の一時ファイルで照会結果が混ざったため）
 - 判定役に見せるもの: 配信者・日時・タイトル・概要欄（定型文を除く）・サムネイル・同じ配信者の同じ作品名の枠（近い10枠まで）・前後の枠（各3枠）・
-  概要欄のリンク先の題名／公開年／あらすじの冒頭（1枠3件まで）・公開の枠の YouTube のコメント（上位15件。2026-10-16。メン限の枠は取れない。DB には持たず、待ち行列を作るたびに取る）。
+  概要欄のリンク先の題名／公開年／あらすじの冒頭（1枠3件まで）・公開の枠の YouTube のコメント（上位15件。2026-10-16。メン限の枠は取れない。DB には持たず、待ち行列を作るたびに取る）・
+  同時視聴枠にならなかった同じ配信者の動画の題名（videos_seen。2026-10-18。続きの回が題名に同時視聴の語を書かずに配信されることがあるため）:
+  この枠の作品名の区間を題名に含む動画（期間を限らず近い5本）と、メン限の枠では前後30日のメン限の動画（近い8本）。
+  作品名でない区間（MEMBERSHIP STREAM・PART 1 など）とチャンネルの動画の3%を超える動画に出る区間は使わず、英数字の区間は単語の切れ目で照合する。
   設定は config/extract.yaml の `ai_context`。型・区間・候補・ルールの答え・ほかの枠の答えは見せない。
   ルールの答えは `sealed/answers.json` に固定し、判定が終わるまで開かない
 - 答えの区分: identified / not_a_work / not_in_db（作品だが外部DBに無い）/ unidentifiable / hold。確度は high / medium / low（**low はサイトに作品を出さない**）。
@@ -563,7 +566,7 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- unresolved:sample --reason not_found --n 100 --seed nf-1   # 未同定の抽出と分類用の確認表
     npm run cli -- resolve:series    # 視聴系列による期の割り当ての一覧（data/review/series-assign.md。DB は変えない）
     npm run cli -- lookup "来る" "亜人"   # 外部作品DBの照会結果を並べる（判断の確認用）
-    npm run cli -- ai:queue --seed ai-run-1 --n 300 --include-hold          # AI に回す型の枠の待ち行列（候補を見せない。data/ai/<batch>/。--video で動画を指定）
+    npm run cli -- ai:queue --seed ai-run-1 --n 300 --include-hold          # AI に回す型の枠の待ち行列（候補を見せない。data/ai/<batch>/。--video で動画を指定。判定済みの枠も入る）
     npm run cli -- ai:queue --reason not_found --n 100 --seed ai-trial-1   # 未同定の理由で選ぶ待ち行列（ai-trial-1 の形）
     npm run cli -- ai:apply data/ai/ai-run-1/answers                     # 判定を入れる（確定。ファイルかフォルダ）
     npm run cli -- ai:report ai-trial-1                                 # 判定の根拠の一覧（report.md）と採点用の report.html
