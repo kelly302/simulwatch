@@ -278,6 +278,84 @@ test("判定役に見せる手がかり: 同時視聴枠にならなかった動
   assert.equal(of("【APEX】ALGS 決勝を同時視聴", "2025-02-20T10:00:00Z", false).sameName.length, 0);
 });
 
+test("判定役に見せる手がかり: 概要欄の YouTube のリンク（動画・再生リストの読み取り、自分のチャンネルの除外、消えた動画、件数）", async () => {
+  const { parseYouTube, youtubeRefs, youtubeLinks } = await import("../src/report/neighbors.ts");
+  const { formatYouTube } = await import("../src/report/blind.ts");
+  const { loadDetectConfig } = await import("../src/lib/config.ts");
+  const cfg = loadExtractConfig();
+  const dc = loadDetectConfig();
+  // 読み取り: watch?v=…&list=… は両方。youtu.be・live・shorts・playlist。末尾に続いた文字は落とす。チャンネル・メンバーシップのリンクは読まない
+  assert.deepEqual(parseYouTube("https://www.youtube.com/watch?v=-cMFTGPphmQ&list=PLBE2D9BnJJUqH_pqsO8ygJVCES1uK8WMM"),
+    { url: "https://www.youtube.com/watch?v=-cMFTGPphmQ&list=PLBE2D9BnJJUqH_pqsO8ygJVCES1uK8WMM", video: "-cMFTGPphmQ", playlist: "PLBE2D9BnJJUqH_pqsO8ygJVCES1uK8WMM" });
+  assert.equal(parseYouTube("https://youtu.be/AxKtVcMNpzY?si=x")?.video, "AxKtVcMNpzY");
+  assert.equal(parseYouTube("https://youtube.com/live/dW_UL7tEbk8?feature=share")?.video, "dW_UL7tEbk8");
+  assert.equal(parseYouTube("https://m.youtube.com/shorts/9x-wtNt8BaA")?.video, "9x-wtNt8BaA");
+  assert.equal(parseYouTube("https://youtu.be/AxKtVcMNpzY】")?.video, "AxKtVcMNpzY");
+  assert.deepEqual(parseYouTube("https://youtube.com/playlist?list=PL6gUpTCMieF&si=y"), { url: "https://youtube.com/playlist?list=PL6gUpTCMieF&si=y", video: null, playlist: "PL6gUpTCMieF" });
+  assert.equal(parseYouTube("https://www.youtube.com/channel/UC48jH1ul-6HOrcSSfoR02fQ/join"), null);
+  assert.equal(parseYouTube("https://www.youtube.com/@Yuuhi_Riri"), null);
+  assert.equal(parseYouTube("https://youtu.be/short"), null);
+  // 出てくる順。同じ動画は1つ
+  const refs = youtubeRefs([
+    "公式チャンネルで視聴しています。 https://youtu.be/gone0000001",
+    "MV https://youtu.be/selfMV00001",
+    "前回 https://youtube.com/live/selfPrev001",
+    "https://youtube.com/playlist?list=PLself",
+    "https://www.youtube.com/watch?v=gone0000001&t=10",
+    "コラボ相手 https://www.youtube.com/watch?v=partner0001&list=RDmix",
+    "https://youtu.be/other000001",
+  ]);
+  assert.deepEqual(refs.map((r) => r.video ?? r.playlist), ["gone0000001", "selfMV00001", "selfPrev001", "PLself", "partner0001", "other000001"]);
+  const i = (title: string, channelId: string, channel = "") => ({ title, channelId, channel, date: "2022-11-20" });
+  const info = {
+    videos: new Map([
+      ["gone0000001", null],
+      ["selfMV00001", i("【MV】月明かり / セフィナ (Official)", "UCself")],
+      ["selfPrev001", i("【同時視聴】初見！二期！コードギアス反逆のルルーシュ ２０話２１話 #10", "UCself")],
+      ["partner0001", i("【同時視聴】ゴースト＆レディを観劇させていただきます", "UCpartner", "東堂コハク")],
+      ["other000001", i("【公式】アニメ「ポケットモンスター」第1話", "UCpoke", "ポケモン公式YouTubeチャンネル")],
+    ]),
+    playlists: new Map([["PLself", i("同時視聴(映画コマンドー)", "UCself")], ["RDmix", null]]),
+  };
+  // 自分のチャンネルは題名が同時視聴の語に当たるものだけ（MV は除く）。消えた動画は見せる。取れなかった再生リスト（RD のミックス）は添えない。上限は youtube_links（3）
+  const links = youtubeLinks(refs, info, "UCself", cfg, dc);
+  assert.deepEqual(links.map((l) => [l.video === undefined ? l.playlist?.title : l.video?.title ?? null, !!(l.video ?? l.playlist)?.self]), [
+    [null, false], ["【同時視聴】初見！二期！コードギアス反逆のルルーシュ ２０話２１話 #10", true], ["同時視聴(映画コマンドー)", true],
+  ]);
+  const five = { ...cfg, ai_context: { ...cfg.ai_context, youtube_links: 5 } };
+  const all = youtubeLinks(refs, info, "UCself", five, dc);
+  assert.equal(all.length, 5);
+  assert.equal(all[3]!.playlist, undefined);
+  assert.equal(youtubeLinks(refs, info, "UCself", { ...cfg, ai_context: { ...cfg.ai_context, youtube_links: 0 } }, dc).length, 0);
+  // 書き方
+  assert.equal(formatYouTube(links[0]!), "https://youtu.be/gone0000001 → 動画は取れなかった（消えたか非公開）");
+  assert.equal(formatYouTube(all[4]!), "https://youtu.be/other000001 → 動画「【公式】アニメ「ポケットモンスター」第1話」（ポケモン公式YouTubeチャンネル・2022-11-20）");
+  assert.equal(formatYouTube({ url: "u", video: null, playlist: { title: "アニポケセレクション", channel: "ポケモン公式YouTubeチャンネル", date: "2020-10-05" } }),
+    "u → 動画は取れなかった（消えたか非公開）・再生リスト「アニポケセレクション」（ポケモン公式YouTubeチャンネル・作成 2020-10-05）");
+  assert.equal(formatYouTube(links[2]!), "https://youtube.com/playlist?list=PLself → 再生リスト「同時視聴(映画コマンドー)」（この配信者のチャンネル・作成 2022-11-20）");
+});
+
+test("判定役に見せる概要欄: URL で始まる行は除くが、題名を見せるリンクの行は残す（定型文は除いたまま）", async () => {
+  const { descriptionReader } = await import("../src/report/blind.ts");
+  const { loadDetectConfig } = await import("../src/lib/config.ts");
+  const { openDb } = await import("../src/lib/db.ts");
+  const db = openDb(":memory:");
+  const detectCfg = loadDetectConfig();
+  db.exec(`INSERT INTO streamers (id, name, affiliation, channel_id, tier, first_seen_at, updated_at) VALUES (1, '夕陽リリ', 'nijisanji', 'UCx', 1, 'n', 'n')`);
+  const ev = db.prepare(`INSERT INTO watch_events (streamer_id, video_id, title_raw, url, status, is_members_only, description_raw, detected_at, detect_source, detect_keyword, found_via, updated_at)
+    VALUES (1, ?, 't', 'u', 'completed', 1, ?, 'n', 'title', 'k', 'rss', 'n')`);
+  const tpl = "■スポンサー登録はこちらから\nhttps://www.youtube.com/channel/UCx/join";
+  const target = `公式チャンネルで視聴しています。\nhttps://www.youtube.com/watch?v=-cMFTGPphmQ&list=PLBE\nhttps://twitter.com/x\n${tpl}`;
+  ev.run("v1", target);
+  for (let k = 2; k <= detectCfg.description.template_min_repeats + 1; k++) ev.run(`v${k}`, `雑談\n${tpl}`);
+  const desc = descriptionReader({ db, detectCfg } as never);
+  assert.deepEqual(desc(1, target), ["公式チャンネルで視聴しています。"]);
+  assert.deepEqual(desc(1, target, ["https://www.youtube.com/watch?v=-cMFTGPphmQ&list=PLBE"]),
+    ["公式チャンネルで視聴しています。", "https://www.youtube.com/watch?v=-cMFTGPphmQ&list=PLBE"]);
+  // 題名を取りに行く行には URL だけの行も入る（定型文の行は入らない）
+  assert.deepEqual(desc.links(1, target), ["https://www.youtube.com/watch?v=-cMFTGPphmQ&list=PLBE", "https://twitter.com/x"]);
+});
+
 test("採点の書き出しから採点済みの枠を読む（「（未）」は採点済みにしない）", async () => {
   const { scoredVideos } = await import("../src/report/ai.ts");
   const md = "# 採点\n\n## 同定\n\n### 1. aaa　型 同定\n- タイトル: x\n- 採点: 正しい\n- メモ: \n\n### 2. bbb　型 同定\n- タイトル: y\n- 採点: （未）\n- メモ: \n\n## 保留\n\n### 1. ccc　型 保留\n- 採点: 誤り\n- メモ: z\n";

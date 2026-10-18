@@ -33,6 +33,8 @@ export interface ExtractConfig {
     link_patterns?: string[];
     generic_titles?: string[];
     max_links?: number;
+    /** 概要欄の YouTube の動画・再生リストのリンクを見せる数（max_links とは別。0 で見せない） */
+    youtube_links?: number;
     /** 公開の枠で見せるコメントの数（0 で見せない）と1件の文字数 */
     comments?: number;
     comment_chars?: number;

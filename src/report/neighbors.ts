@@ -5,12 +5,17 @@ import { extract } from "../resolve/extract.ts";
 import { matchKey } from "../resolve/normalize.ts";
 import { HttpError } from "../lib/http.ts";
 import { log } from "../lib/log.ts";
+import type { DetectConfig } from "../lib/config.ts";
+import { detect } from "../detect/detect.ts";
+import { chunk } from "../youtube/api.ts";
 
 // AI の判定役に見せる手がかり（2026-10-02 決定。ai-run-1 の採点で、保留の6件中5件が決められたはずだった）。
 //   - 同じ配信者の同じ作品名の枠（日付順）: シリーズを順に観ているとき、話数の続き・最終話で、どの作品（期・リメイク）か決まる（刃牙（バキ）は第26話（終）で終わる）
 //   - 同じ配信者の前後の枠: 観ている作品の傾向（ディズニーのアニメ映画が続く・ジュラシック・パークを順に観ている）
 //   - 概要欄のリンク先の題名: 配信サービス・映画情報サイトのページの題名と公開年・あらすじの冒頭（Amazon Prime Video の「ロスト・ワールド／ジュラシック・パーク (吹替版)」。
 //     「君に届け」は題名だけではアニメか実写か分からず、公開年（2010）で実写映画と分かる）
+//   - 概要欄の YouTube の動画・再生リストのリンクの題名（2026-10-18）: 夕陽リリの「アニポケ1話～同時視聴」は「公式チャンネルで視聴しています。」の下のリンクが
+//     ポケモン公式の1997年版の第1話（今は消えている。再生リストは「アニポケセレクション」）。コラボ相手の同時視聴の枠・Nintendo Direct などの番組も分かる
 //   - 同時視聴枠にならなかった同じ配信者の動画（videos_seen の題名だけ。2026-10-18）: 続きの回が題名に同時視聴の語を書かずに配信されていることがある
 //     （ルカ・カネシロの ARCANE は、メン限の「STARTING SEASON 2」「SEASON 2 EPISODE 3 AND 4」が続くので、前の4枠はシーズン1）
 // ほかの枠のルールの答え・AI の答えは見せない（タイトルと日付だけ）。設定は config/extract.yaml の ai_context
@@ -215,14 +220,15 @@ export function pageInfo(html: string): LinkPage {
   return { title: pageTitle(html), year: y ? Number(y) : null, summary: d ? d.slice(0, 100) : null };
 }
 
+const URL_RE = /https?:\/\/[^\s)）」』"]+/g;
+
 /** 概要欄の行から、題名を取りに行くリンク（ai_context.link_patterns に合うもの）を max_links 件まで */
 export function pickLinks(lines: string[], cfg: ExtractConfig): string[] {
   const pats = (cfg.ai_context?.link_patterns ?? []).map((p) => new RegExp(p));
-  const urls = lines.flatMap((l) => l.match(/https?:\/\/[^\s)）」』"]+/g) ?? []);
+  const urls = lines.flatMap((l) => l.match(URL_RE) ?? []);
   return [...new Set(urls.filter((u) => pats.some((p) => p.test(u))))].slice(0, cfg.ai_context?.max_links ?? 3);
 }
 
-/** リンク先の題名・公開年・あらすじ（題名が取れなければ title が null）。照会結果は resolve_cache（link_page、30日）に持つ */
 /**
  * 公開の枠の YouTube のコメント（上位）。DB には持たない（YouTube のデータを溜めない）。
  * API キーが無い・メン限・コメントを閉じている・クォータが尽きたときは空
@@ -240,6 +246,7 @@ export async function videoComments(ctx: Ctx, cfg: ExtractConfig, videoId: strin
   }
 }
 
+/** リンク先の題名・公開年・あらすじ（題名が取れなければ title が null）。照会結果は resolve_cache（link_page、30日）に持つ */
 export async function linkTitles(ctx: Ctx, cfg: ExtractConfig, urls: string[]): Promise<Map<string, LinkPage>> {
   const cache = new ResolveCache(ctx.db, 30);
   const generic = (cfg.ai_context?.generic_titles ?? []).map((p) => new RegExp(p));
@@ -263,6 +270,134 @@ export async function linkTitles(ctx: Ctx, cfg: ExtractConfig, urls: string[]): 
     }
     if (keep) cache.set("link_page", u, page);
     out.set(u, page);
+  }
+  return out;
+}
+
+/** 概要欄の YouTube のリンク。watch?v=…&list=… は動画と再生リストの両方を持つ */
+export interface YouTubeRef {
+  url: string;
+  video: string | null;
+  playlist: string | null;
+}
+
+/** YouTube の動画（watch?v=・youtu.be/・live/・shorts/）か再生リスト（playlist?list=）のリンクなら ID を返す。チャンネル・メンバーシップ（join）のリンクは null */
+export function parseYouTube(url: string): YouTubeRef | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  const host = u.hostname.replace(/^(www|m|music)\./, "");
+  // 末尾に続いた文字（「】」など）は落とす。動画の ID は11文字
+  const id = (s: string | null | undefined) => s?.match(/^[\w-]+/)?.[0] ?? null;
+  const vid = (s: string | null | undefined) => (id(s)?.length === 11 ? id(s) : null);
+  const playlist = id(u.searchParams.get("list"));
+  let video: string | null = null;
+  if (host === "youtu.be") video = vid(u.pathname.slice(1));
+  else if (host === "youtube.com") {
+    const m = u.pathname.match(/^\/(live|shorts|embed)\/(.+)/);
+    if (u.pathname === "/watch") video = vid(u.searchParams.get("v"));
+    else if (m) video = vid(m[2]);
+    else if (u.pathname !== "/playlist") return null;
+  } else return null;
+  return video || playlist ? { url, video, playlist } : null;
+}
+
+/** 概要欄の行の YouTube のリンク（出てくる順。同じ動画・同じ再生リストは1つ） */
+export function youtubeRefs(lines: string[]): YouTubeRef[] {
+  const seen = new Set<string>();
+  const out: YouTubeRef[] = [];
+  for (const u of lines.flatMap((l) => l.match(URL_RE) ?? [])) {
+    const r = parseYouTube(u);
+    if (!r) continue;
+    const k = r.video ? `v:${r.video}` : `p:${r.playlist}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(r);
+  }
+  return out;
+}
+
+/** リンク先の動画・再生リストの題名・チャンネル・公開日（日本時間。再生リストは作った日） */
+export interface YouTubeInfo {
+  title: string;
+  channelId: string;
+  channel: string;
+  date: string;
+}
+
+/** videos.list・playlists.list の結果。返ってこなかったもの（消えた・非公開）は null */
+export interface YouTubeInfoMap {
+  videos: Map<string, YouTubeInfo | null>;
+  playlists: Map<string, YouTubeInfo | null>;
+}
+
+/**
+ * リンク先の動画・再生リストを videos.list・playlists.list で引く（50件ずつ1ユニット）。DB には持たない（YouTube のデータを溜めない）。
+ * API キーが無い・クォータが尽きた・呼び出しに失敗したときは null（YouTube のリンクは見せない）
+ */
+export async function youtubeInfo(ctx: Ctx, refs: YouTubeRef[]): Promise<YouTubeInfoMap | null> {
+  if (!ctx.yt) return null;
+  const vids = [...new Set(refs.flatMap((r) => (r.video ? [r.video] : [])))];
+  const lists = [...new Set(refs.flatMap((r) => (r.playlist ? [r.playlist] : [])))];
+  const out: YouTubeInfoMap = { videos: new Map(), playlists: new Map() };
+  const info = (s: { title: string; channelId: string; channelTitle?: string; publishedAt: string } | undefined): YouTubeInfo | null =>
+    s ? { title: s.title, channelId: s.channelId, channel: s.channelTitle ?? "", date: JST(s.publishedAt) } : null;
+  try {
+    for (const c of chunk(vids, 50)) {
+      const got = new Map((await ctx.yt.videos(c)).map((v) => [v.id, info(v.snippet)]));
+      for (const id of c) out.videos.set(id, got.get(id) ?? null);
+    }
+    for (const c of chunk(lists, 50)) {
+      const got = new Map((await ctx.yt.playlists(c)).map((p) => [p.id, info(p.snippet)]));
+      for (const id of c) out.playlists.set(id, got.get(id) ?? null);
+    }
+  } catch (e) {
+    log.warn(`YouTube のリンク先を取れなかった: ${String(e).slice(0, 120)}`);
+    return null;
+  }
+  return out;
+}
+
+/** 判定役に見せる YouTube のリンク先。null は取れなかった（消えたか非公開）。self は配信者自身のチャンネル */
+export interface YouTubeShown {
+  title: string;
+  channel: string;
+  date: string;
+  self?: boolean;
+}
+
+export interface YouTubeLink {
+  url: string;
+  video?: YouTubeShown | null;
+  playlist?: YouTubeShown | null;
+}
+
+/**
+ * この枠に見せる YouTube のリンク（2026-10-18 決定）。概要欄に出てくる順に ai_context.youtube_links 件まで。
+ *   - 配信者自身のチャンネルの動画・再生リストは、題名が同時視聴の語（detect.yaml の題名の語）に当たるときだけ（自分の MV・歌ってみた・宣伝を除く。
+ *     「同時視聴(映画コマンドー)」の再生リストや、枠になっていない前回の回は見せる）
+ *   - ほかの配信者（名簿にいる VTuber）・公式チャンネルのものは見せる
+ *   - 消えた・非公開の動画は持ち主が分からないので見せる（「取れなかった」）。watch?v=…&list=… の再生リストは、取れたときだけ添える
+ */
+export function youtubeLinks(refs: YouTubeRef[], info: YouTubeInfoMap, channelId: string, cfg: ExtractConfig, detectCfg: DetectConfig): YouTubeLink[] {
+  const n = cfg.ai_context?.youtube_links ?? 3;
+  const allowed = (x: YouTubeInfo | null | undefined) => !x || x.channelId !== channelId || detect({ title: x.title, description: null }, detectCfg).hit;
+  const shown = (x: YouTubeInfo): YouTubeShown => ({ title: x.title, channel: x.channel, date: x.date, ...(x.channelId === channelId ? { self: true } : {}) });
+  const out: YouTubeLink[] = [];
+  for (const r of refs) {
+    if (out.length >= n) break;
+    const v = r.video ? info.videos.get(r.video) : undefined;
+    const p = r.playlist ? info.playlists.get(r.playlist) : undefined;
+    if (r.video) {
+      if (!allowed(v)) continue;
+      out.push({ url: r.url, video: v ? shown(v) : null, ...(p && allowed(p) ? { playlist: shown(p) } : {}) });
+    } else {
+      if (!allowed(p)) continue;
+      out.push({ url: r.url, playlist: p ? shown(p) : null });
+    }
   }
   return out;
 }

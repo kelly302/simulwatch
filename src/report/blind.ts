@@ -7,12 +7,13 @@ import { normalize, templateLines } from "../detect/detect.ts";
 import type { Routed } from "../resolve/routing.ts";
 import { sampleOrder } from "./sample.ts";
 import { loadExtractConfig } from "../resolve/config.ts";
-import { streamerFrames, streamerVideos, frameContext, otherVideos, pickLinks, linkTitles, videoComments } from "./neighbors.ts";
+import { streamerFrames, streamerVideos, frameContext, otherVideos, pickLinks, linkTitles, videoComments, youtubeRefs, youtubeInfo, youtubeLinks } from "./neighbors.ts";
+import type { YouTubeLink, YouTubeShown } from "./neighbors.ts";
 
 // 候補を見せない AI の判定の待ち行列（型ごとの検証 audit:sample と本番の ai:queue が使う）。
 //   queue/NN.md（50件ずつ）・queue.json・GUIDE.md・thumbs/（サムネイル）・sealed/answers.json（その時点のルールの答え。判定が終わるまで開かない）・answers/（AI の答え）
-// AI に見せるのは配信者・日時・タイトル・概要欄（定型文と URL の行を除く）・サムネイルと、判定の手がかり（src/report/neighbors.ts。同じ配信者のほかの枠・
-// 同時視聴枠でない動画・リンク先の題名・コメント欄）だけ。型・区間・候補・ルールの答えは見せず、並びはシードで混ぜる
+// AI に見せるのは配信者・日時・タイトル・概要欄（定型文と URL で始まる行を除く。題名を見せるリンクの行は残す）・サムネイルと、判定の手がかり（src/report/neighbors.ts。
+// 同じ配信者のほかの枠・同時視聴枠でない動画・リンク先の題名・YouTube のリンク先・コメント欄）だけ。型・区間・候補・ルールの答えは見せず、並びはシードで混ぜる
 
 export const CHUNK = 50;
 
@@ -20,10 +21,11 @@ const SELF = /(今日|本日|今回|この配信|この枠|を見ます|を観�
 
 
 /**
- * 概要欄の行を AI に見せる形にする。定型文（同じ配信者の枠に繰り返し出る行）と URL の行を除き、
- * その枠を指す行を先に、残りは先頭から（合わせて12行まで、1行120文字まで）
+ * 概要欄の行を AI に見せる形にする。定型文（同じ配信者の枠に繰り返し出る行）と URL で始まる行を除き、
+ * その枠を指す行を先に、残りは先頭から（合わせて12行まで、1行120文字まで）。
+ * URL で始まる行でも、題名を見せるリンク（keep）を含む行は残す（「公式チャンネルで視聴しています。」の次の行の URL だけの行。2026-10-18）
  */
-export function descriptionReader(ctx: Ctx): ((streamerId: number, raw: string | null) => string[]) & { links: (streamerId: number, raw: string | null) => string[] } {
+export function descriptionReader(ctx: Ctx): ((streamerId: number, raw: string | null, keep?: string[]) => string[]) & { links: (streamerId: number, raw: string | null) => string[] } {
   const templates = new Map<number, Set<string>>();
   const templatesOf = (sid: number) => {
     let t = templates.get(sid);
@@ -39,10 +41,10 @@ export function descriptionReader(ctx: Ctx): ((streamerId: number, raw: string |
     const tpl = templatesOf(sid);
     return String(raw ?? "").split(/\r?\n/).map((l) => l.trim()).filter((l) => /https?:\/\//.test(l) && !tpl.has(normalize(l, ctx.detectCfg.normalize)));
   };
-  return Object.assign((sid: number, raw: string | null) => {
+  return Object.assign((sid: number, raw: string | null, keep: string[] = []) => {
     const tpl = templatesOf(sid);
     const lines = String(raw ?? "").split(/\r?\n/).map((l) => l.trim())
-      .filter((l) => l && !tpl.has(normalize(l, ctx.detectCfg.normalize)) && !/^https?:\/\//.test(l));
+      .filter((l) => l && !tpl.has(normalize(l, ctx.detectCfg.normalize)) && (!/^https?:\/\//.test(l) || keep.some((u) => l.includes(u))));
     const self = lines.filter((l) => SELF.test(l));
     return [...self, ...lines.filter((l) => !SELF.test(l))].slice(0, 12).map((l) => l.slice(0, 120));
   }, { links });
@@ -87,11 +89,11 @@ export const JUDGE_PROMPT = `あなたは「配信の同時視聴の枠が、ど
 
 export const GUIDE = `# 答え方（候補を見ない AI の判定）
 
-この待ち行列の枠それぞれについて、**どの作品を同時視聴しているか**を、タイトル・概要欄・サムネイル・リンク先の題名・コメント欄・同じ配信者のほかの枠と動画・外部作品DBの照会だけで答える。
+この待ち行列の枠それぞれについて、**どの作品を同時視聴しているか**を、タイトル・概要欄・サムネイル・リンク先の題名・YouTube のリンク先・コメント欄・同じ配信者のほかの枠と動画・外部作品DBの照会だけで答える。
 
 ## 見てよいもの・見てはいけないもの
 
-- 見てよい: この待ち行列（queue/NN.md。リンク先の題名・コメント欄・同じ配信者のほかの枠と動画を含む）、thumbs/ のサムネイル（画像を直接開いて見る）、\`npm run cli -- lookup "語" …\` の照会結果、一般的な知識
+- 見てよい: この待ち行列（queue/NN.md。リンク先の題名・YouTube のリンク先・コメント欄・同じ配信者のほかの枠と動画を含む）、thumbs/ のサムネイル（画像を直接開いて見る）、\`npm run cli -- lookup "語" …\` の照会結果、一般的な知識
 - 見てはいけない: sealed/ の中身、DB（SQLite を開く・resolve:audit・unresolved:list・resolve:sample・ai:report など DB を読むコマンド）、
   data/review・data/ai の過去の判定と確認表、docs/ の記録（過去の回の結果と採点）。**ルールの答え・過去の答えに引っ張られないため**
 - 待ち行列には、ルールがどう判定したか（型・区間・候補）を書いていない。並び順も型と関係ない
@@ -114,13 +116,20 @@ export const GUIDE = `# 答え方（候補を見ない AI の判定）
 - not_in_db: 作品（映画・ドラマ・アニメ・舞台やミュージカルの映像・事務所のアニメやドラマ）だが、外部DBに無い。title に作品名。**lookup で照会してから答える**
 - not_a_work には、その枠でそもそも作品を観ていないもの（開封配信の中で別の枠を予告しているだけ、など）も入れる。evidence.notes に「同時視聴枠でない」と書く
 - unidentifiable: 同時視聴だが、どの作品か書かれていない・見て取れない（「映画同時視聴！」・企画名だけ）
-- hold: 決められない。**迷ったら hold**（埋めることが目的ではない）。ただし、リンク先の題名・コメント欄・同じ配信者のほかの枠と動画まで見て決められるなら決める
+- hold: 決められない。**迷ったら hold**（埋めることが目的ではない）。ただし、リンク先の題名・YouTube のリンク先・コメント欄・同じ配信者のほかの枠と動画まで見て決められるなら決める
   （採点では、決められたはずなのに保留にしたものは誤りになる）
 
-## リンク先の題名・コメント欄・同じ配信者のほかの枠と動画
+## リンク先の題名・YouTube のリンク先・コメント欄・同じ配信者のほかの枠と動画
 
 - リンク先の題名: 概要欄のリンク先（Amazon Prime Video・Netflix・ABEMA・Hulu・映画.com など）のページの題名。作品を決める強い手がかり。
   「(吹替版)」「(字幕版)」は作品の違いではない。題名の取れないサイト（Disney+・U-NEXT など）のリンクは開けない
+- YouTube のリンク先: 概要欄の YouTube の動画・再生リストの題名・チャンネル名・公開日（再生リストは作った日）。概要欄に同じ URL の行があれば、前後の行でそのリンクが何か確かめる
+  （「公式チャンネルで視聴しています。」の次の行のリンクが公式チャンネルの本編なら、その題名で作品・版・話数が決まる）
+  - 公式チャンネルの本編・予告（「【公式】アニメ『…』第1話」）、同じ作品を観ているほかの配信者の同時視聴の枠、番組（Nintendo Direct・初配信・甲子園など。作品ではない枠の手がかり）が分かる
+  - 「この配信者のチャンネル」は配信者自身の同時視聴の枠・再生リスト（前回・次回の回、「同時視聴(映画コマンドー)」のような再生リスト）
+  - 「取れなかった（消えたか非公開）」は今は見られない動画。題名は分からないので、再生リストの題名・概要欄の文で何のリンクか確かめる（それだけで作品を決めない）
+  - 宣伝・おすすめ・ほかの配信者の別の企画へのリンクもある。この枠で観ているものを指すリンクか（概要欄の文・タイトルと合うか）を確かめてから使う
+  - これで決めたら evidence.looked に youtube を入れる
 - コメント欄（公開の枠だけ。メン限の枠には無い）: 視聴者のコメントの上位。タイムスタンプに話数・作品名・どの版かが書かれていることが多い
   （「46話『壁の王』」「今日観るのは TIGER & BUNNY -The Rising-」「after S1 ends」）。冗談・推測・ほかの作品の話もあるので、タイトル・サムネイルと合うかで確かめる。
   コメントで決めたら evidence.looked に comments を入れる
@@ -192,7 +201,7 @@ export const GUIDE = `# 答え方（候補を見ない AI の判定）
     live_action はそれ以外（怪獣映画（ゴジラ・ガメラ）、実写と CG の合成、舞台・ミュージカルの映像を含む）
   - movie: 映画（劇場公開か配信の単発の長編）なら true。テレビ・Web のシリーズ、特番、舞台の映像は false
 - confidence: high / medium / low（hold は low）
-- evidence.looked: 見たもの（title / description / thumbnail / lookup / link（リンク先の題名）/ comments（コメント欄）/ same_streamer（同じ配信者のほかの枠）/
+- evidence.looked: 見たもの（title / description / thumbnail / lookup / link（リンク先の題名）/ youtube（YouTube のリンク先）/ comments（コメント欄）/ same_streamer（同じ配信者のほかの枠）/
   other_videos（同時視聴枠でない動画））。not_a_work と not_in_db は lookup と queries が必須
 `;
 
@@ -213,10 +222,21 @@ export interface BlindItem {
   other_members: { date: string; title: string }[];
   /** 概要欄のリンク先の題名・公開年・あらすじの冒頭（題名が取れなければ title が null） */
   links: { url: string; title: string | null; year: number | null; summary: string | null }[];
+  /** 概要欄の YouTube の動画・再生リストのリンク先（題名・チャンネル名・公開日。null は取れなかった。src/report/neighbors.ts の youtubeLinks） */
+  youtube: YouTubeLink[];
   /** 公開の枠の YouTube のコメント（上位。メン限の枠は空） */
   comments: string[];
 }
 
+
+/** YouTube のリンク先の1件を待ち行列の書き方にする（「URL → 動画「題名」（チャンネル名・公開日）・再生リスト「題名」（チャンネル名・作成 日付）」） */
+export function formatYouTube(y: YouTubeLink): string {
+  const one = (kind: "動画" | "再生リスト", s: YouTubeShown | null) => s === null
+    ? `${kind}は取れなかった（消えたか非公開）`
+    : `${kind}「${s.title}」（${s.self ? "この配信者のチャンネル" : s.channel}・${kind === "再生リスト" ? "作成 " : ""}${s.date}）`;
+  const parts = [...(y.video !== undefined ? [one("動画", y.video)] : []), ...(y.playlist !== undefined ? [one("再生リスト", y.playlist)] : [])];
+  return `${y.url} → ${parts.join("・")}`;
+}
 
 function jst(t: string | null): string {
   if (!t) return "?";
@@ -240,17 +260,26 @@ export async function writeBlindQueue(
   const framesOf = streamerFrames(ctx);
   const videosOf = streamerVideos(ctx, cfg);
   const daysLabel = String(cfg.ai_context?.other_videos?.members_days ?? 30);
+  // 概要欄の YouTube のリンクは、待ち行列の全部の枠ぶんをまとめて引く（50件ずつ1ユニット）。自分のチャンネルのものを除くのに持ち主を見る
+  const ytRefs = new Map(picked.map((r) => [r.ev.video_id, (cfg.ai_context?.youtube_links ?? 3) > 0 ? youtubeRefs(desc.links(r.ev.streamer_id, r.ev.description_raw)) : []]));
+  const ytAll = [...ytRefs.values()].flat();
+  const units0 = ctx.quota.runUsed;
+  const ytInfo = ytAll.length ? await youtubeInfo(ctx, ytAll) : null;
+  if (ytAll.length) log.info(`  YouTube のリンク: ${ytRefs.size} 枠中 ${[...ytRefs.values()].filter((x) => x.length).length} 枠・${ytAll.length} 件（${ctx.quota.runUsed - units0} ユニット）`);
+  const channelOf = ctx.db.prepare("SELECT channel_id FROM streamers WHERE id = ?");
   const items: BlindItem[] = [];
   let i = 0;
   for (const vid of order) {
     const r = byVid.get(vid)!;
     const thumb = await downloadThumb(ctx, r.ev.thumbnail_url, join(dir, "thumbs"), vid);
-    const lines = desc(r.ev.streamer_id, r.ev.description_raw);
     const fc = frameContext(framesOf(r.ev.streamer_id), r.ev.id, r.ev.title_raw, cfg, r.ev.streamer);
     const ov = otherVideos(videosOf(r.ev.streamer_id), framesOf(r.ev.streamer_id),
       { startedAt: r.ev.started_at, title: r.ev.title_raw, membersOnly: !!r.ev.is_members_only }, cfg, r.ev.streamer);
     const urls = pickLinks(desc.links(r.ev.streamer_id, r.ev.description_raw), cfg);
     const titles = await linkTitles(ctx, cfg, urls);
+    const channelId = (channelOf.get(r.ev.streamer_id) as { channel_id: string } | undefined)?.channel_id ?? "";
+    const youtube = ytInfo ? youtubeLinks(ytRefs.get(vid) ?? [], ytInfo, channelId, cfg, ctx.detectCfg) : [];
+    const lines = desc(r.ev.streamer_id, r.ev.description_raw, [...urls, ...youtube.map((y) => y.url)]);
     const comments = r.ev.is_members_only ? [] : await videoComments(ctx, cfg, vid);
     items.push({
       no: ++i, video_id: vid, streamer: r.ev.streamer, started_at: jst(r.ev.started_at), title: r.ev.title_raw,
@@ -260,6 +289,7 @@ export async function writeBlindQueue(
       other_same_name: ov.sameName.map(({ date, title, members }) => ({ date, title, ...(members ? { members } : {}) })),
       other_members: ov.members.map(({ date, title }) => ({ date, title })),
       links: urls.map((url) => ({ url, title: null, year: null, summary: null, ...titles.get(url) })),
+      youtube,
       comments,
     });
     if (i % 100 === 0) log.info(`  待ち行列 ${i}/${order.length}`);
@@ -295,6 +325,7 @@ export async function writeBlindQueue(
         `- 概要欄: ${x.description_lines.join(" ／ ") || "なし"}`,
         `- サムネイル: ${x.thumbnail ?? "なし"}`,
         ...(x.links.length ? [`- リンク先の題名: ${x.links.map((l) => `${l.url} →「${l.title ?? "取れなかった"}」${l.year ? `（${l.year}年）` : ""}${l.summary ? ` あらすじ: ${l.summary}` : ""}`).join(" ／ ")}`] : []),
+        ...(x.youtube.length ? [`- YouTube のリンク先: ${x.youtube.map(formatYouTube).join(" ／ ")}`] : []),
         ...(x.same_name.length ? [`- 同じ配信者の同じ作品名の枠: ${x.same_name.map((f) => `${f.date} ${f.title}${f.self ? "（← この枠）" : ""}`).join(" ／ ")}`] : []),
         ...(x.around.length ? [`- 同じ配信者の前後の枠: ${x.around.map((f) => `${f.date} ${f.title}`).join(" ／ ")}`] : []),
         ...(x.other_same_name.length ? [`- 同じ作品名の動画（同時視聴枠でないもの）: ${x.other_same_name.map((f) => `${f.date}${f.members ? "（メン限）" : ""} ${f.title}`).join(" ／ ")}`] : []),

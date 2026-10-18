@@ -17,6 +17,7 @@ export interface VideoItem {
   snippet?: {
     publishedAt: string;
     channelId: string;
+    channelTitle?: string;
     title: string;
     description: string;
     thumbnails?: Record<string, Thumbnail>;
@@ -43,6 +44,11 @@ export interface PlaylistItem {
     videoOwnerChannelId?: string;
   };
   contentDetails?: { videoId: string; videoPublishedAt?: string };
+}
+
+export interface PlaylistInfo {
+  id: string;
+  snippet?: { publishedAt: string; channelId: string; channelTitle?: string; title: string; description: string };
 }
 
 export interface ChannelItem {
@@ -109,6 +115,14 @@ export class YouTubeApi {
     }
     const j = JSON.parse(res.body);
     return { ok: true, items: (j.items ?? []) as PlaylistItem[], nextPageToken: j.nextPageToken ?? null };
+  }
+
+  /** 最大50件の再生リストの題名・持ち主。存在しない・非公開の再生リストは items に含まれない */
+  async playlists(ids: string[]): Promise<PlaylistInfo[]> {
+    if (ids.length === 0) return [];
+    if (ids.length > 50) throw new Error("playlists.list accepts at most 50 ids");
+    const res = await this.call("playlists.list", "playlists", { part: "snippet", id: ids.join(","), maxResults: "50" });
+    return (JSON.parse(res.body).items ?? []) as PlaylistInfo[];
   }
 
   /** 最大50件のチャンネル */
