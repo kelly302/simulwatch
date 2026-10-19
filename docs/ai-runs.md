@@ -422,6 +422,9 @@ DB は ea77cc4 のあと。**食い違いはルールの誤りとは限らない
 - ai-run-9（新しい枠23。上の節の語彙の追加で入った枠）: `ai:queue --seed ai-run-9 --n 100`。判定役1人。同定18（high）・特定できない3・外部DBに無い1（Kisah Tanah Jawa: Merapi。Wikidata の項目は P31 も無い空の項目）・
   作品ではない1（Age of Samurai。Netflix のドキュメンタリーのシリーズ（再現ドラマ入り）。Wikidata も documentary series）。HUNTER×HUNTER は前の枠の題名で2011年版。採点の表は data/ai/ai-run-9/report.html（5件）
 - このあとの状態: 作品を付けて出す4,969・枠として出す120・作品ではない2,220・AI の判定待ち12（すべて保留）
+- ai-run-9 の採点（2026-10-19。ユーザー。scores9.md）: 作品ではない1（Age of Samurai）・特定できない3はすべて正しい。外部DBに無い1（Kisah Tanah Jawa: Merapi）は判断できない。直す枠なし。
+  確度 high の同定18枠は採点の表に出していない（採点していない）
+- チャイカの「OO」3枠: ユーザー「保留のままでいい」（2026-10-19）
 
 # 2026-10-09 までの記録（CLAUDE.md から移したもの。当時の文のまま）
 
