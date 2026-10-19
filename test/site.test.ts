@@ -142,9 +142,10 @@ test("作品の画像のカード（よく同時視聴される作品・同じ�
 test("トップの絞り込みの軸のボタン（指定した軸は黒く塗って値を出す）", () => {
   const agAll = (ag: string) => (ag === "nijisanji" ? ["nijisanji:jp", "nijisanji:en", "nijisanji:kr", "nijisanji:id"] : [`${ag}:jp`]);
   const f = EMPTY();
-  // 何も指定していなければ7つの軸の名前だけ
+  // 何も指定していなければ6つの軸の名前と、入っていないメン限のチェック
   const none = axisButtonsHtml(f, agAll);
-  assert.equal((none.match(/class="fchip axis"/g) ?? []).length, 7);
+  assert.equal((none.match(/class="fchip axis"/g) ?? []).length, 6);
+  assert.match(none, /class="fchip check" data-toggle="mem" aria-pressed="false">/);
   assert.match(none, />配信日<\/button>/);
   assert.match(none, />作品の放送年<\/button>/);
   assert.equal(activeAxes(f, agAll), 0);
@@ -153,10 +154,13 @@ test("トップの絞り込みの軸のボタン（指定した軸は黒く塗�
   assert.equal(axisValue(f, "aff", agAll), "にじさんじ EN・KR");
   assert.equal(axisValue(f, "kind", agAll), "アニメ・特撮");
   assert.equal(axisValue(f, "year", agAll), "2013年春の作品");
-  assert.equal(axisValue(f, "mem", agAll), "メン限を除く");
+  // メン限を除くも条件の数に入る
   assert.equal(activeAxes(f, agAll), 5);
-  const on = axisButtonsHtml(f, agAll);
-  assert.match(on, /class="fchip axis on" data-axis="date" aria-haspopup="dialog" aria-label="配信日：2025年に配信（条件を変える）">2025年に配信</);
+  // 開いている軸は aria-expanded
+  const on = axisButtonsHtml(f, agAll, "date");
+  assert.match(on, /class="fchip axis on" data-axis="date" aria-expanded="true" aria-controls="fpanel" aria-label="配信日：2025年に配信">2025年に配信</);
+  assert.match(on, /data-axis="aff" aria-expanded="false"/);
+  assert.match(on, /class="fchip check on" data-toggle="mem" aria-pressed="true">/);
   // 所属をまとめて選べば事務所の名前だけ。3つ以上は「ほか」
   f.branch = ["nijisanji:jp", "nijisanji:en", "nijisanji:kr", "nijisanji:id"];
   assert.equal(axisValue(f, "aff", agAll), "にじさんじ");

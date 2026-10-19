@@ -1,4 +1,4 @@
-// トップのブラウザ側の動き。条件の軸のボタンを押すと、その軸だけのシートを開く（2026-10-20）。
+// トップのブラウザ側の動き。条件の軸のボタンを押すと、その軸の選択肢が条件の段のすぐ下に開く（2026-10-20）。
 //   ランキングの期間の切り替え（3期間とも HTML に入っている）
 //   「同時視聴した枠」: さらに表示（新しい順300枠の JSON）→ 絞り込み・並べ替え・300枠より先（全件の索引と辞書）
 // 件数は索引を読んだあとに出す。読み込みに失敗しても今の表示は消さない
@@ -96,7 +96,6 @@ function matches(r: TopRow, f: Filters, d: TopDict): boolean {
   const st = d.s[r[4]];
   if (f.branch.length && !(st && f.branch.includes(`${st[2]}:${st[3]}`))) return false;
   if (f.mem === "ex" && r[3]) return false;
-  if (f.mem === "only" && !r[3]) return false;
   if (!f.kind.length && f.movie === "all" && f.country === "all" && !f.year) return true;
   // 作品の属性。付いた作品（辞書）と、作品を付けない枠の作品名（種類・映画かどうかだけ分かる）
   const ws = r[5].map((x) => d.w[Array.isArray(x) ? x[0] : x]).filter((w) => !!w).map((w) => ({
@@ -119,7 +118,7 @@ function sortRows(rows: TopRow[]): TopRow[] {
 }
 
 function agBranches(ag: string): string[] {
-  return [...document.querySelectorAll<HTMLInputElement>(`#sheet input[name="branch"][value^="${ag}:"]`)].map((i) => i.value);
+  return [...document.querySelectorAll<HTMLInputElement>(`#fpanel input[name="branch"][value^="${ag}:"]`)].map((i) => i.value);
 }
 
 const activeCount = (f: Filters) => activeAxes(f, agBranches);
@@ -138,7 +137,6 @@ const skeleton = (n: number) => Array.from({ length: n }, () =>
 function renderSortControls() {
   for (const b of document.querySelectorAll<HTMLButtonElement>("[data-sort]")) {
     b.setAttribute("aria-pressed", String(b.dataset.sort === S.sort));
-    if (b.dataset.sort === "views") b.disabled = S.filters.mem === "only";
   }
   const lbl = S.sort === "date" ? (S.rev ? "古い順" : "新しい順") : (S.rev ? "少ない順" : "多い順");
   $("rev-label").textContent = lbl;
@@ -146,15 +144,12 @@ function renderSortControls() {
   rev.setAttribute("aria-pressed", String(S.rev));
   rev.setAttribute("aria-label", `逆順にする（今は${lbl}）`);
   const note = $("sort-note");
-  const memOnly = S.filters.mem === "only";
-  note.hidden = !memOnly && S.sort !== "views";
-  note.textContent = memOnly
-    ? "メン限の枠は再生数を取得できないため、メン限だけのときは再生数では並べられません。"
-    : "メン限の枠は再生数を取得できないため、再生数で並べたときは末尾に新しい順で並べています。";
+  note.hidden = S.sort !== "views";
+  note.textContent = "メン限の枠は再生数を取得できないため、再生数で並べたときは末尾に新しい順で並べています。";
 }
 
 function renderChips() {
-  $("chips").innerHTML = axisButtonsHtml(S.filters, agBranches);
+  $("chips").innerHTML = axisButtonsHtml(S.filters, agBranches, openAxis);
   $("clear-all").hidden = activeCount(S.filters) === 0;
 }
 
@@ -243,65 +238,76 @@ document.getElementById("done")?.addEventListener("click", (ev) => {
     S.shown = cfg.recentHtml;
     return render();
   }
-  const axisBtn = t.closest<HTMLElement>("[data-axis]");
-  if (axisBtn) return openSheet(axisBtn.dataset.axis as Axis);
+  const axisBtn = t.closest<HTMLElement>("#chips [data-axis]");
+  if (axisBtn) {
+    const ax = axisBtn.dataset.axis as Axis;
+    return openAxis === ax ? closePanel(true) : openPanel(ax);
+  }
+  if (t.closest('#chips [data-toggle="mem"]')) return toggleMem();
   if (t.closest("[data-remove]")) return removeAll();
   const moreBtn = t.closest<HTMLButtonElement>("#more-btn");
   if (moreBtn) return showMore(moreBtn);
 });
 
-// ---------------------------------------------------------------- 絞り込みのシート
+// メン限を除く（チェック1つ。押すとすぐ切り替わる）
+function toggleMem() {
+  S.filters.mem = S.filters.mem === "ex" ? "all" : "ex";
+  if (S.draft) S.draft.mem = S.filters.mem;
+  S.shown = cfg.recentHtml;
+  render();
+  document.querySelector<HTMLElement>('#chips [data-toggle="mem"]')?.focus();
+}
 
-const sheet = $("sheet");
-const scrim = $("scrim");
-let axis: Axis = "date";
+// ---------------------------------------------------------------- 軸の選択肢（条件の段のすぐ下に開く）
 
-function syncSheet() {
+const panel = $("fpanel");
+let openAxis: Axis | null = null;
+
+function syncPanel() {
   const d = S.draft!;
-  for (const i of sheet.querySelectorAll<HTMLInputElement>('input[name="branch"]')) i.checked = d.branch.includes(i.value);
-  for (const i of sheet.querySelectorAll<HTMLInputElement>("input[data-ag]")) {
+  for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="branch"]')) i.checked = d.branch.includes(i.value);
+  for (const i of panel.querySelectorAll<HTMLInputElement>("input[data-ag]")) {
     const keys = agBranches(i.dataset.ag!);
     const n = keys.filter((k) => d.branch.includes(k)).length;
     i.checked = n === keys.length;
     i.indeterminate = n > 0 && n < keys.length;
   }
-  for (const i of sheet.querySelectorAll<HTMLInputElement>('input[name="kind"]')) i.checked = d.kind.includes(i.value);
-  for (const i of sheet.querySelectorAll<HTMLInputElement>('input[name="date"]')) i.checked = d.date === i.value;
-  for (const name of ["movie", "country", "mem"] as const) {
-    for (const i of sheet.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)) i.checked = d[name] === i.value;
+  for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="kind"]')) i.checked = d.kind.includes(i.value);
+  for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="date"]')) i.checked = d.date === i.value;
+  for (const name of ["movie", "country"] as const) {
+    for (const i of panel.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)) i.checked = d[name] === i.value;
   }
   ($("opt-year") as HTMLSelectElement).value = d.year;
-  for (const b of sheet.querySelectorAll<HTMLButtonElement>("[data-season]")) {
+  for (const b of panel.querySelectorAll<HTMLButtonElement>("[data-season]")) {
     b.disabled = !d.year;
     b.setAttribute("aria-pressed", String(d.season === b.dataset.season));
   }
-  const apply = $("sheet-apply");
-  apply.textContent = S.index ? `${S.index.filter((r) => matches(r, d, S.dict!)).length.toLocaleString()}枠を表示` : "この条件で表示";
+  $("fpanel-apply").textContent = S.index ? `${S.index.filter((r) => matches(r, d, S.dict!)).length.toLocaleString()}枠を表示` : "この条件で表示";
 }
 
-function openSheet(a: Axis) {
-  axis = a;
+function openPanel(a: Axis) {
+  openAxis = a;
   S.draft = structuredClone(S.filters);
-  for (const fs of sheet.querySelectorAll<HTMLElement>("fieldset[data-axis]")) fs.hidden = fs.dataset.axis !== a;
-  $("sheet-h").textContent = AXIS_LABEL[a];
-  scrim.hidden = false;
-  sheet.hidden = false;
-  // シートを開いているあいだは後ろのページを動かさない
-  document.documentElement.style.overflow = "hidden";
-  syncSheet();
-  ensureIndex().then(() => { if (!sheet.hidden) syncSheet(); }, () => {});
-  $("sheet-close").focus();
+  for (const fs of panel.querySelectorAll<HTMLElement>("fieldset[data-axis]")) fs.hidden = fs.dataset.axis !== a;
+  $("fpanel-h").textContent = AXIS_LABEL[a];
+  panel.hidden = false;
+  renderChips();
+  syncPanel();
+  document.querySelector<HTMLElement>(`#chips [data-axis="${a}"]`)?.focus();
+  panel.scrollIntoView({ block: "nearest" });
+  ensureIndex().then(() => { if (openAxis === a) syncPanel(); }, () => {});
 }
 
-function closeSheet() {
-  sheet.hidden = true;
-  scrim.hidden = true;
-  document.documentElement.style.overflow = "";
+function closePanel(focusAxis: boolean) {
+  const a = openAxis;
+  panel.hidden = true;
+  openAxis = null;
   S.draft = null;
-  document.querySelector<HTMLElement>(`#chips [data-axis="${axis}"]`)?.focus();
+  renderChips();
+  if (focusAxis && a) document.querySelector<HTMLElement>(`#chips [data-axis="${a}"]`)?.focus();
 }
 
-sheet.addEventListener("change", (ev) => {
+panel.addEventListener("change", (ev) => {
   const t = ev.target as HTMLInputElement | HTMLSelectElement;
   const d = S.draft!;
   if (t instanceof HTMLInputElement && t.dataset.ag) {
@@ -312,39 +318,40 @@ sheet.addEventListener("change", (ev) => {
     d.branch = t.checked ? [...d.branch, t.value] : d.branch.filter((k) => k !== t.value);
   } else if (t instanceof HTMLInputElement && t.name === "kind") {
     d.kind = t.checked ? [...d.kind, t.value] : d.kind.filter((k) => k !== t.value);
-  } else if (t instanceof HTMLInputElement && (t.name === "date" || t.name === "movie" || t.name === "country" || t.name === "mem")) {
+  } else if (t instanceof HTMLInputElement && (t.name === "date" || t.name === "movie" || t.name === "country")) {
     (d as unknown as Record<string, string>)[t.name] = t.value;
   } else if (t.id === "opt-year") {
     d.year = t.value;
     if (!d.year) d.season = "";
   }
-  syncSheet();
+  syncPanel();
 });
 
-sheet.addEventListener("click", (ev) => {
+panel.addEventListener("click", (ev) => {
   const t = ev.target as HTMLElement;
   const season = t.closest<HTMLButtonElement>("[data-season]");
   if (season && !season.disabled) {
     S.draft!.season = S.draft!.season === season.dataset.season ? "" : (season.dataset.season as Season);
-    return syncSheet();
+    return syncPanel();
   }
-  if (t.closest("#sheet-close")) return closeSheet();
-  if (t.closest("#sheet-clear")) {
+  if (t.closest("#fpanel-close")) return closePanel(true);
+  if (t.closest("#fpanel-clear")) {
     // この軸だけを指定なしに戻す
-    resetAxis(S.draft!, axis);
-    return syncSheet();
+    resetAxis(S.draft!, openAxis!);
+    return syncPanel();
   }
-  if (t.closest("#sheet-apply")) {
+  if (t.closest("#fpanel-apply")) {
+    const a = openAxis;
     S.filters = S.draft!;
-    if (S.filters.mem === "only" && S.sort === "views") S.sort = "date";
     S.shown = cfg.recentHtml;
-    // 先に描き直してから閉じる（閉じるときに描き直した軸のボタンへフォーカスを戻す）
+    panel.hidden = true;
+    openAxis = null;
+    S.draft = null;
     render();
-    closeSheet();
+    if (a) document.querySelector<HTMLElement>(`#chips [data-axis="${a}"]`)?.focus();
   }
 });
 
-sheet.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") closeSheet();
+panel.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") closePanel(true);
 });
-scrim.addEventListener("click", closeSheet);

@@ -1,4 +1,5 @@
 // トップの「同時視聴した枠」の絞り込みの条件と、条件の軸のボタン（2026-10-20。ユーザーが選んだ「軸のボタン」）。
+// 軸のボタンを押すと、その軸の選択肢が条件の段のすぐ下に開く。メン限は「メン限を除く」のチェック1つで、押すとすぐ切り替わる
 // ビルド（最初の HTML）とブラウザ（site/scripts/top.ts）が同じ関数で作る。DOM に依存しない（文字列を返す）
 import { AFFILIATION_LABEL, BRANCH_LABEL } from "../../src/shared/types.ts";
 import type { Affiliation, Branch } from "../../src/shared/types.ts";
@@ -17,15 +18,17 @@ export interface Filters {
   /** 作品の放送年・放送期 */
   year: string;
   season: Season | "";
-  mem: "all" | "ex" | "only";
+  /** メン限を除く（2026-10-20 ユーザー決定。「メン限だけ」はなくした） */
+  mem: "all" | "ex";
 }
 
 export const EMPTY = (): Filters => ({ date: "", branch: [], kind: [], movie: "all", country: "all", year: "", season: "", mem: "all" });
 
-export type Axis = "date" | "aff" | "kind" | "movie" | "country" | "year" | "mem";
-export const AXES: Axis[] = ["date", "aff", "kind", "movie", "country", "year", "mem"];
+/** 押すと選択肢が開く軸（メン限はチェック1つなので含めない） */
+export type Axis = "date" | "aff" | "kind" | "movie" | "country" | "year";
+export const AXES: Axis[] = ["date", "aff", "kind", "movie", "country", "year"];
 export const AXIS_LABEL: Record<Axis, string> = {
-  date: "配信日", aff: "所属", kind: "作品の種類", movie: "映画かどうか", country: "制作国", year: "作品の放送年", mem: "メン限",
+  date: "配信日", aff: "所属", kind: "作品の種類", movie: "映画かどうか", country: "制作国", year: "作品の放送年",
 };
 const KIND_LABEL: Record<string, string> = { anime: "アニメ", tokusatsu: "特撮", live_action: "実写" };
 
@@ -36,8 +39,7 @@ export function resetAxis(f: Filters, axis: Axis): void {
   else if (axis === "kind") f.kind = [];
   else if (axis === "movie") f.movie = "all";
   else if (axis === "country") f.country = "all";
-  else if (axis === "year") { f.year = ""; f.season = ""; }
-  else f.mem = "all";
+  else { f.year = ""; f.season = ""; }
 }
 
 /**
@@ -62,19 +64,26 @@ export function axisValue(f: Filters, axis: Axis, agAll: (ag: string) => string[
     case "movie": return f.movie === "movie" ? "映画" : f.movie === "other" ? "映画以外" : "";
     case "country": return f.country === "jp" ? "日本の作品" : f.country === "foreign" ? "海外の作品" : "";
     case "year": return f.year ? `${f.year}年${f.season ? SEASON_LABEL[f.season] : ""}の作品` : "";
-    case "mem": return f.mem === "ex" ? "メン限を除く" : f.mem === "only" ? "メン限だけ" : "";
   }
 }
 
-/** 指定している軸の数 */
-export const activeAxes = (f: Filters, agAll: (ag: string) => string[]) => AXES.filter((a) => axisValue(f, a, agAll)).length;
+/** 指定している条件の数（軸とメン限） */
+export const activeAxes = (f: Filters, agAll: (ag: string) => string[]) => AXES.filter((a) => axisValue(f, a, agAll)).length + (f.mem === "ex" ? 1 : 0);
 
-/** 条件の軸のボタン。指定している軸は黒く塗って値を出す。押すとその軸だけのシートを開く */
-export function axisButtonsHtml(f: Filters, agAll: (ag: string) => string[]): string {
-  return AXES.map((a) => {
+const CHECK = '<svg class="ck" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>';
+
+/**
+ * 条件のボタン。軸は押すと選択肢が下に開く（open はいま開いている軸）。指定している軸は塗って値を出す。
+ * 最後はメン限のチェック（押すとすぐ切り替わる）
+ */
+export function axisButtonsHtml(f: Filters, agAll: (ag: string) => string[], open: Axis | null = null): string {
+  const axes = AXES.map((a) => {
     const v = axisValue(f, a, agAll);
+    const attrs = `data-axis="${a}" aria-expanded="${a === open}" aria-controls="fpanel"`;
     return v
-      ? `<button type="button" class="fchip axis on" data-axis="${a}" aria-haspopup="dialog" aria-label="${esc(AXIS_LABEL[a])}：${esc(v)}（条件を変える）">${esc(v)}</button>`
-      : `<button type="button" class="fchip axis" data-axis="${a}" aria-haspopup="dialog">${esc(AXIS_LABEL[a])}</button>`;
+      ? `<button type="button" class="fchip axis on" ${attrs} aria-label="${esc(AXIS_LABEL[a])}：${esc(v)}">${esc(v)}</button>`
+      : `<button type="button" class="fchip axis" ${attrs}>${esc(AXIS_LABEL[a])}</button>`;
   }).join("");
+  const ex = f.mem === "ex";
+  return `${axes}<span class="fdiv" aria-hidden="true"></span><button type="button" class="fchip check${ex ? " on" : ""}" data-toggle="mem" aria-pressed="${ex}">${CHECK}メン限を除く</button>`;
 }
