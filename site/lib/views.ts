@@ -112,7 +112,7 @@ export function workRowHtml(r: WorkListRow, metric: WorkRowMetric = "streamers",
   const img = unpackImage(image);
   const thumb = img
     ? `<img class="wimg" src="${esc(img)}" alt="" width="44" height="62" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
-    : `<span class="wimg none" aria-hidden="true">${esc(title.slice(0, 1))}</span>`;
+    : `<span class="wimg none" aria-hidden="true">${esc(formLabel((kind || null) as WorkKind | null, (media || null) as WorkMedia | null) || "作品")}</span>`;
   const meta = metaLine({ kind: (kind || null) as WorkKind | null, media: (media || null) as WorkMedia | null, year: year || null, season: (season || null) as Season | null });
   const top = metric === "views"
     ? `<span class="num${viewsMax == null ? " none" : ""}">${esc(formatViews(viewsMax))}</span>`

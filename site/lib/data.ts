@@ -47,12 +47,12 @@ export const streamerPages = site.streamers.filter((s) => s.hasPage);
 
 // ---------------------------------------------------------------- トップ
 
-/** ランキング（枠単位。期間内の公開枠を再生数の多い順。作品の付いた枠だけ）。days が 0 なら全期間 */
-export function ranking(days: number): SiteEvent[] {
+/** ランキング（枠単位。期間内の公開枠を再生数の多い順。作品の付いた枠だけ）。days が 0 なら全期間。limit は既定で設定の枠数 */
+export function ranking(days: number, limit: number = cfg.top.ranking_size): SiteEvent[] {
   const from = days ? new Date(now.getTime() - days * 86_400_000).toISOString() : "";
   return completed.filter((e) => !e.membersOnly && e.views != null && e.works.length > 0 && e.startedAt >= from)
     .sort((a, b) => b.views! - a.views! || b.startedAt.localeCompare(a.startedAt))
-    .slice(0, cfg.top.ranking_size);
+    .slice(0, limit);
 }
 
 /** これから始まる枠（配信中を先頭に、そのあと開始の早い順） */

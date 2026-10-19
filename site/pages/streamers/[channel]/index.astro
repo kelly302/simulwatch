@@ -50,7 +50,7 @@ const jsonLd = [{
       </div>
     </div>
     <dl class="stats bleed">
-      <div><dt>同時視聴の枠</dt><dd>{s.eventsCount}<span class="u">枠</span></dd></div>
+      <div><dt>同時視聴</dt><dd>{s.eventsCount}<span class="u">枠</span></dd></div>
       <div><dt>観た作品</dt><dd>{s.worksCount}<span class="u">作品</span></dd></div>
       <div><dt>期間</dt><dd class="range">{formatMonth(s.firstEventAt) === formatMonth(s.latestEventAt) ? formatMonth(s.firstEventAt) : <Fragment>{formatMonth(s.firstEventAt)}〜<br>{formatMonth(s.latestEventAt)}</Fragment>}</dd></div>
     </dl>

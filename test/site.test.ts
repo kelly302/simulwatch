@@ -7,6 +7,7 @@ import { cardHtml, workCardHtml, workRowHtml } from "../site/lib/views.ts";
 import type { TopDict, TopRow } from "../site/lib/encode.ts";
 import { packImage, unpackImage } from "../site/lib/encode.ts";
 import { norm } from "../site/lib/text.ts";
+import { EMPTY, activeAxes, axisButtonsHtml, axisValue, resetAxis } from "../site/lib/filters.ts";
 
 test("種別形式・時期の表記（モックアップ「作品の属性の出し方」）", () => {
   assert.equal(metaLine({ kind: "anime", media: "tv", year: 2013, season: "spring" }), "TVアニメ · 2013年春");
@@ -136,6 +137,38 @@ test("作品の画像のカード（よく同時視聴される作品・同じ�
   assert.match(cur, /<div class="wcard" aria-current="page">/);
   assert.doesNotMatch(cur, /href=/);
   assert.match(cur, /この作品/);
+});
+
+test("トップの絞り込みの軸のボタン（指定した軸は黒く塗って値を出す）", () => {
+  const agAll = (ag: string) => (ag === "nijisanji" ? ["nijisanji:jp", "nijisanji:en", "nijisanji:kr", "nijisanji:id"] : [`${ag}:jp`]);
+  const f = EMPTY();
+  // 何も指定していなければ7つの軸の名前だけ
+  const none = axisButtonsHtml(f, agAll);
+  assert.equal((none.match(/class="fchip axis"/g) ?? []).length, 7);
+  assert.match(none, />配信日<\/button>/);
+  assert.match(none, />作品の放送年<\/button>/);
+  assert.equal(activeAxes(f, agAll), 0);
+  f.date = "2025"; f.branch = ["nijisanji:en", "nijisanji:kr"]; f.kind = ["anime", "tokusatsu"]; f.year = "2013"; f.season = "spring"; f.mem = "ex";
+  assert.equal(axisValue(f, "date", agAll), "2025年に配信");
+  assert.equal(axisValue(f, "aff", agAll), "にじさんじ EN・KR");
+  assert.equal(axisValue(f, "kind", agAll), "アニメ・特撮");
+  assert.equal(axisValue(f, "year", agAll), "2013年春の作品");
+  assert.equal(axisValue(f, "mem", agAll), "メン限を除く");
+  assert.equal(activeAxes(f, agAll), 5);
+  const on = axisButtonsHtml(f, agAll);
+  assert.match(on, /class="fchip axis on" data-axis="date" aria-haspopup="dialog" aria-label="配信日：2025年に配信（条件を変える）">2025年に配信</);
+  // 所属をまとめて選べば事務所の名前だけ。3つ以上は「ほか」
+  f.branch = ["nijisanji:jp", "nijisanji:en", "nijisanji:kr", "nijisanji:id"];
+  assert.equal(axisValue(f, "aff", agAll), "にじさんじ");
+  f.branch = [...f.branch, "hololive:jp", "vspo:jp"];
+  assert.equal(axisValue(f, "aff", agAll), "にじさんじ ほか2");
+  // その軸だけ指定なしに戻す
+  resetAxis(f, "year");
+  assert.equal(f.year, "");
+  assert.equal(f.season, "");
+  assert.equal(f.date, "2025");
+  f.date = "30d";
+  assert.equal(axisValue(f, "date", agAll), "この30日");
 });
 
 test("検索の照合: カタカナとひらがな・全角半角・記号をそろえる", () => {

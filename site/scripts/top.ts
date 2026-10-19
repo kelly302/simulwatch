@@ -1,30 +1,20 @@
-// トップのブラウザ側の動き。
+// トップのブラウザ側の動き。条件の軸のボタンを押すと、その軸だけのシートを開く（2026-10-20）。
 //   ランキングの期間の切り替え（3期間とも HTML に入っている）
 //   「同時視聴した枠」: さらに表示（新しい順300枠の JSON）→ 絞り込み・並べ替え・300枠より先（全件の索引と辞書）
 // 件数は索引を読んだあとに出す。読み込みに失敗しても今の表示は消さない
 
 import type { TopDict, TopRecent, TopRow } from "../lib/encode.ts";
 import { cardHtml, esc } from "../lib/views.ts";
-import { SEASON_LABEL, formatDate, sortByViews } from "../../src/shared/site.ts";
+import { AXIS_LABEL, EMPTY, activeAxes, axisButtonsHtml, resetAxis } from "../lib/filters.ts";
+import type { Axis, Filters } from "../lib/filters.ts";
+import { formatDate, sortByViews } from "../../src/shared/site.ts";
 import type { Season } from "../../src/shared/site.ts";
-import { AFFILIATION_LABEL, BRANCH_LABEL } from "../../src/shared/types.ts";
-import type { Affiliation, Branch } from "../../src/shared/types.ts";
-
-interface Filters {
-  branch: string[];
-  kind: string[];
-  movie: "all" | "movie" | "other";
-  country: "all" | "jp" | "foreign";
-  year: string;
-  season: Season | "";
-  mem: "all" | "ex" | "only";
-}
-
-const EMPTY = (): Filters => ({ branch: [], kind: [], movie: "all", country: "all", year: "", season: "", mem: "all" });
-const KIND_LABEL: Record<string, string> = { anime: "アニメ", tokusatsu: "特撮", live_action: "実写" };
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-const cfg = JSON.parse($("top-config").textContent ?? "{}") as { recentHtml: number; recentJson: number; total: number };
+const cfg = JSON.parse($("top-config").textContent ?? "{}") as { generatedAt: string; recentHtml: number; recentJson: number; total: number };
+/** 配信日の「この30日」「この1年」の起点（ビルドの時刻。ランキングの期間と同じ） */
+const nowSec = Math.floor(Date.parse(cfg.generatedAt) / 1000);
+const jstYear = (t: number) => new Date((t + 9 * 3600) * 1000).getUTCFullYear();
 
 const S = {
   sort: "date" as "date" | "views",
@@ -47,6 +37,18 @@ periodGroup?.addEventListener("click", (ev) => {
   if (!b) return;
   for (const x of periodGroup.querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
   for (const p of document.querySelectorAll<HTMLElement>(".rank-pane")) p.hidden = p.dataset.period !== b.dataset.period;
+});
+
+// ランキングの続き（9位から。HTML に入っている行を開く・閉じる）
+document.querySelector('[aria-labelledby="h-rank"]')?.addEventListener("click", (ev) => {
+  const b = (ev.target as HTMLElement).closest<HTMLButtonElement>(".rank-more");
+  if (!b) return;
+  const open = b.getAttribute("aria-expanded") !== "true";
+  b.setAttribute("aria-expanded", String(open));
+  const list = document.getElementById(b.getAttribute("aria-controls") ?? "");
+  if (list) list.hidden = !open;
+  b.textContent = open ? "閉じる" : (b.dataset.label ?? "続きを見る");
+  if (!open) b.scrollIntoView({ block: "nearest" });
 });
 
 // ---------------------------------------------------------------- 読み込み
@@ -88,6 +90,9 @@ function ensureIndex(): Promise<void> {
 // ---------------------------------------------------------------- 絞り込みと並べ替え
 
 function matches(r: TopRow, f: Filters, d: TopDict): boolean {
+  if (f.date === "30d" && r[1] < nowSec - 30 * 86_400) return false;
+  if (f.date === "1y" && r[1] < nowSec - 365 * 86_400) return false;
+  if (f.date && f.date !== "30d" && f.date !== "1y" && jstYear(r[1]) !== Number(f.date)) return false;
   const st = d.s[r[4]];
   if (f.branch.length && !(st && f.branch.includes(`${st[2]}:${st[3]}`))) return false;
   if (f.mem === "ex" && r[3]) return false;
@@ -113,36 +118,11 @@ function sortRows(rows: TopRow[]): TopRow[] {
   return sortByViews(rows, (r) => r[2], (r) => r[1], S.rev);
 }
 
-interface Chip { key: string; label: string }
-
 function agBranches(ag: string): string[] {
   return [...document.querySelectorAll<HTMLInputElement>(`#sheet input[name="branch"][value^="${ag}:"]`)].map((i) => i.value);
 }
 
-function chipList(f: Filters): Chip[] {
-  const chips: Chip[] = [];
-  const byAg = new Map<string, string[]>();
-  for (const v of f.branch) {
-    const [ag] = v.split(":");
-    byAg.set(ag!, [...(byAg.get(ag!) ?? []), v]);
-  }
-  for (const [ag, sel] of byAg) {
-    const all = agBranches(ag);
-    const name = AFFILIATION_LABEL[ag as Affiliation] ?? ag;
-    chips.push({
-      key: `ag:${ag}`,
-      label: sel.length === all.length ? name : `${name} ${sel.map((v) => BRANCH_LABEL[v.split(":")[1] as Branch]).join("・")}`,
-    });
-  }
-  for (const k of f.kind) chips.push({ key: `kind:${k}`, label: KIND_LABEL[k] ?? k });
-  if (f.movie !== "all") chips.push({ key: "movie", label: f.movie === "movie" ? "映画" : "映画以外" });
-  if (f.country !== "all") chips.push({ key: "country", label: f.country === "jp" ? "日本の作品" : "海外の作品" });
-  if (f.year) chips.push({ key: "year", label: f.season ? `${f.year}年${SEASON_LABEL[f.season]}` : `${f.year}年` });
-  if (f.mem !== "all") chips.push({ key: "mem", label: f.mem === "ex" ? "メン限を除く" : "メン限だけ" });
-  return chips;
-}
-
-const activeCount = (f: Filters) => chipList(f).length;
+const activeCount = (f: Filters) => activeAxes(f, agBranches);
 const needsIndex = () => S.sort !== "date" || S.rev || activeCount(S.filters) > 0 || S.shown > cfg.recentJson;
 
 // ---------------------------------------------------------------- 描画
@@ -174,12 +154,8 @@ function renderSortControls() {
 }
 
 function renderChips() {
-  const chips = chipList(S.filters);
-  const n = chips.length;
-  $("chips").innerHTML = `<button type="button" class="btn-filter" id="open-filter" aria-haspopup="dialog">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"></path></svg>絞り込み${n ? `（${n}）` : ""}</button>`
-    + chips.map((c) => `<button type="button" class="chip" data-remove="${esc(c.key)}" aria-label="${esc(c.label)} の条件を外す">${esc(c.label)}<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>`).join("")
-    + (n >= 2 ? '<button type="button" class="linkish" data-remove="all">すべて外す</button>' : "");
+  $("chips").innerHTML = axisButtonsHtml(S.filters, agBranches);
+  $("clear-all").hidden = activeCount(S.filters) === 0;
 }
 
 function render() {
@@ -217,7 +193,7 @@ function render() {
   status.innerHTML = activeCount(S.filters) > 0 ? `条件に当たる <strong>${total.toLocaleString()}</strong>枠` : `全 <strong>${total.toLocaleString()}</strong>枠`;
   if (total === 0) {
     grid.innerHTML = "";
-    empty.innerHTML = `<div class="empty"><p><strong>条件に当たる枠がありません</strong></p><p class="note">上の条件のボタンを押すと、その条件を外せます。</p><button type="button" class="btn" data-remove="all">条件をすべて外す</button></div>`;
+    empty.innerHTML = `<div class="empty"><p><strong>条件に当たる枠がありません</strong></p><p class="note">上の黒い条件のボタンを押すと、その条件を変えられます。</p><button type="button" class="btn" data-remove="all">条件をすべて外す</button></div>`;
     more.innerHTML = "";
     return;
   }
@@ -244,15 +220,8 @@ function showMore(btn: HTMLButtonElement) {
   });
 }
 
-function removeFilter(key: string) {
-  const f = S.filters;
-  if (key === "all") S.filters = EMPTY();
-  else if (key.startsWith("ag:")) f.branch = f.branch.filter((v) => !v.startsWith(`${key.slice(3)}:`));
-  else if (key.startsWith("kind:")) f.kind = f.kind.filter((k) => k !== key.slice(5));
-  else if (key === "movie") f.movie = "all";
-  else if (key === "country") f.country = "all";
-  else if (key === "year") { f.year = ""; f.season = ""; }
-  else if (key === "mem") f.mem = "all";
+function removeAll() {
+  S.filters = EMPTY();
   S.shown = cfg.recentHtml;
   render();
 }
@@ -274,9 +243,9 @@ document.getElementById("done")?.addEventListener("click", (ev) => {
     S.shown = cfg.recentHtml;
     return render();
   }
-  if (t.closest("#open-filter")) return openSheet();
-  const rm = t.closest<HTMLElement>("[data-remove]");
-  if (rm) return removeFilter(rm.dataset.remove!);
+  const axisBtn = t.closest<HTMLElement>("[data-axis]");
+  if (axisBtn) return openSheet(axisBtn.dataset.axis as Axis);
+  if (t.closest("[data-remove]")) return removeAll();
   const moreBtn = t.closest<HTMLButtonElement>("#more-btn");
   if (moreBtn) return showMore(moreBtn);
 });
@@ -285,6 +254,7 @@ document.getElementById("done")?.addEventListener("click", (ev) => {
 
 const sheet = $("sheet");
 const scrim = $("scrim");
+let axis: Axis = "date";
 
 function syncSheet() {
   const d = S.draft!;
@@ -296,6 +266,7 @@ function syncSheet() {
     i.indeterminate = n > 0 && n < keys.length;
   }
   for (const i of sheet.querySelectorAll<HTMLInputElement>('input[name="kind"]')) i.checked = d.kind.includes(i.value);
+  for (const i of sheet.querySelectorAll<HTMLInputElement>('input[name="date"]')) i.checked = d.date === i.value;
   for (const name of ["movie", "country", "mem"] as const) {
     for (const i of sheet.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)) i.checked = d[name] === i.value;
   }
@@ -308,10 +279,15 @@ function syncSheet() {
   apply.textContent = S.index ? `${S.index.filter((r) => matches(r, d, S.dict!)).length.toLocaleString()}枠を表示` : "この条件で表示";
 }
 
-function openSheet() {
+function openSheet(a: Axis) {
+  axis = a;
   S.draft = structuredClone(S.filters);
+  for (const fs of sheet.querySelectorAll<HTMLElement>("fieldset[data-axis]")) fs.hidden = fs.dataset.axis !== a;
+  $("sheet-h").textContent = AXIS_LABEL[a];
   scrim.hidden = false;
   sheet.hidden = false;
+  // シートを開いているあいだは後ろのページを動かさない
+  document.documentElement.style.overflow = "hidden";
   syncSheet();
   ensureIndex().then(() => { if (!sheet.hidden) syncSheet(); }, () => {});
   $("sheet-close").focus();
@@ -320,8 +296,9 @@ function openSheet() {
 function closeSheet() {
   sheet.hidden = true;
   scrim.hidden = true;
+  document.documentElement.style.overflow = "";
   S.draft = null;
-  document.getElementById("open-filter")?.focus();
+  document.querySelector<HTMLElement>(`#chips [data-axis="${axis}"]`)?.focus();
 }
 
 sheet.addEventListener("change", (ev) => {
@@ -335,7 +312,7 @@ sheet.addEventListener("change", (ev) => {
     d.branch = t.checked ? [...d.branch, t.value] : d.branch.filter((k) => k !== t.value);
   } else if (t instanceof HTMLInputElement && t.name === "kind") {
     d.kind = t.checked ? [...d.kind, t.value] : d.kind.filter((k) => k !== t.value);
-  } else if (t instanceof HTMLInputElement && (t.name === "movie" || t.name === "country" || t.name === "mem")) {
+  } else if (t instanceof HTMLInputElement && (t.name === "date" || t.name === "movie" || t.name === "country" || t.name === "mem")) {
     (d as unknown as Record<string, string>)[t.name] = t.value;
   } else if (t.id === "opt-year") {
     d.year = t.value;
@@ -353,15 +330,17 @@ sheet.addEventListener("click", (ev) => {
   }
   if (t.closest("#sheet-close")) return closeSheet();
   if (t.closest("#sheet-clear")) {
-    S.draft = EMPTY();
+    // この軸だけを指定なしに戻す
+    resetAxis(S.draft!, axis);
     return syncSheet();
   }
   if (t.closest("#sheet-apply")) {
     S.filters = S.draft!;
     if (S.filters.mem === "only" && S.sort === "views") S.sort = "date";
     S.shown = cfg.recentHtml;
-    closeSheet();
+    // 先に描き直してから閉じる（閉じるときに描き直した軸のボタンへフォーカスを戻す）
     render();
+    closeSheet();
   }
 });
 
