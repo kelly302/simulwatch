@@ -1,0 +1,11 @@
+---
+import Base from "../layouts/Base.astro";
+import { cfg } from "../lib/data.ts";
+---
+<Base title={`ページが見つかりません | ${cfg.site_name}`} description="お探しのページは見つかりませんでした。" path="/404/" noindex>
+<main class="wrap prose">
+  <h1>ページが見つかりません</h1>
+  <p>お探しのページは見つかりませんでした。同時視聴の枠が無くなった作品・配信者のページは削除されます。</p>
+  <p><a href="/">トップ</a> ・ <a href="/works/">作品の一覧</a> ・ <a href="/streamers/">配信者の一覧</a></p>
+</main>
+</Base>

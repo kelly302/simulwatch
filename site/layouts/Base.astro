@@ -1,0 +1,79 @@
+---
+// ページの共通の枠（head・ヘッダー・フッター）。canonical は自分自身（末尾スラッシュ）
+import "../styles/global.css";
+import { cfg, viewsUpdated } from "../lib/data.ts";
+import { formatDate } from "../../src/shared/site.ts";
+
+interface Props {
+  title: string;
+  description: string;
+  /** サイトの中のパス（/works/annict-1234/） */
+  path: string;
+  nav?: "top" | "works" | "streamers" | null;
+  jsonLd?: unknown[];
+  /** og:image のパス（無ければサイト共通の画像） */
+  ogImage?: string;
+  ogType?: string;
+  noindex?: boolean;
+}
+
+const { title, description, path, nav = null, jsonLd = [], ogImage = "/og/default.png", ogType = "website", noindex = false } = Astro.props;
+const canonical = new URL(path, Astro.site).href;
+const ogImageUrl = new URL(ogImage, Astro.site).href;
+const ld = (o: unknown) => JSON.stringify(o).replace(/</g, "\\u003c");
+---
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{title}</title>
+<meta name="description" content={description}>
+<link rel="canonical" href={canonical}>
+{noindex && <meta name="robots" content="noindex">}
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#191C23" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta property="og:site_name" content={cfg.site_name}>
+<meta property="og:locale" content="ja_JP">
+<meta property="og:type" content={ogType}>
+<meta property="og:title" content={title}>
+<meta property="og:description" content={description}>
+<meta property="og:url" content={canonical}>
+<meta property="og:image" content={ogImageUrl}>
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://i.ytimg.com" crossorigin>
+{jsonLd.map((o) => <script type="application/ld+json" set:html={ld(o)} />)}
+</head>
+<body>
+<header class="site">
+  <div class="wrap">
+    <a class="logo" href="/">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="color: var(--accent)"><rect x="2.5" y="4.5" width="13" height="10" rx="2"></rect><rect x="8.5" y="9.5" width="13" height="10" rx="2" fill="var(--accent-soft)"></rect></svg>
+      {cfg.site_name}
+    </a>
+    <nav class="nav" aria-label="メイン">
+      <a href="/" aria-current={nav === "top" ? "page" : undefined}>トップ</a>
+      <a href="/works/" aria-current={nav === "works" ? "page" : undefined}>作品</a>
+      <a href="/streamers/" aria-current={nav === "streamers" ? "page" : undefined}>配信者</a>
+    </nav>
+  </div>
+</header>
+<slot />
+<footer class="site-foot">
+  <div class="wrap">
+    <div>動画の情報は YouTube Data API を使って取得しています。サムネイルを押すと YouTube の動画ページを開きます。</div>
+    <div>作品情報: Annict / AniList / Wikipedia・Wikidata</div>
+    {viewsUpdated && <div>再生数は毎日更新しています（最終更新 {formatDate(viewsUpdated)}）</div>}
+    <nav aria-label="サイトの情報">
+      <a href="/about/">このサイトについて</a>
+      <a href="/privacy/">プライバシーポリシー（広告・Cookie）</a>
+      <a href="https://www.youtube.com/t/terms">YouTube 利用規約</a>
+      <a href="https://policies.google.com/privacy">Google プライバシーポリシー</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

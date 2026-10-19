@@ -43,6 +43,8 @@ export const AFFILIATION_LABEL: Record<Affiliation, string> = {
 export interface Streamer {
   id: number;
   name: string;
+  /** 英語の名前（にじさんじは名簿の API の enName、ホロライブは英語版の一覧）。取れなければ null */
+  name_en: string | null;
   affiliation: Affiliation;
   /** 所属の中の区分（にじさんじの jp / kr / id。ホロライブ・ぶいすぽっ！は jp） */
   branch: Branch | null;

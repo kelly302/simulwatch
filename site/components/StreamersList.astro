@@ -1,0 +1,92 @@
+---
+// 配信者一覧（所属のタブ）。全員を1ページの HTML に出し、名前の検索・区分のチェック・並べ替えはブラウザで行う（site/scripts/streamers.ts）
+import Base from "../layouts/Base.astro";
+import { AFF_SLUG, BRANCH_ORDER, STREAMER_AFFS, cfg, streamersOf } from "../lib/data.ts";
+import { affLabel, avatarHtml } from "../lib/views.ts";
+import { norm } from "../lib/text.ts";
+import { AFFILIATION_LABEL, BRANCH_LABEL } from "../../src/shared/types.ts";
+import type { Affiliation } from "../../src/shared/types.ts";
+import { formatDate, showsNameEn, streamerPath } from "../../src/shared/site.ts";
+
+interface Props {
+  aff: Exclude<Affiliation, "other"> | "all";
+}
+
+const { aff } = Astro.props;
+const list = streamersOf(aff);
+const branches = BRANCH_ORDER.filter((b) => list.some((s) => s.branch === b));
+const tabs = [
+  { key: "all", label: "すべて", href: "/streamers/", n: streamersOf("all").length },
+  ...STREAMER_AFFS.map((a) => ({ key: a, label: AFFILIATION_LABEL[a], href: `/streamers/${AFF_SLUG[a]}/`, n: streamersOf(a).length })),
+].filter((t) => t.n > 0);
+const affName = aff === "all" ? "" : AFFILIATION_LABEL[aff];
+const path = aff === "all" ? "/streamers/" : `/streamers/${AFF_SLUG[aff]}/`;
+const title = `同時視聴した配信者${affName ? `（${affName}）` : ""} | ${cfg.site_name}`;
+const description = `${affName || "にじさんじ・ホロライブ・ぶいすぽっ！"}の配信者${list.length.toLocaleString()}人が同時視聴（ミラー配信）した枠と作品の数を、最後に同時視聴した日の新しい順に並べています。`;
+const jsonLd = [{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "トップ", item: new URL("/", Astro.site).href },
+    { "@type": "ListItem", position: 2, name: "配信者", item: new URL("/streamers/", Astro.site).href },
+    ...(aff === "all" ? [] : [{ "@type": "ListItem", position: 3, name: affName, item: new URL(path, Astro.site).href }]),
+  ],
+}];
+---
+<Base title={title} description={description} path={path} nav="streamers" jsonLd={jsonLd}>
+<div class="list-head">
+  <div class="wrap">
+    <div class="h1row">
+      <h1>同時視聴した配信者{affName && `（${affName}）`}</h1>
+      <span class="total" id="total">{list.length.toLocaleString()}人</span>
+    </div>
+    <nav class="tabs" aria-label="所属ごとの一覧">
+      {tabs.map((t) => <a href={t.href} aria-current={t.key === aff ? "page" : undefined}>{t.label}<span class="n">{t.n.toLocaleString()}</span></a>)}
+    </nav>
+    <label class="search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+      <span class="sr">配信者名で検索</span>
+      <input type="search" id="q" placeholder="配信者名（カタカナ・英語）で検索" autocomplete="off" enterkeyhint="search">
+    </label>
+    {branches.length > 1 && (
+      <div class="branch-box" role="group" aria-label="区分" id="branches">
+        <span class="lbl">区分</span>
+        {branches.map((b) => <label><input type="checkbox" value={b} checked />{BRANCH_LABEL[b]} <span class="n">{list.filter((s) => s.branch === b).length}</span></label>)}
+      </div>
+    )}
+    <div class="sortbar" id="sortbar">
+      <div class="keys" role="group" aria-label="並び順">
+        <button type="button" class="pill" data-sort="latest" aria-pressed="true">最終視聴日</button>
+        <button type="button" class="pill" data-sort="events" aria-pressed="false">枠数</button>
+        <button type="button" class="pill" data-sort="works" aria-pressed="false">作品数</button>
+      </div>
+      <button type="button" class="pill rev" id="rev" aria-pressed="false" aria-label="逆順にする（今は新しい順）">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M4 17l3 3 3-3M17 20V4M14 7l3-3 3 3"></path></svg>
+        <span id="rev-label">新しい順</span>
+      </button>
+    </div>
+    <p class="status" id="status" aria-live="polite"></p>
+  </div>
+</div>
+<main>
+  <ol class="rows" id="streamer-rows">
+    {list.map((s, i) => (
+      <li data-i={String(i)} data-latest={s.latestEventAt ?? ""} data-events={String(s.eventsCount)} data-works={String(s.worksCount)} data-branch={s.branch} data-q={norm(`${s.name} ${s.nameEn ?? ""}`)}>
+        <a class="srow" href={streamerPath(s.channelId)}>
+          <Fragment set:html={avatarHtml(s.name, s.iconUrl, 44, "sav")} />
+          <span class="sbody">
+            <span class="sname">{s.name}</span>
+            {showsNameEn(s) && <span class="sen" lang="en">{s.nameEn}</span>}
+            <span class="sfacts"><span>{affLabel(s.affiliation, s.branch)}</span><span>{s.eventsCount}枠</span><span>{s.worksCount}作品</span></span>
+          </span>
+          <span class="wside"><span class="cap">最終視聴</span><span class="sub" style="font-size: 13px; font-weight: 700; color: var(--ink);">{formatDate(s.latestEventAt)}</span></span>
+        </a>
+      </li>
+    ))}
+  </ol>
+  <div class="wrap" id="streamer-empty" hidden><p class="note" style="padding-block: 16px;">条件に当たる配信者がいません。</p></div>
+</main>
+<script>
+  import "../scripts/streamers.ts";
+</script>
+</Base>

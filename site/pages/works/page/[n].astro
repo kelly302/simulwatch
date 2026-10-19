@@ -1,0 +1,10 @@
+---
+import WorksList from "../../../components/WorksList.astro";
+import { pageCount, worksOfTab } from "../../../lib/data.ts";
+
+export function getStaticPaths() {
+  const n = pageCount(worksOfTab("all").length);
+  return Array.from({ length: Math.max(0, n - 1) }, (_, i) => ({ params: { n: String(i + 2) } }));
+}
+---
+<WorksList tab="all" page={Number(Astro.params.n)} />

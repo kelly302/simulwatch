@@ -1,0 +1,187 @@
+---
+// トップ。ランキング（3期間）・これから始まる枠・同時視聴した枠（新しい順24枠）をビルド時の HTML に入れる。
+// 「さらに表示」で新しい順300枠の JSON、絞り込み・並べ替え・300枠より先で全件の索引と辞書を読む（site/scripts/top.ts）
+import Base from "../layouts/Base.astro";
+import { cfg, completed, ranking, site, streamerById, upcoming, workById, viewsUpdated } from "../lib/data.ts";
+import { dictFor, encodeRow } from "../lib/encode.ts";
+import { cardHtml } from "../lib/views.ts";
+import { AFFILIATION_LABEL, BRANCH_LABEL } from "../../src/shared/types.ts";
+import type { Affiliation, Branch } from "../../src/shared/types.ts";
+import { SEASONS, SEASON_LABEL, formatDate } from "../../src/shared/site.ts";
+
+const periods = cfg.top.ranking_periods.map((days) => {
+  const evs = ranking(days);
+  return { days, label: days ? `${days}日` : "全期間", evs, dict: dictFor(evs, streamerById, workById) };
+});
+const viewsAt = viewsUpdated ? formatDate(viewsUpdated).slice(5) : "";
+const up = upcoming;
+const upDict = dictFor(up, streamerById, workById);
+const recent = completed.slice(0, cfg.top.recent_html);
+const recentDict = dictFor(recent, streamerById, workById);
+
+// 絞り込みの選択肢（データにある所属の区分・放送年だけ）
+const BRANCH_ORDER: Branch[] = ["jp", "en", "kr", "id"];
+const affs = (["nijisanji", "hololive", "vspo"] as Affiliation[]).map((aff) => {
+  const ids = new Set(completed.map((e) => e.streamerId));
+  const branches = BRANCH_ORDER.filter((b) => site.streamers.some((s) => s.affiliation === aff && s.branch === b && ids.has(s.id)));
+  return { aff, label: AFFILIATION_LABEL[aff], branches };
+}).filter((a) => a.branches.length > 0);
+const years = [...new Set(completed.flatMap((e) => e.works.map((w) => workById.get(w.id)?.year)).filter((y): y is number => !!y))].sort((a, b) => b - a);
+
+const description = `にじさんじ・ホロライブ・ぶいすぽっ！の配信者が同時視聴（ミラー配信）した作品と枠をまとめています。${site.works.filter((w) => w.hasPage).length.toLocaleString()}作品・${completed.length.toLocaleString()}枠。作品から配信者を、配信者から観た作品をたどれます。`;
+const jsonLd = [{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: cfg.site_name,
+  url: new URL("/", Astro.site).href,
+  inLanguage: "ja",
+  description,
+}];
+const lastShown = recent.at(-1);
+const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_html, recentJson: cfg.top.recent_json, total: completed.length };
+---
+<Base title={`VTuber の同時視聴（ミラー配信）を作品から探す | ${cfg.site_name}`} description={description} path="/" nav="top" jsonLd={jsonLd}>
+<main class="wrap" id="top">
+  <h1 class="lead">VTuber の同時視聴（ミラー配信）を作品から探す</h1>
+  <p class="intro">にじさんじ・ホロライブ・ぶいすぽっ！の配信者が同時視聴した作品と枠をまとめています。作品から配信者を、配信者から観た作品をたどれます。</p>
+
+  <section class="block" aria-labelledby="h-rank">
+    <h2 id="h-rank">ランキング</h2>
+    <div class="seg inline" role="group" aria-label="期間" id="rank-period">
+      {periods.map((p, i) => <button type="button" data-period={String(p.days)} aria-pressed={i === 0 ? "true" : "false"}>{p.label}</button>)}
+    </div>
+    {periods.map((p, i) => (
+      <div class="rank-pane" data-period={String(p.days)} hidden={i !== 0}>
+        <p class="note">{p.days ? `この${p.days}日に配信された` : "これまでに配信された"}公開枠を、再生数の多い順に。{viewsAt && `再生数は ${viewsAt} 時点。`}</p>
+        {p.evs.length
+          ? <div class="grid" set:html={p.evs.map((e, j) => cardHtml(encodeRow(e), p.dict, { rank: j + 1, lazy: i !== 0 || j >= 4 })).join("")} />
+          : <p class="note">この期間の公開枠はまだありません。</p>}
+      </div>
+    ))}
+  </section>
+
+  <aside class="ad" aria-label="広告"></aside>
+
+  <section class="block" aria-labelledby="h-up">
+    <div class="block-head">
+      <h2 id="h-up">これから始まる枠</h2>
+      <span class="note">配信中を先頭に</span>
+    </div>
+    {up.length
+      ? <div class="grid" set:html={up.map((e) => cardHtml(encodeRow(e), upDict)).join("")} />
+      : <p class="note">予定されている枠はありません。</p>}
+  </section>
+
+  <section class="block" aria-labelledby="h-done" id="done">
+    <h2 id="h-done">同時視聴した枠</h2>
+    <div class="sortbar">
+      <div class="keys" role="group" aria-label="並び順">
+        <button type="button" class="pill" data-sort="date" aria-pressed="true">配信日</button>
+        <button type="button" class="pill" data-sort="views" aria-pressed="false">再生数</button>
+      </div>
+      <button type="button" class="pill rev" id="rev" aria-pressed="false" aria-label="逆順にする（今は新しい順）">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M4 17l3 3 3-3M17 20V4M14 7l3-3 3 3"></path></svg>
+        <span id="rev-label">新しい順</span>
+      </button>
+    </div>
+    <p class="sortnote" id="sort-note" hidden></p>
+    <div class="controls" id="chips">
+      <button type="button" class="btn-filter" id="open-filter" aria-haspopup="dialog">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"></path></svg>絞り込み
+      </button>
+    </div>
+    <p class="status" id="status" aria-live="polite"></p>
+    <div class="grid" id="done-grid" set:html={recent.map((e, j) => cardHtml(encodeRow(e), recentDict, { lazy: j >= 4 })).join("")} />
+    <div id="done-empty"></div>
+    <div class="more" id="more">
+      {completed.length > recent.length && <button type="button" class="btn" id="more-btn">さらに表示</button>}
+      {lastShown && <p>{formatDate(lastShown.startedAt)} までの枠を表示しています</p>}
+    </div>
+  </section>
+</main>
+
+<div class="scrim" id="scrim" hidden></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-h" hidden>
+  <div class="sheet-head">
+    <h2 id="sheet-h">同時視聴した枠を絞り込む</h2>
+    <button type="button" class="icon-btn" id="sheet-close" aria-label="閉じる">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+    </button>
+  </div>
+  <div class="sheet-body">
+    <fieldset>
+      <legend>所属</legend>
+      <div class="aff-list">
+        {affs.map((a) => a.branches.length === 1
+          ? <div class="aff-group"><label class="chk"><input type="checkbox" name="branch" value={`${a.aff}:${a.branches[0]}`} />{a.label}</label></div>
+          : <div class="aff-group">
+              <label class="chk"><input type="checkbox" data-ag={a.aff} />{a.label}</label>
+              <div class="opts sub" role="group" aria-label={`${a.label}の区分`}>
+                {a.branches.map((b) => <label class="chk"><input type="checkbox" name="branch" value={`${a.aff}:${b}`} />{BRANCH_LABEL[b]}</label>)}
+              </div>
+            </div>)}
+      </div>
+      <p class="hint">区分は、枠のある区分だけを出します。</p>
+    </fieldset>
+    <fieldset>
+      <legend>作品</legend>
+      <div class="subrow">
+        <span class="sublabel" id="lbl-kind">種類</span>
+        <div class="opts" role="group" aria-labelledby="lbl-kind">
+          <label class="chk"><input type="checkbox" name="kind" value="anime" />アニメ</label>
+          <label class="chk"><input type="checkbox" name="kind" value="tokusatsu" />特撮</label>
+          <label class="chk"><input type="checkbox" name="kind" value="live_action" />実写</label>
+        </div>
+      </div>
+      <div class="subrow">
+        <span class="sublabel" id="lbl-movie">映画かどうか</span>
+        <div class="seg" role="radiogroup" aria-labelledby="lbl-movie">
+          <label><input type="radio" name="movie" value="all" checked />すべて</label>
+          <label><input type="radio" name="movie" value="movie" />映画</label>
+          <label><input type="radio" name="movie" value="other" />映画以外</label>
+        </div>
+      </div>
+      <div class="subrow">
+        <span class="sublabel" id="lbl-country">制作国</span>
+        <div class="seg" role="radiogroup" aria-labelledby="lbl-country">
+          <label><input type="radio" name="country" value="all" checked />すべて</label>
+          <label><input type="radio" name="country" value="jp" />日本</label>
+          <label><input type="radio" name="country" value="foreign" />海外<span style="font-size: 11px; font-weight: 500;">（合作を含む）</span></label>
+        </div>
+        <p class="hint">日本と海外の合作は、どちらを選んでも出ます。制作国が分からない作品は、どちらを選んでも出ません。</p>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>作品の放送年・放送期</legend>
+      <div class="yearrow">
+        <label class="sr" for="opt-year">放送年</label>
+        <select id="opt-year">
+          <option value="">指定なし</option>
+          {years.map((y) => <option value={String(y)}>{y}年</option>)}
+        </select>
+        <div class="seasons" role="group" aria-label="放送期" id="opt-season">
+          {SEASONS.map((s) => <button type="button" data-season={s} aria-pressed="false" disabled>{SEASON_LABEL[s]}</button>)}
+        </div>
+      </div>
+      <p class="hint">放送期（冬・春・夏・秋）は、年を選ぶと選べます。TV・Web のアニメだけに付いています。</p>
+    </fieldset>
+    <fieldset>
+      <legend>メン限</legend>
+      <div class="seg" role="radiogroup" aria-label="メン限">
+        <label><input type="radio" name="mem" value="all" checked />含める</label>
+        <label><input type="radio" name="mem" value="ex" />除く</label>
+        <label><input type="radio" name="mem" value="only" />メン限だけ</label>
+      </div>
+    </fieldset>
+  </div>
+  <div class="sheet-foot">
+    <button type="button" class="btn" id="sheet-clear">クリア</button>
+    <button type="button" class="btn primary" id="sheet-apply">この条件で表示</button>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script type="application/json" id="top-config" set:html={JSON.stringify(topConfig)} />
+<script>
+  import "../scripts/top.ts";
+</script>
+</Base>

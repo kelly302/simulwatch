@@ -7,11 +7,18 @@
   },
   "scripts": {
     "cli": "node --env-file-if-exists=.env src/cli.ts",
-    "typecheck": "tsc --noEmit",
+    "site:dev": "node scripts/astro.mjs dev",
+    "site:build": "node scripts/astro.mjs build",
+    "site:preview": "node scripts/astro.mjs preview",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p site",
     "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
+    "@expo-google-fonts/noto-sans-jp": "0.4.3",
+    "@resvg/resvg-js": "2.6.2",
+    "astro": "~7.3.8",
     "fast-xml-parser": "^5.11.1",
+    "satori": "0.33.5",
     "yaml": "^2.9.1"
   },
   "devDependencies": {

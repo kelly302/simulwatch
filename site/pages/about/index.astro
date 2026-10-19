@@ -1,0 +1,28 @@
+---
+// このサイトについて（データの出どころと作り方。YouTube API サービスの利用の表示）
+import Base from "../../layouts/Base.astro";
+import { cfg, completed, site } from "../../lib/data.ts";
+const works = site.works.filter((w) => w.hasPage).length;
+const streamers = site.streamers.filter((s) => s.hasPage).length;
+---
+<Base title={`このサイトについて | ${cfg.site_name}`} description="同時視聴まとめのデータの出どころと、枠と作品のまとめ方。" path="/about/">
+<main class="wrap prose">
+  <h1>このサイトについて</h1>
+  <p>{cfg.site_name}は、VTuber の同時視聴（ミラー配信）の枠を、観た作品ごとにまとめたサイトです。作品から「その作品を同時視聴した配信者」を、配信者から「これまでに同時視聴した作品」をたどれます。いまは {streamers.toLocaleString()}人・{works.toLocaleString()}作品・{completed.length.toLocaleString()}枠を載せています。</p>
+  <h2>対象</h2>
+  <p>にじさんじ（NIJISANJI EN・旧 NIJISANJI KR・旧 NIJISANJI ID を含む）・ホロライブ（hololive EN を含む）・ぶいすぽっ！の公式サイトに載っている配信者の YouTube チャンネルです。</p>
+  <h2>枠と作品のまとめ方</h2>
+  <ul>
+    <li>配信の枠は、YouTube のチャンネルの RSS と YouTube Data API で集め、枠のタイトルと概要欄の言葉で同時視聴の枠かどうかを決めています。</li>
+    <li>観た作品は、Annict・AniList（アニメ）と Wikipedia・Wikidata（実写・特撮・海外の作品）の作品の ID で決めています。決めきれない枠は、作品を確かめるまで載せません。</li>
+    <li>メンバー限定の枠も載せていますが、内容（概要欄など）は載せません。メンバー限定の枠は再生数を取得できないため「—」と表示します。</li>
+    <li>動画の再生はできません。サムネイルを押すと YouTube の動画ページを開きます。アーカイブが見られなくなった枠は一覧から外します。</li>
+    <li>再生数は毎日取り直しています。</li>
+  </ul>
+  <h2>データの出どころ</h2>
+  <ul>
+    <li>動画の情報: YouTube（YouTube API サービスを使っています。<a href="https://www.youtube.com/t/terms">YouTube 利用規約</a>・<a href="https://policies.google.com/privacy">Google プライバシーポリシー</a>）</li>
+    <li>作品の情報: <a href="https://annict.com/">Annict</a>・<a href="https://anilist.co/">AniList</a>・<a href="https://ja.wikipedia.org/">Wikipedia</a>・<a href="https://www.wikidata.org/">Wikidata</a>。アニメの画像は AniList のものを表示しています。</li>
+  </ul>
+</main>
+</Base>

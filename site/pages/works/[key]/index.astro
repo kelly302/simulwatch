@@ -1,0 +1,158 @@
+---
+// 作品ページ。配信者単位に集約（1配信者＝1行、枠は展開）。本文はすべてビルド時の HTML に持たせる（ページごとの JSON は作らない）
+import Base from "../../../layouts/Base.astro";
+import { TAB_LABEL, cfg, kindTab, seriesOf, streamerRowsOf, tabPath, workPages } from "../../../lib/data.ts";
+import { CHEVRON, EXT_ICON, REV_ICON, affLabel, avatarHtml, frameItemHtml } from "../../../lib/views.ts";
+import { WORK_KIND_LABEL } from "../../../../src/shared/types.ts";
+import type { SiteWork } from "../../../../src/shared/site.ts";
+import {
+  formLabel, formatDate, formatMonth, formatViews, metaLine, periodLabel, showsNameEn, splitViews, streamerPath, workPath,
+} from "../../../../src/shared/site.ts";
+
+export function getStaticPaths() {
+  return workPages.map((w) => ({ params: { key: w.key! }, props: { work: w } }));
+}
+
+const { work: w } = Astro.props as { work: SiteWork };
+const rows = streamerRowsOf(w);
+const series = seriesOf(w);
+const tab = kindTab(w.kind);
+const MEDIA_LABEL = { tv: "TV", movie: "映画", ova: "OVA", web: "Web" } as const;
+const chips = [
+  w.kind ? WORK_KIND_LABEL[w.kind] : null,
+  w.media ? MEDIA_LABEL[w.media] : null,
+  periodLabel(w) || null,
+  w.episodesCount && (w.media === "tv" || w.media === "web") ? `全${w.episodesCount}話` : null,
+].filter((x): x is string => !!x);
+
+// 外部DBへのリンク（Wikipedia は Wikidata の項目から日本語版の記事へ移る）
+const links = [
+  w.annictId ? { label: "Annict", href: `https://annict.com/works/${w.annictId}` } : null,
+  w.anilistId ? { label: "AniList", href: `https://anilist.co/anime/${w.anilistId}` } : null,
+  w.wikidataId ? { label: "Wikipedia", href: `https://www.wikidata.org/wiki/Special:GoToLinkedPage/jawiki/${w.wikidataId}` } : null,
+  w.wikidataId ? { label: "Wikidata", href: `https://www.wikidata.org/wiki/${w.wikidataId}` } : null,
+].filter((x): x is { label: string; href: string } => !!x);
+
+// title「コマンドー（1985年の映画）の同時視聴 配信者10人・15枠」
+const form = w.media === "movie" ? (w.kind === "anime" ? "アニメ映画" : "映画") : formLabel(w.kind, w.media);
+const disambig = [w.year ? `${w.year}年の` : "", form].join("");
+const nameWith = form ? `${w.title}（${disambig}）` : w.title;
+const title = `${nameWith}の同時視聴 配信者${w.streamersCount}人・${w.eventsCount}枠 | ${cfg.site_name}`;
+const names = rows.slice(0, 3).map((r) => r.streamer.name).join("・");
+const description = `${nameWith}を同時視聴（ミラー配信）した配信者${w.streamersCount}人・${w.eventsCount}枠をまとめています。${names}${rows.length > 3 ? "など" : ""}。${w.viewsMax != null ? `最高再生数は${formatViews(w.viewsMax)}。` : ""}`;
+
+const vmax = splitViews(w.viewsMax);
+const vtotal = splitViews(w.viewsTotal);
+const seriesName = w.seriesTitle ?? "";
+const sameAs = links.filter((l) => l.label !== "Wikipedia").map((l) => l.href);
+const crumbs = [
+  { name: "トップ", href: "/" },
+  { name: "作品", href: "/works/" },
+  ...(tab ? [{ name: TAB_LABEL[tab], href: tabPath(tab) }] : []),
+  { name: w.title, href: workPath(w.key!) },
+];
+const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: crumbs.map((c, i) => ({ "@type": "ListItem", position: i + 1, name: c.name, item: new URL(c.href, Astro.site).href })),
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": w.media === "movie" ? "Movie" : "TVSeries",
+    name: w.title,
+    url: new URL(workPath(w.key!), Astro.site).href,
+    ...(w.year ? { datePublished: String(w.year) } : {}),
+    ...(sameAs.length ? { sameAs } : {}),
+  },
+];
+---
+<Base title={title} description={description} path={workPath(w.key!)} nav="works" jsonLd={jsonLd} ogType="article" ogImage={`/og/works/${w.key}.png`}>
+<div class="page-head">
+  <div class="wrap">
+    <nav class="crumbs" aria-label="パンくずリスト">
+      <ol>
+        {crumbs.slice(0, -1).map((c) => <li><a href={c.href}>{c.name}</a><span aria-hidden="true">›</span></li>)}
+        <li aria-current="page">{w.title}</li>
+      </ol>
+    </nav>
+    <div class="hero">
+      {w.imageUrl
+        ? <img class="himg" src={w.imageUrl} alt="" width="88" height="124" decoding="async" referrerpolicy="no-referrer" />
+        : <span class="himg none" aria-hidden="true">{w.title.slice(0, 1)}</span>}
+      <div class="hbody">
+        <h1>{w.title}</h1>
+        {chips.length > 0 && <div class="chips">{chips.map((c) => <span>{c}</span>)}</div>}
+        {series.length > 1 && <a class="series-link" href="#series">シリーズ「{seriesName}」の{series.length}作品</a>}
+        {links.length > 0 && <div class="ext">{links.map((l) => <a href={l.href} rel="noopener">{l.label}<Fragment set:html={EXT_ICON} /></a>)}</div>}
+      </div>
+    </div>
+    <dl class="stats">
+      <div><dt>観た配信者</dt><dd>{w.streamersCount}<span class="u">人</span></dd></div>
+      <div><dt>枠</dt><dd>{w.eventsCount}<span class="u">枠</span></dd></div>
+      <div><dt>うちメン限</dt><dd>{w.membersCount}<span class="u">枠</span></dd></div>
+      <div><dt>最高再生数</dt><dd>{vmax.num}<span class="u">{vmax.unit}</span></dd></div>
+      <div><dt>合計再生数</dt><dd>{vtotal.num}<span class="u">{vtotal.unit}</span></dd></div>
+      <div><dt>期間</dt><dd class="range">{formatMonth(w.firstEventAt) === formatMonth(w.latestEventAt) ? formatMonth(w.firstEventAt) : <Fragment>{formatMonth(w.firstEventAt)}〜<br>{formatMonth(w.latestEventAt)}</Fragment>}</dd></div>
+    </dl>
+  </div>
+</div>
+<aside class="ad" aria-label="広告"></aside>
+<main>
+  <section class="pane" aria-labelledby="h-who">
+    <div class="section-head">
+      <h2 id="h-who">観た配信者 <span class="count">{w.streamersCount}人</span></h2>
+      {rows.length > 1 && (
+        <div class="sortbar" data-sortbar>
+          <div class="keys" role="group" aria-label="並び順">
+            <button type="button" class="pill" data-sort="views" aria-pressed="true">再生数</button>
+            <button type="button" class="pill" data-sort="latest" aria-pressed="false">最終視聴日</button>
+          </div>
+          <button type="button" class="pill rev" data-rev aria-pressed="false" aria-label="逆順にする（今は多い順）"><Fragment set:html={REV_ICON} /><span data-rev-label>多い順</span></button>
+        </div>
+      )}
+    </div>
+    <ol class="rows" data-xrows>
+      {rows.map((r, i) => (
+        <li data-i={String(i)} data-views={r.viewsMax == null ? "" : String(r.viewsMax)} data-latest={r.latest}>
+          <div class="xrow">
+            <a href={streamerPath(r.streamer.channelId)}>
+              <Fragment set:html={avatarHtml(r.streamer.name, r.streamer.iconUrl, 36, "xav")} />
+              <span class="xbody">
+                <span class="xname">{r.streamer.name}</span>
+                {showsNameEn(r.streamer) && <span class="sen" lang="en">{r.streamer.nameEn}</span>}
+                <span class="xfacts"><span>{affLabel(r.streamer.affiliation, r.streamer.branch)}</span><span>{r.events.length}枠</span>{r.members > 0 && <span>メン限 {r.members}</span>}</span>
+              </span>
+            </a>
+            <button type="button" class="xbtn" aria-expanded="false" aria-controls={`f-${i}`} aria-label={`${r.streamer.name} の枠を開く`}>
+              <span class="vals"><span class={`v1${r.viewsMax == null ? " none" : ""}`}>{formatViews(r.viewsMax)}</span><span class="v2">{formatDate(r.latest)}</span></span>
+              <Fragment set:html={CHEVRON} />
+            </button>
+          </div>
+          <ol class="frames" id={`f-${i}`} hidden set:html={r.events.map((e) => frameItemHtml({
+            videoId: e.videoId, startedAt: e.startedAt, views: e.views, members: e.membersOnly,
+            detail: e.works.find((x) => x.id === w.id)?.episodes ?? null,
+          })).join("")} />
+        </li>
+      ))}
+    </ol>
+    <p class="foot-note">メン限の枠は再生数を取得できません（—）。再生数で並べたときは、メン限の枠だけの配信者を末尾に置いています。</p>
+  </section>
+
+  {series.length > 1 && (
+    <section class="pane" id="series" aria-labelledby="h-series">
+      <div class="section-head">
+        <h2 id="h-series">同じシリーズの作品 <span class="count">{seriesName}・{series.length}作品</span></h2>
+      </div>
+      <ol class="rows">
+        {series.map((x) => x.id === w.id
+          ? <li><div class="wrow" aria-current="page"><span class="wbody"><span class="wttl">{x.title}</span><span class="wmeta">{metaLine(x)}</span></span><span class="cur-tag">この作品</span></div></li>
+          : <li><a class="wrow" href={workPath(x.key!)}><span class="wbody"><span class="wttl">{x.title}</span><span class="wmeta">{metaLine(x)}</span></span><span class="wside"><span class="num">{x.streamersCount}<span class="unit">人</span></span></span></a></li>)}
+      </ol>
+    </section>
+  )}
+</main>
+<script>
+  import "../../../scripts/rows.ts";
+</script>
+</Base>

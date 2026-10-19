@@ -23,6 +23,8 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DATA_DIR } from "./lib/paths.ts";
 import { lookup } from "./report/lookup.ts";
+import { exportSiteData, SITE_DATA_PATH } from "./publish/export.ts";
+import { loadSiteConfig } from "./lib/config.ts";
 import type { UnresolvedReason } from "./resolve/types.ts";
 
 // 使い方: npm run cli -- <command> [options]
@@ -70,6 +72,10 @@ const HELP = `
   ai:revoke       判定を取り消して、ルールで名寄せし直す [--batch B] [--video ID,...]
   works:enrich    作品の属性（映像の種類・制作国・シリーズの名前）を外部DBから埋める [--all（全部埋め直す）]
   ai:status       サイトでの出し方（作品を付けて出す・枠として出す・出さない・AI の判定待ち）ごとの件数と、判定待ちの型の内訳
+
+コマンド（公開。Phase 3）:
+  site:data       サイト用のデータ（集計・作品の公開キー・ページの更新日）を data/site/site-data.json に書き出す。
+                  公開キーと lastmod の表（work_public_keys・site_pages）を更新する。そのあと npm run site:build で dist/ を作る
 
 コマンド（型ごとの検証。ゲート2の決定。人が起動する）:
   audit:types     枠を同定の型に分け、型ごとの件数と目印の重なりを data/audit/types.md に書く（DB は変えない）
@@ -293,6 +299,19 @@ async function main(): Promise<number> {
       console.log("AI の判定待ちの内訳（型）");
       for (const [k, v] of Object.entries(s.pendingByRoute).sort((a, b) => b[1] - a[1])) console.log(`  ${k}	${v}`);
       if (s.noRoute) console.log(`型が記録されていない枠 ${s.noRoute}（resolve を流すと記録される）`);
+      return 0;
+    }
+    case "site:data": {
+      const ctx = createCtx("site");
+      try {
+        const r = await runStep(ctx, "site:data", async () => exportSiteData(ctx.db, { site: loadSiteConfig(), crawl: ctx.crawlCfg, extract: loadExtractConfig() }));
+        if (r) {
+          ctx.summary.site = r;
+          console.log(`${SITE_DATA_PATH} に書き出しました`, r);
+        }
+      } finally {
+        finishCtx(ctx);
+      }
       return 0;
     }
     case "works:enrich": {

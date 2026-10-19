@@ -1,0 +1,19 @@
+---
+// プライバシーポリシー（下書き。広告の配信を決めたら、広告と Cookie の節を書き足す）
+import Base from "../../layouts/Base.astro";
+import { cfg } from "../../lib/data.ts";
+---
+<Base title={`プライバシーポリシー | ${cfg.site_name}`} description="同時視聴まとめのプライバシーポリシー（広告・Cookie・外部のサービス）。" path="/privacy/">
+<main class="wrap prose">
+  <h1>プライバシーポリシー</h1>
+  <h2>集める情報</h2>
+  <p>このサイトは、会員登録・問い合わせのフォームなど、閲覧する方の個人情報を入力していただく機能を持っていません。サイト自体は Cookie を使っていません。</p>
+  <h2>外部のサービス</h2>
+  <ul>
+    <li>サムネイル・アイコンは YouTube（i.ytimg.com・yt3.ggpht.com）から、アニメの画像は AniList（s4.anilist.co）から読み込んでいます。読み込むとき、閲覧する方の IP アドレスなどがそれぞれのサービスに送られます。</li>
+    <li>このサイトは YouTube API サービスを使っています。<a href="https://www.youtube.com/t/terms">YouTube 利用規約</a>と <a href="https://policies.google.com/privacy">Google プライバシーポリシー</a>をご覧ください。</li>
+  </ul>
+  <h2>広告</h2>
+  <p>広告を掲載するときは、広告の配信事業者と、Cookie の使い方をここに書き足します。</p>
+</main>
+</Base>

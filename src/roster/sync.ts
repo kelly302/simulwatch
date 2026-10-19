@@ -52,10 +52,11 @@ function applyOrg(ctx: Ctx, affiliation: Affiliation, entries: RosterEntry[]): O
   const bySource = db.prepare("SELECT id, is_active, channel_title FROM streamers WHERE source_key = ?");
   const byChannel = db.prepare("SELECT id, is_active, channel_title FROM streamers WHERE channel_id = ?");
   const insert = db.prepare(`
-    INSERT INTO streamers (name, affiliation, branch, channel_id, platform, tier, is_active, source_key, first_seen_at, last_listed_at, updated_at)
-    VALUES (?, ?, ?, ?, 'youtube', 1, 1, ?, ?, ?, ?)`);
+    INSERT INTO streamers (name, name_en, affiliation, branch, channel_id, platform, tier, is_active, source_key, first_seen_at, last_listed_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'youtube', 1, 1, ?, ?, ?, ?)`);
+  // 英語の名前は取れなかったら前回の値を残す
   const update = db.prepare(`
-    UPDATE streamers SET name = ?, affiliation = ?, branch = ?, channel_id = ?, tier = 1, is_active = 1, source_key = ?,
+    UPDATE streamers SET name = ?, name_en = COALESCE(?, name_en), affiliation = ?, branch = ?, channel_id = ?, tier = 1, is_active = 1, source_key = ?,
       last_listed_at = ?, deactivated_at = NULL, updated_at = ? WHERE id = ?`);
   const deactivate = db.prepare("UPDATE streamers SET is_active = 0, deactivated_at = ?, updated_at = ? WHERE id = ? AND is_active = 1");
 
@@ -79,12 +80,12 @@ function applyOrg(ctx: Ctx, affiliation: Affiliation, entries: RosterEntry[]): O
       }
       if (existing) {
         if (!existing.is_active) r.reactivated++;
-        // まとめた配信者の名前は、チャンネル名から取れればそれを使う（FUWAMOCO）
-        const name = e.sourceKey.includes("+") ? sharedChannelName(existing.channel_title) ?? e.name : e.name;
-        update.run(name, affiliation, e.branch, e.channelId, e.sourceKey, now, now, existing.id);
+        // まとめた配信者の名前は、チャンネル名から取れればそれを使う（FUWAMOCO）。英語の名前も同じ（名前と同じなら併記しない）
+        const shared = e.sourceKey.includes("+") ? sharedChannelName(existing.channel_title) : null;
+        update.run(shared ?? e.name, shared ?? e.nameEn, affiliation, e.branch, e.channelId, e.sourceKey, now, now, existing.id);
         listedIds.add(existing.id);
       } else {
-        const res = insert.run(e.name, affiliation, e.branch, e.channelId, e.sourceKey, now, now, now);
+        const res = insert.run(e.name, e.nameEn, affiliation, e.branch, e.channelId, e.sourceKey, now, now, now);
         listedIds.add(Number(res.lastInsertRowid));
         r.inserted++;
       }
@@ -136,7 +137,10 @@ export function mergeSharedChannels(entries: RosterEntry[]): Record<string, stri
   for (const [key, es] of byChannel) {
     if (es.length < 2) continue;
     shared[key] = es.map((e) => e.sourceKey);
-    const merged: RosterEntry = { ...es[0]!, name: es.map((e) => e.name).join("＆"), sourceKey: es.map((e) => e.sourceKey).join("+") };
+    const merged: RosterEntry = {
+      ...es[0]!, name: es.map((e) => e.name).join("＆"), sourceKey: es.map((e) => e.sourceKey).join("+"),
+      nameEn: es.every((e) => e.nameEn) ? es.map((e) => e.nameEn).join(" & ") : null,
+    };
     const at = entries.indexOf(es[0]!);
     for (const e of es) entries.splice(entries.indexOf(e), 1);
     entries.splice(at, 0, merged);
@@ -157,11 +161,11 @@ export function sharedChannelName(channelTitle: string | null | undefined): stri
 function nameSharedChannels(ctx: Ctx): { renamed: string[] } {
   const rows = ctx.db.prepare("SELECT id, name, channel_title FROM streamers WHERE source_key LIKE '%+%'").all() as { id: number; name: string; channel_title: string | null }[];
   const out = { renamed: [] as string[] };
-  const upd = ctx.db.prepare("UPDATE streamers SET name = ?, updated_at = ? WHERE id = ?");
+  const upd = ctx.db.prepare("UPDATE streamers SET name = ?, name_en = ?, updated_at = ? WHERE id = ?");
   for (const r of rows) {
     const name = sharedChannelName(r.channel_title);
     if (!name || name === r.name) continue;
-    upd.run(name, nowIso(), r.id);
+    upd.run(name, name, nowIso(), r.id);
     out.renamed.push(`${r.name} → ${name}`);
   }
   return out;

@@ -89,7 +89,7 @@ test("VSPO!: 日本の所属だけ、重複を除いて取る", () => {
 test("1つのチャンネルで配信する組（FUWAMOCO）は1配信者にまとめる", async () => {
   const { mergeSharedChannels } = await import("../src/roster/sync.ts");
   const e = (key: string, name: string, handle: string | null, channelId: string | null = null) =>
-    ({ sourceKey: key, name, affiliation: "hololive" as const, channelId, handle, inactive: false, branch: "en" as const });
+    ({ sourceKey: key, name, affiliation: "hololive" as const, channelId, handle, inactive: false, branch: "en" as const, nameEn: name === "フワワ・アビスガード" ? "Fuwawa Abyssgard" : name === "モココ・アビスガード" ? "Mococo Abyssgard" : null });
   const entries = [e("hololive:fuwawa-abyssgard", "フワワ・アビスガード", null, "UCfuwamoco"), e("hololive:mococo-abyssgard", "モココ・アビスガード", null, "UCfuwamoco"), e("c", "c", "solo")];
   const shared = mergeSharedChannels(entries);
   assert.deepEqual(shared, { UCfuwamoco: ["hololive:fuwawa-abyssgard", "hololive:mococo-abyssgard"] });
@@ -97,6 +97,16 @@ test("1つのチャンネルで配信する組（FUWAMOCO）は1配信者にま�
     ["hololive:fuwawa-abyssgard+hololive:mococo-abyssgard", "フワワ・アビスガード＆モココ・アビスガード", "UCfuwamoco"],
     ["c", "c", "solo"],
   ]);
+  // 英語の名前も「 & 」でつなぐ（全員の英語の名前が取れたときだけ）
+  assert.equal(entries[0]!.nameEn, "Fuwawa Abyssgard & Mococo Abyssgard");
+});
+
+test("ホロライブの英語版の一覧の名前から先頭の印を外す", async () => {
+  const { hololiveEnName } = await import("../src/roster/sources.ts");
+  assert.equal(hololiveEnName("[Affiliate] Watson Amelia"), "Watson Amelia");
+  assert.equal(hololiveEnName("[Alum] Gawr Gura"), "Gawr Gura");
+  assert.equal(hololiveEnName("Ninomae Ina’nis"), "Ninomae Ina’nis");
+  assert.equal(hololiveEnName("La+ Darknesss"), "La+ Darknesss");
 });
 test("まとめた配信者の名前はチャンネル名の「Ch.」より前（取れなければ null）", async () => {
   const { sharedChannelName } = await import("../src/roster/sync.ts");

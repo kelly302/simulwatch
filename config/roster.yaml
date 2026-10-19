@@ -20,6 +20,8 @@ nijisanji:
 
 hololive:
   group_url: "https://hololive.hololivepro.com/talents?gp={group}"
+  # 英語版の一覧。英語の名前を取る（EN の配信者に併記する。2026-10-03 確認）。名前の先頭の「[Affiliate]」「[Alum]」は外す
+  en_group_url: "https://hololive.hololivepro.com/en/talents?gp={group}"
   detail_url: "https://hololive.hololivepro.com/talents/{slug}/"
   # 対象の所属グループ。ID（area15・holoro・holoh3ro）・卒業生（alum）・スタッフ・holoAN（公式アナウンサー。holoAN room は番組「昼ホロ」のチャンネル。2026-10-03 決定）は含めない。
   # EN（myth・council・promise・advent・justice・project-hope）は 2026-10-02 決定で対象に入れた（区分は group_branch）

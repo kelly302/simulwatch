@@ -1,0 +1,89 @@
+---
+// 作品一覧（種類のタブ × ページ）。既定の並び（配信者数の多い順）をページ送りのリンクで HTML に出す。
+// ほかの並び順は並び順ごとの JSON（300件ずつ）、検索は作品名の索引を、操作のあとに読む（site/scripts/works.ts）
+import Base from "../layouts/Base.astro";
+import { TAB_LABEL, cfg, pageCount, sortWorks, tabPath, worksOfTab } from "../lib/data.ts";
+import { WORK_TABS, encodeWorkRow } from "../lib/encode.ts";
+import type { WorkTab } from "../lib/encode.ts";
+import { workRowHtml } from "../lib/views.ts";
+
+interface Props {
+  tab: WorkTab;
+  page: number;
+}
+
+const { tab, page } = Astro.props;
+const all = sortWorks(worksOfTab(tab), "streamers", false);
+const size = cfg.works_page_size;
+const pages = pageCount(all.length);
+const rows = all.slice((page - 1) * size, page * size);
+const from = (page - 1) * size + 1;
+const to = from + rows.length - 1;
+const label = tab === "all" ? "" : `（${TAB_LABEL[tab]}）`;
+const pageLabel = page > 1 ? ` ${page}ページ目` : "";
+const title = `同時視聴された作品${label}${pageLabel} | ${cfg.site_name}`;
+const description = `にじさんじ・ホロライブ・ぶいすぽっ！の配信者が同時視聴した${tab === "all" ? "" : TAB_LABEL[tab] + "の"}作品${all.length.toLocaleString()}件を、観た配信者の多い順に並べています${pageLabel ? `（${from.toLocaleString()}〜${to.toLocaleString()}件目）` : ""}。`;
+const counts = Object.fromEntries(WORK_TABS.map((t) => [t, worksOfTab(t).length]));
+const jsonLd = [{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "トップ", item: new URL("/", Astro.site).href },
+    { "@type": "ListItem", position: 2, name: "作品", item: new URL("/works/", Astro.site).href },
+    ...(tab === "all" ? [] : [{ "@type": "ListItem", position: 3, name: TAB_LABEL[tab], item: new URL(tabPath(tab), Astro.site).href }]),
+  ],
+}];
+const listConfig = { tab, page, pages, total: all.length, size };
+---
+<Base title={title} description={description} path={tabPath(tab, page)} nav="works" jsonLd={jsonLd}>
+<div class="list-head">
+  <div class="wrap">
+    <div class="h1row">
+      <h1>同時視聴された作品{label}</h1>
+      <span class="total">{all.length.toLocaleString()}作品</span>
+    </div>
+    <label class="search" id="search-box">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+      <span class="sr">作品名で検索</span>
+      <input type="search" id="q" placeholder="作品名で検索" autocomplete="off" enterkeyhint="search">
+      <button type="button" class="clear" id="q-clear" aria-label="検索語を消す" hidden><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+    </label>
+    <nav class="tabs" aria-label="種類ごとの一覧" id="tabs">
+      {WORK_TABS.filter((t) => t === "all" || counts[t]).map((t) => <a href={tabPath(t)} aria-current={t === tab ? "page" : undefined}>{TAB_LABEL[t]}</a>)}
+    </nav>
+    <div class="sortbar" id="sortbar">
+      <div class="keys" role="group" aria-label="並び順">
+        <button type="button" class="pill" data-sort="streamers" aria-pressed="true">配信者数</button>
+        <button type="button" class="pill" data-sort="views" aria-pressed="false">再生数</button>
+        <button type="button" class="pill" data-sort="latest" aria-pressed="false">最終視聴日</button>
+      </div>
+      <button type="button" class="pill rev" id="rev" aria-pressed="false" aria-label="逆順にする（今は多い順）">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M4 17l3 3 3-3M17 20V4M14 7l3-3 3 3"></path></svg>
+        <span id="rev-label">多い順</span>
+      </button>
+    </div>
+    <p class="status" id="status" aria-live="polite"></p>
+  </div>
+</div>
+<main>
+  <ol class="rows" id="work-rows" set:html={rows.map((w) => workRowHtml(encodeWorkRow(w))).join("")} />
+  <p class="note wrap" id="search-note" hidden style="padding-block: 16px;">作品名・読みがなで探せます。見つからない作品は、まだ同時視聴の枠がないか、作品を確かめている途中です。</p>
+  <nav class="pager" aria-label="ページ" id="pager">
+    <p>{from.toLocaleString()}〜{to.toLocaleString()}件目 / {all.length.toLocaleString()}作品</p>
+    {pages > 1 && (
+      <div class="nums">
+        {page > 1 && <a href={tabPath(tab, page - 1)} rel="prev">前へ</a>}
+        {Array.from({ length: pages }, (_, i) => i + 1).map((n) => n === page
+          ? <span class="cur" aria-current="page">{n}</span>
+          : <a href={tabPath(tab, n)}>{n}</a>)}
+        {page < pages && <a href={tabPath(tab, page + 1)} rel="next">次へ</a>}
+      </div>
+    )}
+  </nav>
+</main>
+<div class="toast" id="toast" role="status" hidden></div>
+<script type="application/json" id="works-config" set:html={JSON.stringify(listConfig)} />
+<script>
+  import "../scripts/works.ts";
+</script>
+</Base>

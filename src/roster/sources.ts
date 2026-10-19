@@ -17,6 +17,8 @@ export interface RosterEntry {
   inactive: boolean;
   /** 所属の中の区分（jp / kr / id） */
   branch: Branch;
+  /** 英語の名前（EN・KR・ID の配信者に併記する）。取れなければ null */
+  nameEn: string | null;
 }
 
 /** 既に分かっている sourceKey → channel_id。詳細ページの取得を省く */
@@ -49,6 +51,7 @@ interface NijiLiver {
   slug: string;
   hidden: boolean;
   name: string;
+  enName?: string | null;
   profile?: { profileItems?: { name: string }[] };
 }
 
@@ -85,7 +88,10 @@ export async function fetchNijisanji(http: Http, cfg: RosterConfig["nijisanji"],
         log.warn(`nijisanji detail failed ${l.slug}: ${errorMessage(e)}`);
       }
     }
-    out.push({ sourceKey, name: l.name, affiliation: "nijisanji", channelId, handle, inactive: l.hidden, branch: branch ?? nijisanjiBranch(l, cfg.branch_markers) });
+    out.push({
+      sourceKey, name: l.name, affiliation: "nijisanji", channelId, handle, inactive: l.hidden,
+      branch: branch ?? nijisanjiBranch(l, cfg.branch_markers), nameEn: l.enName?.trim() || null,
+    });
   }
   return out;
 }
@@ -99,6 +105,32 @@ export function parseHololiveGroup(html: string): { slug: string; name: string }
   const out: { slug: string; name: string }[] = [];
   for (const m of list.matchAll(/talents\/([a-z0-9-]+)\/">\s*<figure>[\s\S]*?<h3>\s*([^<]*)<span>/g)) {
     out.push({ slug: m[1]!, name: decodeHtml(m[2]!) });
+  }
+  return out;
+}
+
+/** 英語版の一覧の名前から、先頭の印（「[Affiliate] 」「[Alum] 」）を外す */
+export function hololiveEnName(raw: string): string {
+  return raw.replace(/^(?:\s*\[[^\]]*\])+\s*/, "").trim();
+}
+
+/**
+ * 英語版の一覧（en_group_url）から英語の名前を取る。グループごとに独立して、取れなかったグループは飛ばす
+ * （英語の名前は併記に使うだけなので、取れなくても名簿の同期は止めない。前回の値を残す）
+ */
+async function fetchHololiveEnNames(http: Http, cfg: RosterConfig["hololive"]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!cfg.en_group_url) return out;
+  for (const g of cfg.groups) {
+    try {
+      const res = await http.get(cfg.en_group_url.replace("{group}", g));
+      for (const m of parseHololiveGroup(res.body)) {
+        const name = hololiveEnName(m.name);
+        if (name && !out.has(m.slug)) out.set(m.slug, name);
+      }
+    } catch (e) {
+      log.warn(`hololive en group failed ${g}: ${errorMessage(e)}`);
+    }
   }
   return out;
 }
@@ -122,6 +154,7 @@ export async function fetchHololive(http: Http, cfg: RosterConfig["hololive"], k
       if (!branchOf.has(m.slug)) branchOf.set(m.slug, (cfg.group_branch?.[g] as Branch | undefined) ?? "jp");
     }
   }
+  const enNames = await fetchHololiveEnNames(http, cfg);
   const out: RosterEntry[] = [];
   for (const [slug, rawName] of bySlug) {
     const inactive = cfg.inactive_name_markers.some((mk) => rawName.includes(mk));
@@ -139,7 +172,7 @@ export async function fetchHololive(http: Http, cfg: RosterConfig["hololive"], k
         log.warn(`hololive detail failed ${slug}: ${errorMessage(e)}`);
       }
     }
-    out.push({ sourceKey, name, affiliation: "hololive", channelId, handle, inactive, branch: branchOf.get(slug) ?? "jp" });
+    out.push({ sourceKey, name, affiliation: "hololive", channelId, handle, inactive, branch: branchOf.get(slug) ?? "jp", nameEn: enNames.get(slug) ?? null });
   }
   return out;
 }
@@ -168,6 +201,7 @@ export function parseVspo(html: string, japaneseClass: string): RosterEntry[] {
       channelId,
       handle,
       inactive: false,
+      nameEn: null,
     });
   }
   return [...out.values()];

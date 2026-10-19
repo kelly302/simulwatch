@@ -29,6 +29,8 @@ export interface RosterConfig {
   nijisanji: { list_url: string; detail_url: string; min_count: number; branch_markers?: Record<string, string[]>; extra_lists?: { url: string; branch: string }[] };
   hololive: {
     group_url: string;
+    /** 英語版の一覧（英語の名前を取る）。無ければ英語の名前を取らない */
+    en_group_url?: string;
     detail_url: string;
     groups: string[];
     group_branch?: Record<string, string>;
@@ -65,6 +67,18 @@ export function loadDetectConfig(): DetectConfig {
   const c = data as Omit<DetectConfig, "version">;
   const version = createHash("sha256").update(raw).digest("hex").slice(0, 12);
   return { ...c, version };
+}
+
+export interface SiteConfig {
+  site_url: string;
+  site_name: string;
+  upcoming_stale_hours: number;
+  top: { ranking_size: number; ranking_periods: number[]; recent_html: number; recent_json: number };
+  works_page_size: number;
+}
+
+export function loadSiteConfig(): SiteConfig {
+  return readYaml("site.yaml").data as SiteConfig;
 }
 
 export function loadRosterConfig(): RosterConfig {

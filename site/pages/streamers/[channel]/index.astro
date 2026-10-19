@@ -1,0 +1,116 @@
+---
+// 配信者ページ。作品単位に集約（1作品＝1行、枠は展開）。全行を HTML に出す（「さらに表示」なし）。
+// 既定の並びは名前順（読みがな、無ければ作品名）。作品ページの無い枠（外部DBに無い作品・作品を特定できない枠）は末尾に枠のまま並べる
+import Base from "../../../layouts/Base.astro";
+import { AFF_SLUG, cfg, framesOf, streamerPages, workRowsOf } from "../../../lib/data.ts";
+import { CHEVRON, EXT_ICON, REV_ICON, affLabel, avatarHtml, frameItemHtml } from "../../../lib/views.ts";
+import { AFFILIATION_LABEL } from "../../../../src/shared/types.ts";
+import type { SiteStreamer } from "../../../../src/shared/site.ts";
+import { formatDate, formatMonth, formatViews, metaLine, showsNameEn, streamerPath, workPath } from "../../../../src/shared/site.ts";
+
+export function getStaticPaths() {
+  return streamerPages.map((s) => ({ params: { channel: s.channelId }, props: { streamer: s } }));
+}
+
+const { streamer: s } = Astro.props as { streamer: SiteStreamer };
+const rows = workRowsOf(s);
+const frames = framesOf(s);
+const affHref = s.affiliation === "other" ? "/streamers/" : `/streamers/${AFF_SLUG[s.affiliation]}/`;
+const en = showsNameEn(s) ? s.nameEn : null;
+const nameWith = en ? `${s.name}（${en}）` : s.name;
+const title = `${nameWith}の同時視聴 ${s.worksCount}作品・${s.eventsCount}枠 | ${cfg.site_name}`;
+const recentTitles = [...rows].sort((a, b) => b.latest.localeCompare(a.latest)).slice(0, 3).map((r) => r.work.title);
+const description = `${nameWith}（${affLabel(s.affiliation, s.branch)}）が同時視聴（ミラー配信）した${s.worksCount}作品・${s.eventsCount}枠をまとめています。${recentTitles.length ? `最近は${recentTitles.join("・")}など。` : ""}`;
+const crumbs = [
+  { name: "トップ", href: "/" },
+  { name: AFFILIATION_LABEL[s.affiliation], href: affHref },
+  { name: s.name, href: streamerPath(s.channelId) },
+];
+const jsonLd = [{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: crumbs.map((c, i) => ({ "@type": "ListItem", position: i + 1, name: c.name, item: new URL(c.href, Astro.site).href })),
+}];
+---
+<Base title={title} description={description} path={streamerPath(s.channelId)} nav="streamers" jsonLd={jsonLd} ogType="profile" ogImage={`/og/streamers/${s.channelId}.png`}>
+<div class="page-head">
+  <div class="wrap">
+    <nav class="crumbs" aria-label="パンくずリスト">
+      <ol>
+        {crumbs.slice(0, -1).map((c) => <li><a href={c.href}>{c.name}</a><span aria-hidden="true">›</span></li>)}
+        <li aria-current="page">{s.name}</li>
+      </ol>
+    </nav>
+    <div class="hero">
+      <Fragment set:html={avatarHtml(s.name, s.iconUrl, 72, "hav")} />
+      <div class="hbody">
+        <h1>{s.name}</h1>
+        {en && <p class="en" lang="en">{en}</p>}
+        <div class="ext"><span>{affLabel(s.affiliation, s.branch)}</span><a href={`https://www.youtube.com/channel/${s.channelId}`} rel="noopener">YouTube チャンネル<Fragment set:html={EXT_ICON} /></a></div>
+      </div>
+    </div>
+    <dl class="stats">
+      <div><dt>同時視聴の枠</dt><dd>{s.eventsCount}<span class="u">枠</span></dd></div>
+      <div><dt>観た作品</dt><dd>{s.worksCount}<span class="u">作品</span></dd></div>
+      <div><dt>期間</dt><dd class="range">{formatMonth(s.firstEventAt) === formatMonth(s.latestEventAt) ? formatMonth(s.firstEventAt) : <Fragment>{formatMonth(s.firstEventAt)}〜<br>{formatMonth(s.latestEventAt)}</Fragment>}</dd></div>
+    </dl>
+  </div>
+</div>
+<aside class="ad" aria-label="広告"></aside>
+<main>
+  {rows.length > 0 && (
+    <section class="pane" aria-labelledby="h-works">
+      <div class="section-head">
+        <h2 id="h-works">観た作品 <span class="count">{rows.length}作品</span></h2>
+        {rows.length > 1 && (
+          <div class="sortbar" data-sortbar>
+            <div class="keys" role="group" aria-label="並び順">
+              <button type="button" class="pill" data-sort="name" aria-pressed="true">名前</button>
+              <button type="button" class="pill" data-sort="latest" aria-pressed="false">最終視聴日</button>
+              <button type="button" class="pill" data-sort="views" aria-pressed="false">再生数</button>
+            </div>
+            <button type="button" class="pill rev" data-rev aria-pressed="false" aria-label="逆順にする（今は五十音順）"><Fragment set:html={REV_ICON} /><span data-rev-label>五十音順</span></button>
+          </div>
+        )}
+      </div>
+      <ol class="rows" data-xrows>
+        {rows.map((r, i) => (
+          <li data-i={String(i)} data-views={r.viewsMax == null ? "" : String(r.viewsMax)} data-latest={r.latest}>
+            <div class="xrow">
+              <a href={workPath(r.work.key!)}>
+                <span class="xbody">
+                  <span class="xname">{r.work.title}</span>
+                  <span class="xfacts"><span>{metaLine(r.work)}</span></span>
+                </span>
+              </a>
+              <button type="button" class="xbtn" aria-expanded="false" aria-controls={`f-${i}`} aria-label={`${r.work.title} の枠を開く`}>
+                <span class="vals"><span class="v1" style="font-size: 13px;">{formatDate(r.latest)}</span><span class="v2">{r.events.length}枠{r.viewsMax != null ? ` · ${formatViews(r.viewsMax)}` : ""}</span></span>
+                <Fragment set:html={CHEVRON} />
+              </button>
+            </div>
+            <ol class="frames" id={`f-${i}`} hidden set:html={r.events.map((e) => frameItemHtml({
+              videoId: e.videoId, startedAt: e.startedAt, views: e.views, members: e.membersOnly, detail: r.episodes.get(e.id) ?? null,
+            })).join("")} />
+          </li>
+        ))}
+      </ol>
+      <p class="foot-note">メン限の枠は再生数を取得できません（—）。再生数で並べたときは、メン限の枠だけの作品を末尾に置いています。</p>
+    </section>
+  )}
+
+  {frames.length > 0 && (
+    <section class="pane" aria-labelledby="h-frames">
+      <div class="section-head">
+        <h2 id="h-frames">作品ページの無い枠 <span class="count">{frames.length}枠</span></h2>
+        <p class="note">外部の作品データベースに無い作品や、作品名が書かれていない枠です。</p>
+      </div>
+      <ol class="frames" style="padding-top: 4px;" set:html={frames.map((e) => frameItemHtml({
+        videoId: e.videoId, startedAt: e.startedAt, views: e.views, members: e.membersOnly, detail: e.frame?.title ?? null,
+      })).join("")} />
+    </section>
+  )}
+</main>
+<script>
+  import "../../../scripts/rows.ts";
+</script>
+</Base>

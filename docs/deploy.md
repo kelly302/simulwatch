@@ -9,7 +9,7 @@ CLAUDE.md の決定（Cloudflare Pages へ Actions から直接アップロー�
 | もの | 状態 |
 | --- | --- |
 | 取得・名寄せのジョブ（CLI） | ある（ローカルで実行している） |
-| サイトのビルド（集計・Astro。出力は `dist/`） | 無い（Phase 3） |
+| サイトのビルド（集計・Astro。出力は `dist/`） | ある（2026-10-19。`npm run cli -- site:data` → `npm run site:build`。約3,800ファイル・32MB。og:image のキャッシュが無いと約3分） |
 | ワークフロー（`.github/workflows/`） | 無い（Phase 4） |
 | GitHub のリポジトリ | 無い（git の remote が未設定。予定は `kelly302/simulwatch`） |
 | Cloudflare（Pages・R2） | 未設定 |
@@ -22,7 +22,7 @@ CLAUDE.md の決定（Cloudflare Pages へ Actions から直接アップロー�
       1. R2 から DB（SQLite）を取得
       2. ジョブ（巡回・名寄せ・再生数の取り直し）
       3. DB と生レスポンスを R2 に書き戻す
-      4. 集計 → Astro でビルド（dist/）
+      4. 集計（site:data）→ Astro でビルド（site:build。dist/）
       5. wrangler で dist/ を Cloudflare Pages に直接アップロード
                                    ↓
                      https://<プロジェクト名>.pages.dev（または独自ドメイン）
@@ -85,8 +85,8 @@ CLAUDE.md の決定（Cloudflare Pages へ Actions から直接アップロー�
 | もの | 中身 |
 | --- | --- |
 | サイトのビルド | 集計 → 画面ごとの JSON と HTML → `dist/`。`_headers`（JSON に `X-Robots-Tag: noindex`）・`_redirects`（作品の URL が変わったときの 301）・404 ページ |
-| 2時間ごとのワークフロー | DB を取得 → `crawl:hourly` → `resolve` → DB を書き戻す → ビルド → アップロード |
-| 日次のワークフロー | DB を取得 → `roster` → `crawl:daily` → `refresh` → `resolve` → 集計の作り直し → DB を書き戻す → ビルド → アップロード |
+| 2時間ごとのワークフロー | DB を取得 → `crawl:hourly` → `resolve` → `site:data` → DB を書き戻す → ビルド → アップロード |
+| 日次のワークフロー | DB を取得 → `roster` → `crawl:daily` → `refresh` → `resolve` → `site:data` → DB を書き戻す → ビルド → アップロード |
 | keepalive のワークフロー | 月1回の軽いコミット（schedule が60日で止まるのを防ぐ） |
 | 手動のワークフロー | ボタンで「ビルドとアップロードだけ」を実行する（`workflow_dispatch`） |
 
@@ -96,7 +96,9 @@ CLAUDE.md の決定（Cloudflare Pages へ Actions から直接アップロー�
 - **R2 から DB を取れなかったら、そこで止める**。空の DB で始めて書き戻さない（既存データを消さない）
 - ジョブの途中のステップが失敗しても、DB の書き戻しは必ず行う
 - ビルドが失敗したらアップロードしない（前の版がそのまま公開され続ける）
-- アップロードの前に `dist/` のファイル数を数え、上限（20,000）に近づいたら止めて知らせる
+- アップロードの前に `dist/` のファイル数を数え、上限（20,000）に近づいたら止めて知らせる（2026-10-19 に約3,800）
+- `site:data` は作品の公開キーと lastmod の表を DB に書くので、DB の書き戻しより前に動かす
+- og:image のキャッシュ（`data/site/og-cache/`）を残す（Actions のキャッシュか R2。無いと毎回約3分のびる）
 - schedule は正時（0分）を避ける（混雑で遅れる。公式の注意）
 
 ## 3. 毎回のアップロード（自動）
@@ -113,10 +115,10 @@ CLAUDE.md の決定（Cloudflare Pages へ Actions から直接アップロー�
 
 ## 4. 手でアップロードする（ローカルから）
 
-ワークフローが止まっているとき・公開の前に見た目を確かめるとき用。ビルドのコマンドは Phase 3 で決まる。
+ワークフローが止まっているとき・公開の前に見た目を確かめるとき用。
 
     npx wrangler login
-    <ビルドのコマンド>                                                   # dist/ を作る
+    npm run cli -- site:data && npm run site:build                       # dist/ を作る
     npx wrangler pages deploy dist --project-name=<プロジェクト名> --branch=preview   # まずプレビューへ
     npx wrangler pages deploy dist --project-name=<プロジェクト名> --branch=main      # 本番へ
 
@@ -223,4 +225,4 @@ GitHub の規約は、GitHub のランナーを「そのリポジトリのソフ
 | Actions の schedule: 最短5分・混雑時に遅れる（毎時0分は混む）・既定のブランチで動く・公開リポジトリは60日動きが無いと止まる | https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows |
 
 確かめていないこと: Cloudflare・GitHub の画面での実際の操作（文書の記述だけ）、wrangler のコマンドの実行、
-2時間ごとに動かしたときの生レスポンスの量・ジョブの所要時間、`dist/` のファイル数（Phase 3 のビルドがまだ無い）。
+2時間ごとに動かしたときの生レスポンスの量・ジョブの所要時間。

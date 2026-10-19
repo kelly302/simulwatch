@@ -240,6 +240,31 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE streamers ADD COLUMN branch TEXT;
   `,
+  // 10: 公開（Phase 3。2026-10-19 の決定 C）
+  //    - 配信者の英語の名前（にじさんじは名簿の API の enName、ホロライブは英語版の一覧）。EN・KR・ID の配信者に併記する
+  //    - 作品の URL の公開キー（annict-1234 / anilist-5678 / wikidata-Q123）。works の行は名寄せで作り直されるので、
+  //      一度出したキーは work_public_keys に覚えておき、同じ作品には同じキーを付け直す。行がまとまったときの 301 もここから作る
+  //    - ページごとの中身の指紋と、中身が変わった日（sitemap の lastmod）
+  `
+  ALTER TABLE streamers ADD COLUMN name_en TEXT;
+  ALTER TABLE works ADD COLUMN public_key TEXT;
+
+  CREATE TABLE work_public_keys (
+    public_key          TEXT PRIMARY KEY,
+    annict_id           INTEGER,
+    anilist_id          INTEGER,
+    wikidata_id         TEXT,
+    first_published_at  TEXT NOT NULL,
+    last_published_at   TEXT NOT NULL
+  );
+
+  CREATE TABLE site_pages (
+    path         TEXT PRIMARY KEY,
+    fingerprint  TEXT NOT NULL,
+    changed_at   TEXT NOT NULL,
+    built_at     TEXT NOT NULL
+  );
+  `,
 ];
 
 export function openDb(path: string = DB_PATH): DB {

@@ -127,7 +127,7 @@ AI の判定役に渡す GUIDE（src/report/blind.ts）と同じ内容にそろ�
     作品一覧の作品行     作品画像 / 作品名 / 観た配信者数 / 最終視聴日
     展開行               日付 / 再生数 / メン限バッジ / サムネ。日付の昇順
 
-### Phase 3 の UI・SEO の決定（2026-10-02〜03。実装はこれから）
+### Phase 3 の UI・SEO の決定（2026-10-02〜03。2026-10-19 に実装した。下の「Phase 3 の実装」）
 
 UI を作る別の会話で、モックアップを見ながら決めた（2026-10-03 に SEO のレビューを受け、推奨をすべて採用）。2026-10-09 の整理でその会話の記録から写し、ユーザーが確認した。
 
@@ -171,6 +171,21 @@ UI の会話が出した4つの推奨を、Phase 3 の会話でユーザーが�
 - D Pages か Workers か・独自ドメイン・コミットの作者のメールアドレスは、公開の前（Phase 4 の最初のアップロードの前）に決める（docs/deploy.md の 6-1・6-2・6-6）。
   Phase 3 のビルドは仮のサイトの URL を設定に置いて進める
 
+### Phase 3 の実装（2026-10-19）
+
+    npm run cli -- site:data    DB → data/site/site-data.json（出す枠・作品・配信者・集計値・公開キー・lastmod・301）。src/publish/
+    npm run site:build          Astro の SSG → dist/（HTML・JSON・og:image・sitemap・robots・_headers・_redirects）。site/
+
+- **出す枠は publishState（src/resolve/route.ts）の work・frame だけ**。書き出しのたびに集計値を作り直す（集計は終わった枠だけ。再生数は公開枠だけ）
+- **作品の公開キーの表（work_public_keys）と、ページの中身の指紋（site_pages。lastmod）は site:data が DB に書く**（src/publish/keys.ts・snapshot.ts）
+- ビルドとブラウザは同じ関数でカードと行を作る（site/lib/views.ts）。ブラウザに渡す JSON の形は site/lib/encode.ts、表示の決まり（種別形式・時期・話数・再生数・並べ替え）は src/shared/site.ts
+- 設定は config/site.yaml（仮のサイトの URL・予定枠の6時間・ランキングの枠数・ページの件数）
+- og:image は satori と resvg で描く（フォントは Noto Sans JP。1枚約90ms）。中身が同じ画像は data/site/og-cache/ のものを使う（無いと全部で約3分）
+- 実装のときに決めたこと（モックアップに無かったところ。ユーザーの確認待ち）:
+  ランキングは作品の付いた公開枠だけで期間ごとに8枠／配信者ページの末尾に「作品ページの無い枠」（外部DBに無い作品・作品を特定できない枠）を並べる／
+  映画かどうか・制作国が分からない作品は、絞り込みの「映画」「映画以外」「日本」「海外」のどれにも入れない／広告の枠は広告の配信を決めるまで出さない／
+  このサイトについて（/about/）・プライバシーポリシー（/privacy/）は下書き（運営者・連絡先・広告の節は公開の前に決める）
+
 ## ソートとフィルター
 
 ソートは「キー」＋「共通の逆順トグル」。昇順・降順を別の選択肢にしない。
@@ -197,14 +212,14 @@ views_* のソートは実施済み枠のみを対象にする。
 
 ## データモデル
 
-    Streamer   id, name, affiliation, branch, channel_id, platform, icon_url, tier,
+    Streamer   id, name, name_en, affiliation, branch, channel_id, platform, icon_url, tier,
                is_active, source_key, channel_title,
                first_seen_at, last_listed_at, deactivated_at, updated_at
     Work       id, annict_id, anilist_id, wikidata_id, title, title_kana,
                media (tv / movie / ova / web), season_name, series_id,
                episodes_count, image_url, mal_id, release_year, source,
                kind (anime / tokusatsu / live_action), countries, series_title, attrs_at,
-               created_at, updated_at
+               public_key, created_at, updated_at
     Episode    id, work_id, number, number_text, title
                ※ 映画・単発は作らない
     WatchEvent id, streamer_id, video_id, title_raw, thumbnail_url, url,
@@ -226,7 +241,13 @@ views_* のソートは実施済み枠のみを対象にする。
                作品を観ているが作品名が書かれていないだけの枠（「映画同時視聴！」、企画名だけの枠）は unidentifiable にして、not_a_work に混ぜない
 
 集計値（views_max / views_total / events_count / streamers_count /
-first_event_at / latest_event_at）は日次バッチで作り直す。
+first_event_at / latest_event_at）は DB に持たず、サイト用のデータを書き出すたび（site:data）に作り直す（2026-10-19。再生数そのものは日次の refresh で取り直す）。
+
+### Phase 3 で足した列の意味
+
+- `Streamer.name_en` 英語の名前。にじさんじは名簿の API の enName、ホロライブは英語版の一覧（先頭の [Affiliate]・[Alum] を外す）。ぶいすぽっ！は無い。
+  取れなかったら前回の値を残す。日本以外の区分の配信者に、名前と違うときだけ併記する。1つのチャンネルにまとめた配信者はチャンネル名（FUWAMOCO）
+- `Work.public_key` 作品の URL の公開キー（annict-1234 / anilist-5678 / wikidata-Q123）。work_public_keys の写し（works の行は作り直されるので、正は表のほう）
 
 ### Phase 1 で足した列の意味
 
@@ -275,6 +296,8 @@ first_event_at / latest_event_at）は日次バッチで作り直す。
     event_resolution  枠ごとの名寄せの処理状態（どのルールのバージョンで処理したか）と枠の型（route・route_sub）
     resolve_cache     外部作品DBへの照会結果のキャッシュ。新しい枠の照会は30日で取り直し、ルールを直したあとのやり直しでは期限切れも使う
     ai_decisions      AI の判定（確定）。1枠に取り消されていない判定は1つ。取り消しても行は残す
+    work_public_keys  一度出した作品の公開キーと、そのときの外部DBの ID。同じ作品には同じキーを付け直し、行がまとまったら古いキーから 301
+    site_pages        作品ページ・配信者ページの中身の指紋（再生数を除く）と、中身が変わった日（sitemap の lastmod）
 
 ### 間違えやすい点
 
@@ -540,9 +563,11 @@ src/resolve/ と config/extract.yaml を変えるときは先に読み、同じ�
       roster.yaml       Tier 1 の取得元（公式サイトのURL・日本の所属グループ・卒業の印・所属の中の区分の印）
       crawl.yaml        巡回頻度・クォータ上限・遡りの予算・HTTP（User-Agent と照会先ごとの間隔）
       extract.yaml      名寄せのルール（作品ではない語・ノイズ語・前後の語・Wikidata の作品クラス）
+      site.yaml         サイトの設定（仮のサイトの URL・予定枠を出さなくなる時間・ランキングの枠数・ページの件数）
     src/
       cli.ts            コマンドの入口
       shared/types.ts   ジョブとフロントで共有する型
+      shared/site.ts    サイト用のデータの形と、ジョブ・ビルド・ブラウザで共有する表示の決まり（種別形式・時期・話数・再生数・並べ替え）
       lib/              設定・DB（マイグレーション）・HTTP・生レスポンス・クォータ・実行コンテキスト
       youtube/          Data API のクライアントと RSS のパーサー
       roster/           公式サイトからの一覧取得と同期
@@ -552,8 +577,13 @@ src/resolve/ と config/extract.yaml を変えるときは先に読み、同じ�
                         作品の属性（enrich）・Wikidata のアニメのまとめ（link）・Annict / AniList / Wikipedia のクライアント・保存）
       report/           ローカル確認用のレポート・同定の検証用の抽出・外部DBの照会（lookup）・AI の判定の道具（ai）・
                         型ごとの抽出と AI との突き合わせ（audit）・候補を見せない待ち行列（blind）・判定役に見せる手がかり（neighbors）・AI の答えの形式（answer）・裁定と採点の HTML（review）
+      publish/          サイト用のデータの書き出し（出す枠・集計値（snapshot）・作品の公開キー（keys）・書き出し（export））
+    site/               Astro のサイト（srcDir）。pages/（5画面・一覧のタブとページ・JSON・og:image・sitemap）・layouts/・components/・
+                        lib/（ビルド時のデータ（data）・カードと行の HTML（views）・JSON の形（encode）・og:image（og））・scripts/（ブラウザの動き）・styles/・public/
+    astro.config.mjs    Astro の設定（_headers・_redirects も書く）。scripts/astro.mjs は telemetry を止めて Astro を動かす
     test/               node --test のテスト
-    data/               SQLite と生レスポンス（ローカル・コミットしない）
+    data/               SQLite と生レスポンス・サイト用のデータ（data/site/）・og:image のキャッシュ（ローカル・コミットしない）
+    dist/               ビルドしたサイト（コミットしない）
     docs/
       resolve-rules.md  名寄せの細かい決まり（src/resolve/・config/extract.yaml を変えるときに読み、同じコミットで直す）
       ai-runs.md        ゲート2の検証と AI の判定の回ごとの記録（AI の判定役は開かない）
@@ -599,8 +629,11 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- audit:sample --seed audit-1     # 型ごとの抽出。AI に見せる待ち行列と封をしたルールの答え（data/audit/<batch>/）
     npm run cli -- audit:sample --seed audit-2 --exclude audit-1 --n 50 --type "unique_exact,not_a_work_rule:スポーツ"   # 層を絞った測り直し
     npm run cli -- audit:compare audit-1           # AI の答えとルールの答えの突き合わせ（mismatches.md・summary.md・裁定用の review.html）
+    npm run cli -- site:data       # サイト用のデータを data/site/site-data.json に書き出す（公開キー・lastmod の表も更新する）
+    npm run site:build             # サイトのビルド（dist/）。先に site:data
+    npm run site:preview           # dist/ を http://localhost:4321 で見る（site:dev は開発用のサーバー）
     npm test                       # テスト
-    npm run typecheck              # 型チェック
+    npm run typecheck              # 型チェック（src・test と site）
 
 - 各ジョブはステップ単位で失敗を記録して次へ進む。ジョブの終了コードは 0（後続のジョブを止めない）
 - 生レスポンスは `data/raw/<日付>/<run_id>.jsonl.gz` に1ジョブ1ファイルで保存する（APIキーは伏せる）。
@@ -632,12 +665,17 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
 - Wikidata に特撮の手がかりが無い作品は実写になる（仮面ライダーは作品名で拾う。戦隊・ウルトラマンは今は取りこぼしが無いので足していない）
 - Wikidata のラベルが崩れている作品がある（「麻雀放浪記#映画 麻雀放浪記」）。Thunderbolt Fantasy（人形劇）は Annict にあるのでアニメになる
 - Annict・AniList の検索はひらがなとカタカナを区別するので、「ゆるきゃんΔ」では劇場版が候補に出てこない
+- og:image のキャッシュ（data/site/og-cache/）は、定期実行（Phase 4）でも残す仕組みが要る（Actions のキャッシュか R2）。無いと毎回のビルドが約3分のびる
+- satori は 2026-10-12 以降に30回近く版が上がっていたので、4週間前の 0.33.5 に固定した。npm audit の fflate（壊れた ZIP64 で止まらない。moderate）は satori の依存で、
+  このサイトは ZIP を読まないので当たらないと見ている。版を上げるときに見直す
+- ブラウザに渡す JSON の大きさ（2026-10-19。gzip）: 全件の索引 118KB・辞書 68KB・作品名の検索の索引 75KB・新しい順300枠 20KB・作品一覧の1ページ 13KB。
+  検索の索引は「軽い索引」の目安より大きい（画像の URL・再生数も入れている）。重いと分かったら削る
 
 ## フェーズ
 
     Phase 1  取得基盤（済。ゲート1を 2026-09-23 に通過）
     Phase 2  名寄せ（済。ゲート2を 2026-10-09 に通過）
-    Phase 3  集計と UI（5画面、画面ごとの JSON）                        ← 次
+    Phase 3  集計と UI（5画面、画面ごとの JSON）                        ← 実装した（2026-10-19。ユーザーの確認待ち）
     Phase 4  公開と定期実行（Actions・R2・Pages）
     Phase 5  Tier 2（作品名からの逆引きでチャンネルを追加する discover）。Phase 4 の公開後に着手
 

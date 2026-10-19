@@ -1,0 +1,19 @@
+# サイト（Phase 3）の設定。ジョブの書き出し（site:data）と Astro のビルドの両方が読む
+
+# サイトの URL（canonical・sitemap・og:url に入る）。**仮**。Pages か Workers か・独自ドメインは公開の前に決める（2026-10-19 の決定 D）
+site_url: "https://simulwatch.example"
+site_name: "同時視聴まとめ"
+
+# 予定時刻（無ければ started_at）からこの時間を過ぎても upcoming の枠は「これから始まる枠」に出さない（決定 A。ビルドの時刻で判定する）
+upcoming_stale_hours: 6
+
+top:
+  # ランキングの枠数（期間ごと。7日・30日・全期間）
+  ranking_size: 8
+  ranking_periods: [7, 30, 0]   # 0 は全期間
+  # 「同時視聴した枠」で HTML に入れる新しい順の枠数と、「さらに表示」で読む JSON の枠数
+  recent_html: 24
+  recent_json: 300
+
+# 作品一覧の1ページの件数（HTML のページ送りと、並び順ごとの JSON）
+works_page_size: 300
