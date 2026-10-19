@@ -1,8 +1,9 @@
 ---
 // 作品ページ。配信者単位に集約（1配信者＝1行、枠は展開）。本文はすべてビルド時の HTML に持たせる（ページごとの JSON は作らない）
 import Base from "../../../layouts/Base.astro";
+import RailButtons from "../../../components/RailButtons.astro";
 import { TAB_LABEL, cfg, kindTab, seriesOf, streamerRowsOf, tabPath, workPages } from "../../../lib/data.ts";
-import { CHEVRON, EXT_ICON, REV_ICON, affLabel, avatarHtml, frameItemHtml } from "../../../lib/views.ts";
+import { CHEVRON, EXT_ICON, REV_ICON, affLabel, avatarHtml, frameItemHtml, workCardHtml } from "../../../lib/views.ts";
 import { WORK_KIND_LABEL } from "../../../../src/shared/types.ts";
 import type { SiteWork } from "../../../../src/shared/site.ts";
 import {
@@ -77,17 +78,16 @@ const jsonLd = [
       </ol>
     </nav>
     <div class="hero">
-      {w.imageUrl
-        ? <img class="himg" src={w.imageUrl} alt="" width="88" height="124" decoding="async" referrerpolicy="no-referrer" />
-        : <span class="himg none" aria-hidden="true">{w.title.slice(0, 1)}</span>}
+      {/* 画像の無い作品（実写・特撮・海外の作品）は作品名だけを大きく出す */}
+      {w.imageUrl && <img class="himg" src={w.imageUrl} alt="" width="168" height="236" decoding="async" referrerpolicy="no-referrer" />}
       <div class="hbody">
         <h1>{w.title}</h1>
         {chips.length > 0 && <div class="chips">{chips.map((c) => <span>{c}</span>)}</div>}
-        {series.length > 1 && <a class="series-link" href="#series">シリーズ「{seriesName}」の{series.length}作品</a>}
         {links.length > 0 && <div class="ext">{links.map((l) => <a href={l.href} rel="noopener">{l.label}<Fragment set:html={EXT_ICON} /></a>)}</div>}
+        {series.length > 1 && <a class="series-link" href="#series">シリーズ「{seriesName}」の{series.length}作品</a>}
       </div>
     </div>
-    <dl class="stats">
+    <dl class="stats bleed">
       <div><dt>観た配信者</dt><dd>{w.streamersCount}<span class="u">人</span></dd></div>
       <div><dt>枠</dt><dd>{w.eventsCount}<span class="u">枠</span></dd></div>
       <div><dt>うちメン限</dt><dd>{w.membersCount}<span class="u">枠</span></dd></div>
@@ -117,7 +117,7 @@ const jsonLd = [
         <li data-i={String(i)} data-views={r.viewsMax == null ? "" : String(r.viewsMax)} data-latest={r.latest}>
           <div class="xrow">
             <a href={streamerPath(r.streamer.channelId)}>
-              <Fragment set:html={avatarHtml(r.streamer.name, r.streamer.iconUrl, 36, "xav")} />
+              <Fragment set:html={avatarHtml(r.streamer.name, r.streamer.iconUrl, 48, "xav")} />
               <span class="xbody">
                 <span class="xname">{r.streamer.name}</span>
                 {showsNameEn(r.streamer) && <span class="sen" lang="en">{r.streamer.nameEn}</span>}
@@ -141,18 +141,16 @@ const jsonLd = [
 
   {series.length > 1 && (
     <section class="pane" id="series" aria-labelledby="h-series">
-      <div class="section-head">
+      <div class="section-head block-head">
         <h2 id="h-series">同じシリーズの作品 <span class="count">{seriesName}・{series.length}作品</span></h2>
+        <RailButtons label="同じシリーズの作品" />
       </div>
-      <ol class="rows">
-        {series.map((x) => x.id === w.id
-          ? <li><div class="wrow" aria-current="page"><span class="wbody"><span class="wttl">{x.title}</span><span class="wmeta">{metaLine(x)}</span></span><span class="cur-tag">この作品</span></div></li>
-          : <li><a class="wrow" href={workPath(x.key!)}><span class="wbody"><span class="wttl">{x.title}</span><span class="wmeta">{metaLine(x)}</span></span><span class="wside"><span class="num">{x.streamersCount}<span class="unit">人</span></span></span></a></li>)}
-      </ol>
+      <div class="rail covers" set:html={series.map((x) => workCardHtml({ key: x.key!, title: x.title, image: x.imageUrl, streamers: x.streamersCount, events: x.eventsCount, meta: metaLine(x) }, { current: x.id === w.id })).join("")} />
     </section>
   )}
 </main>
 <script>
   import "../../../scripts/rows.ts";
+  import "../../../scripts/rail.ts";
 </script>
 </Base>

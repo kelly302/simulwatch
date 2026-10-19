@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   episodeLabel, formLabel, formatDate, formatViews, formatWhen, iconAt, metaLine, multiMetaLine, periodLabel, publicKeyOf, showsNameEn, sortByViews,
 } from "../src/shared/site.ts";
-import { cardHtml, workRowHtml } from "../site/lib/views.ts";
+import { cardHtml, workCardHtml, workRowHtml } from "../site/lib/views.ts";
 import type { TopDict, TopRow } from "../site/lib/encode.ts";
 import { packImage, unpackImage } from "../site/lib/encode.ts";
 import { norm } from "../site/lib/text.ts";
@@ -119,6 +119,23 @@ test("作品一覧の行と画像の URL の短縮", () => {
   assert.match(html, /href="\/works\/annict-1\/"/);
   assert.match(html, /—/);
   assert.match(html, /9人/);
+});
+
+test("作品の画像のカード（よく同時視聴される作品・同じシリーズの作品）", () => {
+  const base = { key: "wikidata-Q1", title: "作品<A>", image: null, streamers: 21, events: 22, meta: "実写映画 · 2001年" };
+  // 画像が無ければ作品名と種別形式・時期を組んだ文字のポスター（読み上げでは読まない）
+  const poster = workCardHtml(base);
+  assert.match(poster, /<a class="wcard" href="\/works\/wikidata-Q1\/">/);
+  assert.match(poster, /<span class="wimg none" aria-hidden="true"><span class="pt">作品&lt;A&gt;<\/span><span class="pf">実写映画 · 2001年<\/span><\/span>/);
+  assert.match(poster, /<strong>21人<\/strong>が観た · 22枠/);
+  const img = workCardHtml({ ...base, image: "https://s4.anilist.co/x.jpg" });
+  assert.match(img, /<img class="wimg" src="https:\/\/s4\.anilist\.co\/x\.jpg"/);
+  assert.doesNotMatch(img, /class="pt"/);
+  // いま開いている作品はリンクにしない
+  const cur = workCardHtml(base, { current: true });
+  assert.match(cur, /<div class="wcard" aria-current="page">/);
+  assert.doesNotMatch(cur, /href=/);
+  assert.match(cur, /この作品/);
 });
 
 test("検索の照合: カタカナとひらがな・全角半角・記号をそろえる", () => {

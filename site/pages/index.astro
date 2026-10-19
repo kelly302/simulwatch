@@ -1,13 +1,14 @@
 ---
-// トップ。ランキング（3期間）・これから始まる枠・同時視聴した枠（新しい順24枠）をビルド時の HTML に入れる。
-// 「さらに表示」で新しい順300枠の JSON、絞り込み・並べ替え・300枠より先で全件の索引と辞書を読む（site/scripts/top.ts）
+// トップ。ランキング（3期間）・これから始まる枠・よく同時視聴される作品・同時視聴した枠（新しい順24枠）をビルド時の HTML に入れる。
+// 上の3つは横に流す棚（2026-10-20）。「さらに表示」で新しい順300枠の JSON、絞り込み・並べ替え・300枠より先で全件の索引と辞書を読む（site/scripts/top.ts）
 import Base from "../layouts/Base.astro";
-import { cfg, completed, ranking, site, streamerById, upcoming, workById, viewsUpdated } from "../lib/data.ts";
+import RailButtons from "../components/RailButtons.astro";
+import { cfg, completed, ranking, site, sortWorks, streamerById, upcoming, workById, viewsUpdated, worksOfTab } from "../lib/data.ts";
 import { dictFor, encodeRow } from "../lib/encode.ts";
-import { cardHtml } from "../lib/views.ts";
+import { cardHtml, workCardHtml } from "../lib/views.ts";
 import { AFFILIATION_LABEL, BRANCH_LABEL } from "../../src/shared/types.ts";
 import type { Affiliation, Branch } from "../../src/shared/types.ts";
-import { SEASONS, SEASON_LABEL, formatDate } from "../../src/shared/site.ts";
+import { SEASONS, SEASON_LABEL, formatDate, metaLine } from "../../src/shared/site.ts";
 
 const periods = cfg.top.ranking_periods.map((days) => {
   const evs = ranking(days);
@@ -18,6 +19,10 @@ const up = upcoming;
 const upDict = dictFor(up, streamerById, workById);
 const recent = completed.slice(0, cfg.top.recent_html);
 const recentDict = dictFor(recent, streamerById, workById);
+// よく同時視聴される作品（作品一覧の既定の並び＝観た配信者の多い順の先頭）
+const WORKS_RAIL = 12;
+const topWorks = sortWorks(worksOfTab("all"), "streamers", false).slice(0, WORKS_RAIL);
+const streamersShown = site.streamers.filter((s) => s.hasPage).length;
 
 // 絞り込みの選択肢（データにある所属の区分・放送年だけ）
 const BRANCH_ORDER: Branch[] = ["jp", "en", "kr", "id"];
@@ -43,34 +48,55 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
 <Base title={`VTuber の同時視聴（ミラー配信）を作品から探す | ${cfg.site_name}`} description={description} path="/" nav="top" jsonLd={jsonLd}>
 <main class="wrap" id="top">
   <h1 class="lead">VTuber の同時視聴（ミラー配信）を作品から探す</h1>
-  <p class="intro">にじさんじ・ホロライブ・ぶいすぽっ！の配信者が同時視聴した作品と枠をまとめています。作品から配信者を、配信者から観た作品をたどれます。</p>
+  <p class="intro">にじさんじ・ホロライブ・ぶいすぽっ！の<b>{streamersShown.toLocaleString()}人</b>が同時視聴した<b>{site.works.filter((w) => w.hasPage).length.toLocaleString()}作品</b>・<b>{completed.length.toLocaleString()}枠</b>をまとめています。作品から配信者を、配信者から観た作品をたどれます。</p>
 
   <section class="block" aria-labelledby="h-rank">
-    <h2 id="h-rank">ランキング</h2>
-    <div class="seg inline" role="group" aria-label="期間" id="rank-period">
-      {periods.map((p, i) => <button type="button" data-period={String(p.days)} aria-pressed={i === 0 ? "true" : "false"}>{p.label}</button>)}
+    <div class="block-head">
+      <h2 id="h-rank">ランキング</h2>
+      <div class="tools">
+        <div class="utabs" role="group" aria-label="期間" id="rank-period">
+          {periods.map((p, i) => <button type="button" data-period={String(p.days)} aria-pressed={i === 0 ? "true" : "false"}>{p.label}</button>)}
+        </div>
+        <RailButtons label="ランキング" />
+      </div>
     </div>
     {periods.map((p, i) => (
       <div class="rank-pane" data-period={String(p.days)} hidden={i !== 0}>
         <p class="note">{p.days ? `この${p.days}日に配信された` : "これまでに配信された"}公開枠を、再生数の多い順に。{viewsAt && `再生数は ${viewsAt} 時点。`}</p>
         {p.evs.length
-          ? <div class="grid" set:html={p.evs.map((e, j) => cardHtml(encodeRow(e), p.dict, { rank: j + 1, lazy: i !== 0 || j >= 4 })).join("")} />
-          : <p class="note">この期間の公開枠はまだありません。</p>}
+          ? <div class="rail" set:html={p.evs.map((e, j) => cardHtml(encodeRow(e), p.dict, { rank: j + 1, lazy: i !== 0 || j >= 2 })).join("")} />
+          : <p class="empty note">この期間に配信された公開枠はまだありません。ほかの期間を選んでください。</p>}
       </div>
     ))}
   </section>
 
   <aside class="ad" aria-label="広告"></aside>
 
-  <section class="block" aria-labelledby="h-up">
-    <div class="block-head">
-      <h2 id="h-up">これから始まる枠</h2>
-      <span class="note">配信中を先頭に</span>
-    </div>
-    {up.length
-      ? <div class="grid" set:html={up.map((e) => cardHtml(encodeRow(e), upDict)).join("")} />
-      : <p class="note">予定されている枠はありません。</p>}
-  </section>
+  {up.length
+    ? <section class="block band bleed" aria-labelledby="h-up">
+        <div class="block-head">
+          <h2 id="h-up">これから始まる枠 <span class="count">{up.length}枠・配信中を先頭に</span></h2>
+          <RailButtons label="これから始まる枠" />
+        </div>
+        <div class="rail" set:html={up.map((e, j) => cardHtml(encodeRow(e), upDict, { lazy: j >= 2 })).join("")} />
+      </section>
+    : <section class="block" aria-labelledby="h-up">
+        <h2 id="h-up">これから始まる枠</h2>
+        <p class="note">予定されている枠はありません。</p>
+      </section>}
+
+  {topWorks.length > 0 && (
+    <section class="block" aria-labelledby="h-works">
+      <div class="block-head">
+        <h2 id="h-works">よく同時視聴される作品</h2>
+        <div class="tools">
+          <a class="see-all" href="/works/">作品をすべて見る</a>
+          <RailButtons label="よく同時視聴される作品" />
+        </div>
+      </div>
+      <div class="rail covers" set:html={topWorks.map((w) => workCardHtml({ key: w.key!, title: w.title, image: w.imageUrl, streamers: w.streamersCount, events: w.eventsCount, meta: metaLine(w) })).join("")} />
+    </section>
+  )}
 
   <section class="block" aria-labelledby="h-done" id="done">
     <h2 id="h-done">同時視聴した枠</h2>
@@ -183,5 +209,6 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
 <script type="application/json" id="top-config" set:html={JSON.stringify(topConfig)} />
 <script>
   import "../scripts/top.ts";
+  import "../scripts/rail.ts";
 </script>
 </Base>

@@ -121,6 +121,29 @@ export function workRowHtml(r: WorkListRow, metric: WorkRowMetric = "streamers",
   return `<li><a class="wrow" href="${esc(workPath(key))}">${thumb}<span class="wbody"><span class="wttl">${titleHtml ?? esc(title)}</span>${meta ? `<span class="wmeta">${esc(meta)}</span>` : ""}</span><span class="wside">${top}<span class="sub">${esc(bottom)}</span></span></a></li>`;
 }
 
+// ---------------------------------------------------------------- 作品の画像のカード（トップのよく同時視聴される作品・作品ページの同じシリーズ。ビルド時だけ）
+
+export interface WorkCardItem {
+  key: string;
+  title: string;
+  image: string | null;
+  streamers: number;
+  events: number;
+  /** 種別形式・時期（「実写映画 · 2001年」）。画像の無い作品の文字のポスターに入れる */
+  meta: string;
+}
+
+/** 作品の画像と作品名と観た配信者数。画像が無ければ作品名を組んだ文字のポスター。current はいま開いている作品（リンクにしない） */
+export function workCardHtml(w: WorkCardItem, opt: { current?: boolean } = {}): string {
+  const img = w.image
+    ? `<img class="wimg" src="${esc(w.image)}" alt="" width="132" height="185" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
+    : `<span class="wimg none" aria-hidden="true"><span class="pt">${esc(w.title)}</span>${w.meta ? `<span class="pf">${esc(w.meta)}</span>` : ""}</span>`;
+  const body = `${img}<b>${esc(w.title)}</b>`;
+  return opt.current
+    ? `<div class="wcard" aria-current="page">${body}<span>この作品</span></div>`
+    : `<a class="wcard" href="${esc(workPath(w.key))}">${body}<span><strong>${w.streamers}人</strong>が観た · ${w.events}枠</span></a>`;
+}
+
 // ---------------------------------------------------------------- 展開行の中の枠（作品ページ・配信者ページ。ビルド時だけ）
 
 export interface FrameItem {

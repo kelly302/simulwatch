@@ -32,7 +32,7 @@ const ld = (o: unknown) => JSON.stringify(o).replace(/</g, "\\u003c");
 <link rel="canonical" href={canonical}>
 {noindex && <meta name="robots" content="noindex">}
 <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#191C23" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#131313" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta property="og:site_name" content={cfg.site_name}>
 <meta property="og:locale" content="ja_JP">
@@ -51,19 +51,21 @@ const ld = (o: unknown) => JSON.stringify(o).replace(/</g, "\\u003c");
 <header class="site">
   <div class="wrap">
     <a class="logo" href="/">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="color: var(--accent)"><rect x="2.5" y="4.5" width="13" height="10" rx="2"></rect><rect x="8.5" y="9.5" width="13" height="10" rx="2" fill="var(--accent-soft)"></rect></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="3" width="15" height="12" fill="var(--uv)"></rect><rect x="8" y="9" width="15" height="12" fill="var(--mint)" stroke="var(--ink)" stroke-width="2"></rect></svg>
       {cfg.site_name}
     </a>
+    {/* スマホでは画面の下に固定するタブ、幅が広ければヘッダーの右（global.css の .nav） */}
     <nav class="nav" aria-label="メイン">
-      <a href="/" aria-current={nav === "top" ? "page" : undefined}>トップ</a>
-      <a href="/works/" aria-current={nav === "works" ? "page" : undefined}>作品</a>
-      <a href="/streamers/" aria-current={nav === "streamers" ? "page" : undefined}>配信者</a>
+      <a href="/" aria-current={nav === "top" ? "page" : undefined}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"></path></svg>トップ</a>
+      <a href="/works/" aria-current={nav === "works" ? "page" : undefined}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="10"></rect><rect x="13.5" y="3.5" width="7" height="10"></rect><path d="M3.5 17.5h17M3.5 20.5h11"></path></svg>作品</a>
+      <a href="/streamers/" aria-current={nav === "streamers" ? "page" : undefined}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4 4-6 8-6s7 2 8 6"></path></svg>配信者</a>
     </nav>
   </div>
 </header>
 <slot />
 <footer class="site-foot">
   <div class="wrap">
+    <div class="name">{cfg.site_name}</div>
     <div>動画の情報は YouTube Data API を使って取得しています。サムネイルを押すと YouTube の動画ページを開きます。</div>
     <div>作品情報: Annict / AniList / Wikipedia・Wikidata</div>
     {viewsUpdated && <div>再生数は毎日更新しています（最終更新 {formatDate(viewsUpdated)}）</div>}

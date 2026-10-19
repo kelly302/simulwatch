@@ -19,9 +19,11 @@ interface El {
 }
 const el = (type: string, style: Record<string, string | number>, children?: El["props"]["children"]): El => ({ type, props: { style, children } });
 
-const ACCENT = "#2340B8";
-const INK = "#15171C";
-const SUB = "#4B5260";
+// 色はサイトと同じ（global.css の --ink・--sub・--uv・--mint）
+const INK = "#131313";
+const SUB = "#575757";
+const UV = "#5200FF";
+const MINT = "#3CFFD0";
 
 export interface OgContent {
   /** 上の小さな行（種別形式・時期、所属） */
@@ -35,7 +37,7 @@ export interface OgContent {
 }
 
 /** 描き方を変えたら上げる（キャッシュの画像を使わなくなる） */
-const OG_VERSION = 1;
+const OG_VERSION = 3;
 /** 描いた画像のキャッシュ（中身が同じなら描き直さない。1枚約90ms・全部で約3分かかるため）。OG_CACHE で場所を変えられる */
 const CACHE_DIR = process.env.OG_CACHE ?? join(process.cwd(), "data", "site", "og-cache");
 
@@ -58,19 +60,26 @@ export async function ogPng(c: OgContent): Promise<Uint8Array> {
 async function render(c: OgContent): Promise<Uint8Array> {
   const title = clip(c.title, 56);
   const size = title.length <= 12 ? 80 : title.length <= 24 ? 64 : title.length <= 40 ? 52 : 44;
-  const tree = el("div", { width: "100%", height: "100%", display: "flex", flexDirection: "column", background: "#F3F4F6", fontFamily: "Noto Sans JP", color: INK }, [
-    el("div", { height: 14, background: ACCENT, display: "flex" }),
-    el("div", { flexGrow: 1, display: "flex", flexDirection: "column", justifyContent: "space-between", margin: "40px 56px 48px", padding: "44px 56px", background: "#FFFFFF", borderRadius: 24 }, [
+  const tree = el("div", { width: "100%", height: "100%", display: "flex", flexDirection: "column", background: "#FFFFFF", fontFamily: "Noto Sans JP", color: INK }, [
+    el("div", { height: 18, background: INK, display: "flex" }),
+    el("div", { flexGrow: 1, display: "flex", flexDirection: "column", justifyContent: "space-between", padding: "48px 72px 52px" }, [
       el("div", { display: "flex", flexDirection: "column", gap: 18 }, [
-        el("div", { display: "flex", fontSize: 30, color: SUB }, clip(c.eyebrow, 40)),
-        el("div", { display: "flex", fontSize: size, fontWeight: 700, lineHeight: 1.3 }, title),
-        ...(c.sub ? [el("div", { display: "flex", fontSize: 32, color: SUB }, clip(c.sub, 48))] : []),
+        el("div", { display: "flex", fontSize: 30, fontWeight: 700, color: SUB }, clip(c.eyebrow, 40)),
+        el("div", { display: "flex", fontSize: size, fontWeight: 700, lineHeight: 1.25, letterSpacing: "-0.02em" }, title),
+        ...(c.sub ? [el("div", { display: "flex", fontSize: 32, fontWeight: 700, color: SUB }, clip(c.sub, 48))] : []),
       ]),
-      el("div", { display: "flex", alignItems: "flex-end", justifyContent: "space-between" }, [
-        el("div", { display: "flex", fontSize: 34, fontWeight: 700, color: ACCENT }, c.stats),
-        el("div", { display: "flex", fontSize: 28, fontWeight: 700, color: SUB }, "同時視聴まとめ"),
+      el("div", { display: "flex", alignItems: "center", justifyContent: "space-between" }, [
+        el("div", { display: "flex", fontSize: 34, fontWeight: 700, background: MINT, color: INK, padding: "6px 18px" }, c.stats),
+        el("div", { display: "flex", alignItems: "center", gap: 14, fontSize: 30, fontWeight: 700 }, [
+          el("div", { display: "flex", width: 56, height: 50, position: "relative" }, [
+            el("div", { position: "absolute", left: 0, top: 0, width: 36, height: 28, background: UV, display: "flex" }),
+            el("div", { position: "absolute", left: 18, top: 18, width: 38, height: 32, background: MINT, border: `4px solid ${INK}`, display: "flex" }),
+          ]),
+          "同時視聴まとめ",
+        ]),
       ]),
     ]),
+    el("div", { height: 18, background: UV, display: "flex" }),
   ]);
   const svg = await satori(tree as unknown as Parameters<typeof satori>[0], { width: 1200, height: 630, fonts });
   return new Resvg(svg, { fitTo: { mode: "width", value: 1200 } }).render().asPng();

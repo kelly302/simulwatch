@@ -42,14 +42,14 @@ const jsonLd = [{
       </ol>
     </nav>
     <div class="hero">
-      <Fragment set:html={avatarHtml(s.name, s.iconUrl, 72, "hav")} />
+      <Fragment set:html={avatarHtml(s.name, s.iconUrl, 112, "hav")} />
       <div class="hbody">
         <h1>{s.name}</h1>
         {en && <p class="en" lang="en">{en}</p>}
         <div class="ext"><span>{affLabel(s.affiliation, s.branch)}</span><a href={`https://www.youtube.com/channel/${s.channelId}`} rel="noopener">YouTube チャンネル<Fragment set:html={EXT_ICON} /></a></div>
       </div>
     </div>
-    <dl class="stats">
+    <dl class="stats bleed">
       <div><dt>同時視聴の枠</dt><dd>{s.eventsCount}<span class="u">枠</span></dd></div>
       <div><dt>観た作品</dt><dd>{s.worksCount}<span class="u">作品</span></dd></div>
       <div><dt>期間</dt><dd class="range">{formatMonth(s.firstEventAt) === formatMonth(s.latestEventAt) ? formatMonth(s.firstEventAt) : <Fragment>{formatMonth(s.firstEventAt)}〜<br>{formatMonth(s.latestEventAt)}</Fragment>}</dd></div>
@@ -84,7 +84,7 @@ const jsonLd = [{
                 </span>
               </a>
               <button type="button" class="xbtn" aria-expanded="false" aria-controls={`f-${i}`} aria-label={`${r.work.title} の枠を開く`}>
-                <span class="vals"><span class="v1" style="font-size: 13px;">{formatDate(r.latest)}</span><span class="v2">{r.events.length}枠{r.viewsMax != null ? ` · ${formatViews(r.viewsMax)}` : ""}</span></span>
+                <span class="vals"><span class="v1 date">{formatDate(r.latest)}</span><span class="v2">{r.events.length}枠{r.viewsMax != null ? ` · ${formatViews(r.viewsMax)}` : ""}</span></span>
                 <Fragment set:html={CHEVRON} />
               </button>
             </div>
@@ -104,7 +104,7 @@ const jsonLd = [{
         <h2 id="h-frames">作品ページの無い枠 <span class="count">{frames.length}枠</span></h2>
         <p class="note">外部の作品データベースに無い作品や、作品名が書かれていない枠です。</p>
       </div>
-      <ol class="frames" style="padding-top: 4px;" set:html={frames.map((e) => frameItemHtml({
+      <ol class="frames tiles" set:html={frames.map((e) => frameItemHtml({
         videoId: e.videoId, startedAt: e.startedAt, views: e.views, members: e.membersOnly, detail: e.frame?.title ?? null,
       })).join("")} />
     </section>
