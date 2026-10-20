@@ -155,14 +155,16 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
         </fieldset>
         <fieldset data-axis="aff">
           <legend class="sr">所属</legend>
-          {/* 所属は1行（2026-10-21 ユーザー決定）: 事務所の名前を上に小さく、区分の札（JP・EN・KR・ID）を横1列に。札には区分だけ、読み上げは「にじさんじ JP」 */}
-          <div class="affline">
+          {/* 所属は事務所ごとの選択を横に並べる（2026-10-21 ユーザー決定）。事務所の名前を上に小さく、選択は既定の「すべて」・区分の1つ・「除く」。区分が1つの事務所は「すべて」と「除く」 */}
+          <div class="affsel">
             {affs.map((a) => (
-              <div class="affgrp">
-                <span class="afflabel" aria-hidden="true">{a.label}</span>
-                <div class="affpills">
-                  {a.branches.map((b) => <label class="chk"><input type="checkbox" name="branch" value={`${a.aff}:${b}`} /><span class="sr">{a.label} </span>{BRANCH_LABEL[b]}</label>)}
-                </div>
+              <div class="affcol">
+                <label class="afflabel" for={`opt-aff-${a.aff}`}>{a.label}</label>
+                <select id={`opt-aff-${a.aff}`} class="pick" data-aff={a.aff} data-branches={a.branches.join(" ")}>
+                  <option value="all" selected>すべて</option>
+                  {a.branches.length > 1 && a.branches.map((b) => <option value={b}>{BRANCH_LABEL[b]}</option>)}
+                  <option value="ex">除く</option>
+                </select>
               </div>
             ))}
           </div>

@@ -247,15 +247,12 @@ a.wcard:hover b { text-decoration: underline; }
 .seg label { position: relative; min-height: 40px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 20px; color: var(--sub); cursor: pointer; font-size: 13px; font-weight: 700; }
 .seg label::after { content: ""; position: absolute; inset: -2px 0; }
 .seg label:has(input:checked) { background: var(--uv); color: var(--on-uv); }
-/* 所属: 1行。事務所の名前を上に小さく、区分の札を横1列に。幅が足りなければ横に流す（右の端を薄くして続きがあると示す。一覧のタブと同じ）。
-   札は幅を決めておき、選んでチェックの印が付いても幅が変わらない */
-.affline { display: flex; gap: 14px; overflow-x: auto; scrollbar-width: none; margin-inline: -14px; padding: 0 28px 2px 14px; }
-.affline::-webkit-scrollbar { display: none; }
-@media (max-width: 719px) { .affline { mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); } }
-.affgrp { flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; }
-.afflabel { padding-left: 4px; font-size: 12px; font-weight: 800; color: var(--sub); white-space: nowrap; }
-.affpills { display: flex; gap: 4px; }
-.affpills .chk, .affpills .chk:has(input:checked) { width: 50px; padding: 0; justify-content: center; }
+/* 所属: 事務所ごとの選択を横に並べる（3つは同じ幅）。事務所の名前を上に小さく。選択の部品は配信した年・作品の放送年と同じ .pick */
+.affsel { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.affcol { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.afflabel { padding-left: 4px; font-size: 12px; font-weight: 800; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.affsel .pick { width: 100%; min-width: 0; padding: 0 26px 0 12px; background-position: right 10px center; }
+@media (min-width: 720px) { .affsel { grid-template-columns: repeat(3, 150px); } }
 .subrow { display: flex; flex-direction: column; gap: 8px; }
 .sublabel { font-size: 12px; font-weight: 700; color: var(--sub); }
 .yearrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

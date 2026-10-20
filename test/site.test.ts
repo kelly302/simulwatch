@@ -7,7 +7,7 @@ import { cardHtml, workCardHtml, workRowHtml } from "../site/lib/views.ts";
 import type { TopDict, TopRow } from "../site/lib/encode.ts";
 import { packImage, unpackImage } from "../site/lib/encode.ts";
 import { norm } from "../site/lib/text.ts";
-import { EMPTY, activeAxes, axisButtonsHtml, axisValue, resetAxis } from "../site/lib/filters.ts";
+import { AFF_NONE, EMPTY, activeAxes, axisButtonsHtml, axisValue, resetAxis } from "../site/lib/filters.ts";
 
 test("種別形式・時期の表記（モックアップ「作品の属性の出し方」）", () => {
   assert.equal(metaLine({ kind: "anime", media: "tv", year: 2013, season: "spring" }), "TVアニメ · 2013年春");
@@ -168,6 +168,10 @@ test("トップの絞り込みの軸のボタン（指定した軸は黒く塗�
   assert.equal(axisValue(f, "aff", agAll), "にじさんじ");
   f.branch = [...f.branch, "hololive:jp", "vspo:jp"];
   assert.equal(axisValue(f, "aff", agAll), "にじさんじ ほか2");
+  // どの事務所も「除く」にしたときの印
+  f.branch = [AFF_NONE];
+  assert.equal(axisValue(f, "aff", agAll), "事務所をすべて除く");
+  assert.equal(activeAxes(f, agAll), 5);
   // その軸だけ指定なしに戻す
   resetAxis(f, "year");
   assert.equal(f.year, "");

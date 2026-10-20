@@ -5,7 +5,7 @@
 
 import type { TopDict, TopRecent, TopRow } from "../lib/encode.ts";
 import { cardHtml, esc } from "../lib/views.ts";
-import { AXIS_LABEL, EMPTY, activeAxes, axisButtonsHtml, resetAxis } from "../lib/filters.ts";
+import { AFF_NONE, AXIS_LABEL, EMPTY, activeAxes, axisButtonsHtml, resetAxis } from "../lib/filters.ts";
 import type { Axis, Filters } from "../lib/filters.ts";
 import { formatDate, sortByViews } from "../../src/shared/site.ts";
 import type { Season } from "../../src/shared/site.ts";
@@ -116,8 +116,10 @@ function sortRows(rows: TopRow[]): TopRow[] {
   return sortByViews(rows, (r) => r[2], (r) => r[1], S.rev);
 }
 
+/** その事務所の区分（「nijisanji:en」の形）。所属の欄の事務所ごとの選択に持たせてある */
 function agBranches(ag: string): string[] {
-  return [...document.querySelectorAll<HTMLInputElement>(`#fpanel input[name="branch"][value^="${ag}:"]`)].map((i) => i.value);
+  const sel = document.querySelector<HTMLSelectElement>(`#fpanel select[data-aff="${ag}"]`);
+  return (sel?.dataset.branches ?? "").split(" ").filter(Boolean).map((b) => `${ag}:${b}`);
 }
 
 const activeCount = (f: Filters) => activeAxes(f, agBranches);
@@ -269,7 +271,13 @@ let openAxis: Axis | null = null;
 
 function syncPanel() {
   const f = S.filters;
-  for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="branch"]')) i.checked = f.branch.includes(i.value);
+  // 所属: 事務所ごとの選択（すべて・区分の1つ・除く）。条件が無ければ全部「すべて」
+  for (const sel of panel.querySelectorAll<HTMLSelectElement>("select[data-aff]")) {
+    const ag = sel.dataset.aff!;
+    const picked = f.branch.filter((v) => v.startsWith(`${ag}:`));
+    sel.value = !f.branch.length || picked.length === agBranches(ag).length ? "all" : !picked.length ? "ex" : picked[0]!.split(":")[1]!;
+    sel.classList.toggle("on", sel.value !== "all");
+  }
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="kind"]')) i.checked = f.kind.includes(i.value);
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="date"]')) i.checked = f.date === i.value;
   // 配信した年の選択（30日以内・1年以内のときは「年を選ぶ」に戻す）
@@ -319,8 +327,14 @@ function closePanel(focusAxis: boolean) {
 panel.addEventListener("change", (ev) => {
   const t = ev.target as HTMLInputElement | HTMLSelectElement;
   const f = S.filters;
-  if (t instanceof HTMLInputElement && t.name === "branch") {
-    f.branch = t.checked ? [...f.branch, t.value] : f.branch.filter((k) => k !== t.value);
+  if (t instanceof HTMLSelectElement && t.dataset.aff) {
+    // 3つの選択から、出す事務所と区分を作り直す（事務所の順）。全部「すべて」なら条件なし、全部「除く」なら何も当たらない印
+    const sels = [...panel.querySelectorAll<HTMLSelectElement>("select[data-aff]")];
+    const shown = sels.flatMap((s) => {
+      const ag = s.dataset.aff!;
+      return s.value === "all" ? agBranches(ag) : s.value === "ex" ? [] : [`${ag}:${s.value}`];
+    });
+    f.branch = sels.every((s) => s.value === "all") ? [] : shown.length ? shown : [AFF_NONE];
   } else if (t instanceof HTMLInputElement && t.name === "kind") {
     f.kind = t.checked ? [...f.kind, t.value] : f.kind.filter((k) => k !== t.value);
   } else if (t instanceof HTMLInputElement && (t.name === "date" || t.name === "movie" || t.name === "country")) {

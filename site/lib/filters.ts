@@ -22,6 +22,9 @@ export interface Filters {
   mem: "all" | "ex";
 }
 
+/** 所属で、どの事務所も「除く」にしたときの印（どの枠にも当たらない。branch が空だと条件なしになるため） */
+export const AFF_NONE = "none";
+
 export const EMPTY = (): Filters => ({ date: "", branch: [], kind: [], movie: "all", country: "all", year: "", season: "", mem: "all" });
 
 /** 押すと選択肢が開く軸（メン限はチェック1つなので含めない） */
@@ -54,6 +57,7 @@ export function axisValue(f: Filters, axis: Axis, agAll: (ag: string) => string[
   switch (axis) {
     case "date": return f.date === "30d" ? "30日以内に配信" : f.date === "1y" ? "1年以内に配信" : f.date ? `${f.date}年に配信` : "";
     case "aff": {
+      if (f.branch.length === 1 && f.branch[0] === AFF_NONE) return "事務所をすべて除く";
       const byAg = new Map<string, string[]>();
       for (const v of f.branch) {
         const ag = v.split(":")[0]!;
