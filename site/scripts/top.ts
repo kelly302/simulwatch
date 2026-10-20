@@ -38,14 +38,15 @@ periodGroup?.addEventListener("click", (ev) => {
   for (const p of document.querySelectorAll<HTMLElement>(".rank-pane")) p.hidden = p.dataset.period !== b.dataset.period;
 });
 
-// ランキングの続き（9位から。HTML に入っている行を開く・閉じる）
+// ランキングの続き（スマホは6位から、幅が広ければ9位から。HTML に入っている行を開く・閉じる）
 document.querySelector('[aria-labelledby="h-rank"]')?.addEventListener("click", (ev) => {
   const b = (ev.target as HTMLElement).closest<HTMLButtonElement>(".rank-more");
   if (!b) return;
   const open = b.getAttribute("aria-expanded") !== "true";
   b.setAttribute("aria-expanded", String(open));
-  const list = document.getElementById(b.getAttribute("aria-controls") ?? "");
-  if (list) list.hidden = !open;
+  b.closest(".rank-pane")?.classList.toggle("open", open);
+  const more = b.closest(".rank-pane")?.querySelector<HTMLElement>(".rank-list:not(.rank-top)");
+  if (more) more.hidden = !open;
   b.textContent = open ? "閉じる" : (b.dataset.label ?? "続きを見る");
   if (!open) b.scrollIntoView({ block: "nearest" });
 });

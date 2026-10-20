@@ -101,40 +101,30 @@ section.block.band { background: var(--sky); box-shadow: none; color: var(--on-s
 .rail.covers { grid-auto-columns: 116px; gap: 12px; }
 @media (min-width: 720px) { .rail { grid-auto-columns: 264px; gap: 18px; margin-inline: -22px; padding-inline: 22px; scroll-padding-inline: 22px; } .rail.covers { grid-auto-columns: 132px; } }
 @media (min-width: 1000px) { .rail { grid-auto-columns: calc((100% - 98px) / 4); } .rail.covers { grid-auto-columns: calc((100% - 128px) / 8); gap: 12px; } }
-/* 2段の棚（ランキング）。上から下、左から右の順に並ぶ */
-.rail.two { grid-template-rows: repeat(2, auto); grid-auto-columns: min(46%, 200px); gap: 20px 12px; }
-@media (min-width: 720px) { .rail.two { grid-auto-columns: 220px; gap: 24px 18px; } }
-@media (min-width: 1000px) { .rail.two { grid-auto-columns: calc((100% - 98px) / 4); } }
-/* 順位の並び（2026-10-21 ユーザーの指摘）: スマホは見えている2列で左上から「1 2 ／ 3 4」、横に送ると「5 6 ／ 7 8」。
-   幅が広ければ「1 2 3 4 ／ 5 6 7 8」。HTML の順は1位から（読み上げの順は変えない） */
-.rail.two > :nth-child(1) { grid-row: 1; grid-column: 1; }
-.rail.two > :nth-child(2) { grid-row: 1; grid-column: 2; }
-.rail.two > :nth-child(3) { grid-row: 2; grid-column: 1; }
-.rail.two > :nth-child(4) { grid-row: 2; grid-column: 2; }
-.rail.two > :nth-child(5) { grid-row: 1; grid-column: 3; }
-.rail.two > :nth-child(6) { grid-row: 1; grid-column: 4; }
-.rail.two > :nth-child(7) { grid-row: 2; grid-column: 3; }
-.rail.two > :nth-child(8) { grid-row: 2; grid-column: 4; }
-@media (min-width: 720px) {
-  .rail.two > :nth-child(1) { grid-row: 1; grid-column: 1; }
-  .rail.two > :nth-child(2) { grid-row: 1; grid-column: 2; }
-  .rail.two > :nth-child(3) { grid-row: 1; grid-column: 3; }
-  .rail.two > :nth-child(4) { grid-row: 1; grid-column: 4; }
-  .rail.two > :nth-child(5) { grid-row: 2; grid-column: 1; }
-  .rail.two > :nth-child(6) { grid-row: 2; grid-column: 2; }
-  .rail.two > :nth-child(7) { grid-row: 2; grid-column: 3; }
-  .rail.two > :nth-child(8) { grid-row: 2; grid-column: 4; }
-}
-.rank-pane { display: flex; flex-direction: column; gap: 12px; }
-/* ランキングの続き（9位から。行で並べる） */
+/* ランキング: 縦の順位表（2026-10-21 ユーザー決定。試作の案A）。左に大きな順位、サムネイル、作品名・配信者・再生数の行。
+   スマホは1列で上から。最初は5位まで（6位からと9位からは「○位まで見る」で開く）。幅 720px 以上は2列で、左の列に前半（上から下へ読む）・8位まで */
+.rank-pane { display: flex; flex-direction: column; gap: 4px; }
 .rank-list { list-style: none; margin: 0; padding: 0; }
-.rank-list > li { padding: 10px 0; }
+.rank-list > li { display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 6px; padding: 10px 0; }
 .rank-list > li + li { border-top: 1px solid var(--hair); }
-.rank-list .card { display: grid; grid-template-columns: 128px minmax(0, 1fr); column-gap: 12px; row-gap: 2px; align-items: start; }
+.rank-list .rn { font-size: 24px; font-weight: 800; line-height: 1; color: var(--uv); text-align: center; padding-top: 6px; }
+.rank-list .card { display: grid; grid-template-columns: 124px minmax(0, 1fr); column-gap: 10px; row-gap: 2px; align-content: start; }
 .rank-list .thumb { grid-row: 1 / span 4; margin: 0; }
-.rank-list .ttl { -webkit-line-clamp: 2; }
-@media (min-width: 720px) { .rank-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; } .rank-list > li:nth-child(2) { border-top: 0; } }
-.btn.rank-more { width: 100%; }
+.rank-list .ttl { -webkit-line-clamp: 2; font-size: 13px; }
+.rank-list .meta { font-size: 11px; }
+/* 配信者の段は押せる高さ 44px のまま、上下を詰めて見せる */
+.rank-list .card > .who { margin: -7px 0; }
+@media (max-width: 719px) { .rank-pane:not(.open) .rank-top > li:nth-child(n+6) { display: none; } }
+@media (min-width: 720px) {
+  .rank-list { display: grid; grid-auto-flow: column; grid-template-rows: repeat(var(--rows, 4), auto); grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 36px; }
+  .rank-list > li.col-top { border-top: 0; }
+  .rank-list > li { grid-template-columns: 40px minmax(0, 1fr); padding: 12px 0; }
+  .rank-list .rn { font-size: 30px; padding-top: 10px; }
+  .rank-list .card { grid-template-columns: 168px minmax(0, 1fr); column-gap: 14px; }
+  .rank-list .ttl { font-size: 14px; }
+  .btn.rank-more.sp-only { display: none; }
+}
+.btn.rank-more { width: 100%; margin-top: 8px; }
 @media (min-width: 720px) { .btn.rank-more { width: auto; align-self: center; padding: 0 48px; } }
 .rail-btns { display: none; gap: 6px; }
 @media (hover: hover) and (pointer: fine) { .rail-btns { display: flex; } }
