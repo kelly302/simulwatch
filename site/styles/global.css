@@ -85,13 +85,11 @@ h2 .count { display: block; margin: 2px 0 0 18px; font-size: 13px; font-weight: 
 section.block.band { background: var(--sky); box-shadow: none; color: var(--on-sky);
   --ink: var(--on-sky); --sub: var(--on-sky); --faint: var(--on-sky); --card: var(--sky); }
 
-/* ボタン・札・切り替え（外枠）・選択は、見た目の高さを 40px にそろえる（2026-10-21）。押せる高さは 44px（::before で上下に広げる） */
-/* 丸い札の切り替え（期間・並び順）。外枠 40px（3px の余白＋34px の札） */
-.utabs, .keys { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 20px; background: var(--soft); }
+/* ボタン・札・切り替え・選択は、見た目の高さを 40px にそろえる（2026-10-21）。切り替えは札が外枠いっぱいで、選んだ札も 40px。押せる高さは 44px（::before・::after で上下に広げる） */
+/* 丸い札の切り替え（期間・並び順）。札が外枠いっぱい（選んだ札もほかの札・ボタンと同じ 40px） */
+.utabs, .keys { display: inline-flex; flex-wrap: wrap; border-radius: 20px; background: var(--soft); }
 .utabs button, .pill { position: relative; min-height: 40px; padding: 0 14px; border: 0; border-radius: 20px; background: none; color: var(--sub); font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.utabs button, .keys .pill { min-height: 34px; border-radius: 17px; }
 .utabs button::before, .pill::before { content: ""; position: absolute; inset: -2px 0; }
-.utabs button::before, .keys .pill::before { inset: -5px 0; }
 .utabs button[aria-pressed="true"], .keys .pill[aria-pressed="true"] { background: var(--uv); color: var(--on-uv); font-weight: 800; }
 .pill:disabled { color: var(--faint); text-decoration: line-through; cursor: not-allowed; }
 /* 逆順は札の切り替えの外に置く丸いボタン */
@@ -245,9 +243,9 @@ a.wcard:hover b { text-decoration: underline; }
 .chk:has(input:checked)::before { content: ""; width: 9px; height: 5px; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(-45deg); }
 .chk:has(input:focus-visible), .seg label:has(input:focus-visible) { outline: 3px solid var(--uv); outline-offset: 2px; }
 /* 1つを選ぶ切り替え（映画かどうか・制作国）。既定の「すべて」も同じ形で、選ばれた1つだけが桃色 */
-.seg { display: inline-flex; flex-wrap: wrap; align-self: flex-start; gap: 2px; padding: 3px; border-radius: 20px; background: var(--card); }
-.seg label { position: relative; min-height: 34px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 18px; color: var(--sub); cursor: pointer; font-size: 13px; font-weight: 700; }
-.seg label::after { content: ""; position: absolute; inset: -5px 0; }
+.seg { display: inline-flex; flex-wrap: wrap; align-self: flex-start; border-radius: 20px; background: var(--card); }
+.seg label { position: relative; min-height: 40px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 20px; color: var(--sub); cursor: pointer; font-size: 13px; font-weight: 700; }
+.seg label::after { content: ""; position: absolute; inset: -2px 0; }
 .seg label:has(input:checked) { background: var(--uv); color: var(--on-uv); }
 /* 所属: 1行。事務所の名前を上に小さく、区分の札を横1列に。幅が足りなければ横に流す（右の端を薄くして続きがあると示す。一覧のタブと同じ）。
    札は幅を決めておき、選んでチェックの印が付いても幅が変わらない */
@@ -265,9 +263,9 @@ a.wcard:hover b { text-decoration: underline; }
 .pick { min-height: 40px; padding: 0 34px 0 16px; border-radius: 20px; border: 0; background: var(--card) url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2712%27 height=%2712%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%23C81E66%27 stroke-width=%273%27 stroke-linecap=%27round%27%3E%3Cpath d=%27M6 9l6 6 6-6%27/%3E%3C/svg%3E") no-repeat right 14px center; appearance: none; -webkit-appearance: none; font-weight: 700; font-size: 13px; color: var(--ink); cursor: pointer; }
 .pick.on { background-color: var(--uv); color: var(--on-uv); background-image: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2712%27 height=%2712%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%23FFFFFF%27 stroke-width=%273%27 stroke-linecap=%27round%27%3E%3Cpath d=%27M6 9l6 6 6-6%27/%3E%3C/svg%3E"); }
 .pick option { background: var(--card); color: var(--ink); }
-.seasons { display: inline-flex; gap: 2px; padding: 3px; border-radius: 20px; background: var(--card); }
-.seasons button { position: relative; min-width: 44px; min-height: 34px; padding: 0 12px; border-radius: 18px; border: 0; background: none; cursor: pointer; font-weight: 700; font-size: 13px; color: var(--sub); }
-.seasons button::after { content: ""; position: absolute; inset: -5px 0; }
+.seasons { display: inline-flex; border-radius: 20px; background: var(--card); }
+.seasons button { position: relative; min-width: 44px; min-height: 40px; padding: 0 12px; border-radius: 20px; border: 0; background: none; cursor: pointer; font-weight: 700; font-size: 13px; color: var(--sub); }
+.seasons button::after { content: ""; position: absolute; inset: -2px 0; }
 .seasons button[aria-pressed="true"] { background: var(--uv); color: var(--on-uv); }
 .seasons button:disabled { color: var(--faint); opacity: 0.6; cursor: not-allowed; }
 .hint { margin: 0; font-size: 12px; color: var(--sub); line-height: 1.6; }
