@@ -89,7 +89,7 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
   <aside class="ad" aria-label="広告"></aside>
 
   {up.length
-    ? <section class="block band bleed" aria-labelledby="h-up">
+    ? <section class="block band" aria-labelledby="h-up">
         <div class="block-head">
           <h2 id="h-up">これから始まる枠 <span class="count">{up.length}枠・配信中を先頭に</span></h2>
           <RailButtons label="これから始まる枠" />
@@ -116,23 +116,19 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
 
   <section class="block" aria-labelledby="h-done" id="done">
     <h2 id="h-done">同時視聴した枠</h2>
-    {/* 並び順と条件の2段（2026-10-20。条件は軸のボタンを並べ、押すとその軸の選択肢がすぐ下に開く） */}
-    <div class="fbox">
-      <div class="frow">
-        <span class="flabel" id="lbl-sort">並び</span>
-        <div class="keys" role="group" aria-labelledby="lbl-sort">
-          <button type="button" class="pill" data-sort="date" aria-pressed="true">配信日</button>
-          <button type="button" class="pill" data-sort="views" aria-pressed="false">再生数</button>
+    {/* 並び順の段と条件のボタン（2026-10-20。条件は軸のボタンを折り返して全部並べ、押すとその軸の選択肢がすぐ下に開く） */}
+    <div class="ftool">
+      <div class="sortbar">
+        <div class="keys" role="group" aria-label="並び順">
+          <button type="button" class="pill" data-sort="date" aria-pressed="true">配信日順</button>
+          <button type="button" class="pill" data-sort="views" aria-pressed="false">再生数順</button>
         </div>
         <button type="button" class="pill rev" id="rev" aria-pressed="false" aria-label="逆順にする（今は新しい順）">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M4 17l3 3 3-3M17 20V4M14 7l3-3 3 3"></path></svg>
           <span id="rev-label">新しい順</span>
         </button>
       </div>
-      <div class="frow">
-        <span class="flabel" id="lbl-filter">条件</span>
-        <div class="fscroll" id="chips" role="group" aria-labelledby="lbl-filter" set:html={axisButtonsHtml(EMPTY(), () => [])} />
-      </div>
+      <div class="fchips" id="chips" role="group" aria-label="絞り込みの条件" set:html={axisButtonsHtml(EMPTY(), () => [])} />
       {/* 押した軸の選択肢を、条件の段のすぐ下に開く（2026-10-20。開いた軸の fieldset だけを出す。site/scripts/top.ts） */}
       <div class="fpanel" id="fpanel" role="region" aria-labelledby="fpanel-h" hidden>
         <div class="fpanel-head">
@@ -216,7 +212,7 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
       </div>
     </div>
     <p class="sortnote" id="sort-note" hidden></p>
-    <div class="fstatus">
+    <div class="fstatus" id="fstatus" hidden>
       <p class="status" id="status" aria-live="polite"></p>
       <button type="button" class="linkish" id="clear-all" data-remove="all" hidden>条件をすべて外す</button>
     </div>

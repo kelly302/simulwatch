@@ -147,7 +147,9 @@ test("トップの絞り込みの軸のボタン（指定した軸は黒く塗�
   assert.equal((none.match(/class="fchip axis"/g) ?? []).length, 6);
   assert.match(none, /class="fchip check" data-toggle="mem" aria-pressed="false">/);
   assert.match(none, />配信日<\/button>/);
-  assert.match(none, />作品の放送年<\/button>/);
+  // ボタンは短い名前、読み上げは正式な名前
+  assert.match(none, /aria-label="作品の放送年">放送年<\/button>/);
+  assert.doesNotMatch(none, /fdiv/);
   assert.equal(activeAxes(f, agAll), 0);
   f.date = "2025"; f.branch = ["nijisanji:en", "nijisanji:kr"]; f.kind = ["anime", "tokusatsu"]; f.year = "2013"; f.season = "spring"; f.mem = "ex";
   assert.equal(axisValue(f, "date", agAll), "2025年に配信");

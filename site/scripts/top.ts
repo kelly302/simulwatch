@@ -153,7 +153,13 @@ function renderChips() {
   $("clear-all").hidden = activeCount(S.filters) === 0;
 }
 
+// 件数の行は、件数か「条件をすべて外す」を出すときだけ見せる（何も出さないのに空白を取らない）
 function render() {
+  draw();
+  $("fstatus").hidden = !(status.textContent ?? "").trim() && $("clear-all").hidden;
+}
+
+function draw() {
   renderSortControls();
   renderChips();
   empty.innerHTML = "";

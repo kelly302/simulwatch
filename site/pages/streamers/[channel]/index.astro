@@ -23,7 +23,8 @@ const pubOf = (evs: { membersOnly: boolean; startedAt: string }[]) => {
 const pubWorks = rows.filter((r) => pubOf(r.events).n > 0).length;
 const pubFrames = frames.filter((e) => !e.membersOnly).length;
 const memToggle = s.membersCount > 0 && s.membersCount < s.eventsCount;
-const MEM_TOGGLE = `<div class="xtools"><button type="button" class="fchip check" data-mem-toggle aria-pressed="false">${CHECK_ICON}メン限を除く</button></div>`;
+const MEM_BUTTON = `<button type="button" class="fchip check" data-mem-toggle aria-pressed="false">${CHECK_ICON}メン限を除く</button>`;
+const MEM_TOGGLE = `<div class="xtools">${MEM_BUTTON}</div>`;
 const affHref = s.affiliation === "other" ? "/streamers/" : `/streamers/${AFF_SLUG[s.affiliation]}/`;
 const en = showsNameEn(s) ? s.nameEn : null;
 const nameWith = en ? `${s.name}（${en}）` : s.name;
@@ -58,7 +59,7 @@ const jsonLd = [{
         <div class="ext"><span>{affLabel(s.affiliation, s.branch)}</span><a href={`https://www.youtube.com/channel/${s.channelId}`} rel="noopener">YouTube チャンネル<Fragment set:html={EXT_ICON} /></a></div>
       </div>
     </div>
-    <dl class="stats bleed">
+    <dl class="stats">
       <div><dt>同時視聴</dt><dd>{s.eventsCount}<span class="u">枠</span></dd></div>
       <div><dt>観た作品</dt><dd>{s.worksCount}<span class="u">作品</span></dd></div>
       <div><dt>期間</dt><dd class="range">{formatMonth(s.firstEventAt) === formatMonth(s.latestEventAt) ? formatMonth(s.firstEventAt) : <Fragment>{formatMonth(s.firstEventAt)}〜<br>{formatMonth(s.latestEventAt)}</Fragment>}</dd></div>
@@ -78,10 +79,13 @@ const jsonLd = [{
               <button type="button" class="pill" data-sort="latest" aria-pressed="false">最終視聴日</button>
               <button type="button" class="pill" data-sort="views" aria-pressed="false">再生数</button>
             </div>
-            <button type="button" class="pill rev" data-rev aria-pressed="false" aria-label="逆順にする（今は五十音順）"><Fragment set:html={REV_ICON} /><span data-rev-label>五十音順</span></button>
+            <div class="end">
+              <button type="button" class="pill rev" data-rev aria-pressed="false" aria-label="逆順にする（今は五十音順）"><Fragment set:html={REV_ICON} /><span data-rev-label>五十音順</span></button>
+              {memToggle && <Fragment set:html={MEM_BUTTON} />}
+            </div>
           </div>
         )}
-        {memToggle && <Fragment set:html={MEM_TOGGLE} />}
+        {rows.length <= 1 && memToggle && <Fragment set:html={MEM_TOGGLE} />}
       </div>
       <ol class="rows" data-xrows>
         {rows.map((r, i) => {

@@ -32,7 +32,7 @@ const ld = (o: unknown) => JSON.stringify(o).replace(/</g, "\\u003c");
 <link rel="canonical" href={canonical}>
 {noindex && <meta name="robots" content="noindex">}
 <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#131313" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#221A29" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta property="og:site_name" content={cfg.site_name}>
 <meta property="og:locale" content="ja_JP">
@@ -51,7 +51,7 @@ const ld = (o: unknown) => JSON.stringify(o).replace(/</g, "\\u003c");
 <header class="site">
   <div class="wrap">
     <a class="logo" href="/">
-      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="3" width="15" height="12" fill="var(--uv)"></rect><rect x="8" y="9" width="15" height="12" fill="var(--mint)" stroke="var(--ink)" stroke-width="2"></rect></svg>
+      <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect x="1" y="3" width="15" height="12" rx="3" fill="var(--uv)"></rect><rect x="8" y="9" width="15" height="12" rx="3" fill="var(--mint)" stroke="var(--ink)" stroke-width="2"></rect></svg>
       {cfg.site_name}
     </a>
     {/* スマホでは画面の下に固定するタブ、幅が広ければヘッダーの右（global.css の .nav） */}

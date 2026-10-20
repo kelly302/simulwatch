@@ -94,7 +94,7 @@ const jsonLd = [
         {series.length > 1 && <a class="series-link" href="#series">シリーズ「{seriesName}」の{series.length}作品</a>}
       </div>
     </div>
-    <dl class="stats bleed">
+    <dl class="stats">
       <div><dt>観た配信者</dt><dd>{w.streamersCount}<span class="u">人</span></dd></div>
       <div><dt>同時視聴</dt><dd>{w.eventsCount}<span class="u">枠</span></dd></div>
       <div><dt>うちメン限</dt><dd>{w.membersCount}<span class="u">枠</span></dd></div>
@@ -115,10 +115,13 @@ const jsonLd = [
             <button type="button" class="pill" data-sort="views" aria-pressed="true">再生数</button>
             <button type="button" class="pill" data-sort="latest" aria-pressed="false">最終視聴日</button>
           </div>
-          <button type="button" class="pill rev" data-rev aria-pressed="false" aria-label="逆順にする（今は多い順）"><Fragment set:html={REV_ICON} /><span data-rev-label>多い順</span></button>
+          <div class="end">
+            <button type="button" class="pill rev" data-rev aria-pressed="false" aria-label="逆順にする（今は多い順）"><Fragment set:html={REV_ICON} /><span data-rev-label>多い順</span></button>
+            {memToggle && <button type="button" class="fchip check" data-mem-toggle aria-pressed="false"><Fragment set:html={CHECK_ICON} />メン限を除く</button>}
+          </div>
         </div>
       )}
-      {memToggle && <div class="xtools"><button type="button" class="fchip check" data-mem-toggle aria-pressed="false"><Fragment set:html={CHECK_ICON} />メン限を除く</button></div>}
+      {rows.length <= 1 && memToggle && <div class="xtools"><button type="button" class="fchip check" data-mem-toggle aria-pressed="false"><Fragment set:html={CHECK_ICON} />メン限を除く</button></div>}
     </div>
     <ol class="rows" data-xrows>
       {rows.map((r, i) => {

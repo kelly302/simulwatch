@@ -27,8 +27,13 @@ export const EMPTY = (): Filters => ({ date: "", branch: [], kind: [], movie: "a
 /** 押すと選択肢が開く軸（メン限はチェック1つなので含めない） */
 export type Axis = "date" | "aff" | "kind" | "movie" | "country" | "year";
 export const AXES: Axis[] = ["date", "aff", "kind", "movie", "country", "year"];
+/** 軸の正式な名前（開いた欄の見出し・読み上げ） */
 export const AXIS_LABEL: Record<Axis, string> = {
   date: "配信日", aff: "所属", kind: "作品の種類", movie: "映画かどうか", country: "制作国", year: "作品の放送年",
+};
+/** 条件のボタンに書く短い名前（スマホの幅で2段に収めるため。2026-10-20） */
+export const AXIS_SHORT: Record<Axis, string> = {
+  date: "配信日", aff: "所属", kind: "種類", movie: "映画", country: "制作国", year: "放送年",
 };
 const KIND_LABEL: Record<string, string> = { anime: "アニメ", tokusatsu: "特撮", live_action: "実写" };
 
@@ -81,8 +86,8 @@ export function axisButtonsHtml(f: Filters, agAll: (ag: string) => string[], ope
     const attrs = `data-axis="${a}" aria-expanded="${a === open}" aria-controls="fpanel"`;
     return v
       ? `<button type="button" class="fchip axis on" ${attrs} aria-label="${esc(AXIS_LABEL[a])}：${esc(v)}">${esc(v)}</button>`
-      : `<button type="button" class="fchip axis" ${attrs}>${esc(AXIS_LABEL[a])}</button>`;
+      : `<button type="button" class="fchip axis" ${attrs}${AXIS_SHORT[a] !== AXIS_LABEL[a] ? ` aria-label="${esc(AXIS_LABEL[a])}"` : ""}>${esc(AXIS_SHORT[a])}</button>`;
   }).join("");
   const ex = f.mem === "ex";
-  return `${axes}<span class="fdiv" aria-hidden="true"></span><button type="button" class="fchip check${ex ? " on" : ""}" data-toggle="mem" aria-pressed="${ex}">${CHECK_ICON}メン限を除く</button>`;
+  return `${axes}<button type="button" class="fchip check${ex ? " on" : ""}" data-toggle="mem" aria-pressed="${ex}">${CHECK_ICON}メン限を除く</button>`;
 }
