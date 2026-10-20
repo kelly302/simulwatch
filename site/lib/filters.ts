@@ -8,7 +8,7 @@ import type { Season } from "../../src/shared/site.ts";
 import { CHECK_ICON, esc } from "./views.ts";
 
 export interface Filters {
-  /** 配信日。"30d"（この30日）・"1y"（この1年）・"2025"（その年に配信）。空は指定なし */
+  /** 配信日。"30d"（30日以内）・"1y"（1年以内）・"2025"（その年に配信）。空は指定なし */
   date: string;
   /** 所属の区分（"nijisanji:en" など） */
   branch: string[];
@@ -52,7 +52,7 @@ export function resetAxis(f: Filters, axis: Axis): void {
  */
 export function axisValue(f: Filters, axis: Axis, agAll: (ag: string) => string[]): string {
   switch (axis) {
-    case "date": return f.date === "30d" ? "この30日" : f.date === "1y" ? "この1年" : f.date ? `${f.date}年に配信` : "";
+    case "date": return f.date === "30d" ? "30日以内に配信" : f.date === "1y" ? "1年以内に配信" : f.date ? `${f.date}年に配信` : "";
     case "aff": {
       const byAg = new Map<string, string[]>();
       for (const v of f.branch) {

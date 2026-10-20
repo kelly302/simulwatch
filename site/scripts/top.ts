@@ -278,10 +278,16 @@ function syncPanel() {
   }
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="kind"]')) i.checked = f.kind.includes(i.value);
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="date"]')) i.checked = f.date === i.value;
+  // 配信した年の選択（30日以内・1年以内のときは「年を選ぶ」に戻す）
+  const dateYear = $<HTMLSelectElement>("opt-date-year");
+  dateYear.value = f.date && f.date !== "30d" && f.date !== "1y" ? f.date : "";
+  dateYear.classList.toggle("on", !!dateYear.value);
   for (const name of ["movie", "country"] as const) {
     for (const i of panel.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)) i.checked = f[name] === i.value;
   }
-  ($("opt-year") as HTMLSelectElement).value = f.year;
+  const year = $<HTMLSelectElement>("opt-year");
+  year.value = f.year;
+  year.classList.toggle("on", !!f.year);
   for (const b of panel.querySelectorAll<HTMLButtonElement>("[data-season]")) {
     b.disabled = !f.year;
     b.setAttribute("aria-pressed", String(f.season === b.dataset.season));
@@ -329,6 +335,8 @@ panel.addEventListener("change", (ev) => {
     f.kind = t.checked ? [...f.kind, t.value] : f.kind.filter((k) => k !== t.value);
   } else if (t instanceof HTMLInputElement && (t.name === "date" || t.name === "movie" || t.name === "country")) {
     (f as unknown as Record<string, string>)[t.name] = t.value;
+  } else if (t.id === "opt-date-year") {
+    f.date = t.value;
   } else if (t.id === "opt-year") {
     f.year = t.value;
     if (!f.year) f.season = "";

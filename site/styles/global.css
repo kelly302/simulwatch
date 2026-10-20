@@ -104,6 +104,26 @@ section.block.band { background: var(--sky); box-shadow: none; color: var(--on-s
 .rail.two { grid-template-rows: repeat(2, auto); grid-auto-columns: min(46%, 200px); gap: 20px 12px; }
 @media (min-width: 720px) { .rail.two { grid-auto-columns: 220px; gap: 24px 18px; } }
 @media (min-width: 1000px) { .rail.two { grid-auto-columns: calc((100% - 98px) / 4); } }
+/* 順位の並び（2026-10-21 ユーザーの指摘）: スマホは見えている2列で左上から「1 2 ／ 3 4」、横に送ると「5 6 ／ 7 8」。
+   幅が広ければ「1 2 3 4 ／ 5 6 7 8」。HTML の順は1位から（読み上げの順は変えない） */
+.rail.two > :nth-child(1) { grid-row: 1; grid-column: 1; }
+.rail.two > :nth-child(2) { grid-row: 1; grid-column: 2; }
+.rail.two > :nth-child(3) { grid-row: 2; grid-column: 1; }
+.rail.two > :nth-child(4) { grid-row: 2; grid-column: 2; }
+.rail.two > :nth-child(5) { grid-row: 1; grid-column: 3; }
+.rail.two > :nth-child(6) { grid-row: 1; grid-column: 4; }
+.rail.two > :nth-child(7) { grid-row: 2; grid-column: 3; }
+.rail.two > :nth-child(8) { grid-row: 2; grid-column: 4; }
+@media (min-width: 720px) {
+  .rail.two > :nth-child(1) { grid-row: 1; grid-column: 1; }
+  .rail.two > :nth-child(2) { grid-row: 1; grid-column: 2; }
+  .rail.two > :nth-child(3) { grid-row: 1; grid-column: 3; }
+  .rail.two > :nth-child(4) { grid-row: 1; grid-column: 4; }
+  .rail.two > :nth-child(5) { grid-row: 2; grid-column: 1; }
+  .rail.two > :nth-child(6) { grid-row: 2; grid-column: 2; }
+  .rail.two > :nth-child(7) { grid-row: 2; grid-column: 3; }
+  .rail.two > :nth-child(8) { grid-row: 2; grid-column: 4; }
+}
 .rank-pane { display: flex; flex-direction: column; gap: 12px; }
 /* ランキングの続き（9位から。行で並べる） */
 .rank-list { list-style: none; margin: 0; padding: 0; }
@@ -239,7 +259,10 @@ a.wcard:hover b { text-decoration: underline; }
 .subrow { display: flex; flex-direction: column; gap: 8px; }
 .sublabel { font-size: 12px; font-weight: 700; color: var(--sub); }
 .yearrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.yearrow select { min-height: 38px; padding: 0 34px 0 16px; border-radius: 19px; border: 0; background: var(--card) url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2712%27 height=%2712%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%23C81E66%27 stroke-width=%273%27 stroke-linecap=%27round%27%3E%3Cpath d=%27M6 9l6 6 6-6%27/%3E%3C/svg%3E") no-repeat right 14px center; appearance: none; font-weight: 700; font-size: 13px; color: var(--ink); position: relative; }
+/* 選択（配信した年・作品の放送年）。札と同じ丸い形で、選ぶと桃色の地に白字 */
+.pick { min-height: 38px; padding: 0 34px 0 16px; border-radius: 19px; border: 0; background: var(--card) url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2712%27 height=%2712%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%23C81E66%27 stroke-width=%273%27 stroke-linecap=%27round%27%3E%3Cpath d=%27M6 9l6 6 6-6%27/%3E%3C/svg%3E") no-repeat right 14px center; appearance: none; -webkit-appearance: none; font-weight: 700; font-size: 13px; color: var(--ink); cursor: pointer; }
+.pick.on { background-color: var(--uv); color: var(--on-uv); background-image: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2712%27 height=%2712%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%23FFFFFF%27 stroke-width=%273%27 stroke-linecap=%27round%27%3E%3Cpath d=%27M6 9l6 6 6-6%27/%3E%3C/svg%3E"); }
+.pick option { background: var(--card); color: var(--ink); }
 .seasons { display: inline-flex; gap: 2px; padding: 3px; border-radius: 22px; background: var(--card); }
 .seasons button { position: relative; min-width: 44px; min-height: 36px; padding: 0 12px; border-radius: 18px; border: 0; background: none; cursor: pointer; font-weight: 700; font-size: 13px; color: var(--sub); }
 .seasons button::after { content: ""; position: absolute; inset: -4px 0; }

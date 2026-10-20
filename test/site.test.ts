@@ -174,7 +174,7 @@ test("トップの絞り込みの軸のボタン（指定した軸は黒く塗�
   assert.equal(f.season, "");
   assert.equal(f.date, "2025");
   f.date = "30d";
-  assert.equal(axisValue(f, "date", agAll), "この30日");
+  assert.equal(axisValue(f, "date", agAll), "30日以内に配信");
 });
 
 test("検索の照合: カタカナとひらがな・全角半角・記号をそろえる", () => {

@@ -141,17 +141,17 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
         </div>
         <fieldset data-axis="date">
           <legend class="sr">配信日</legend>
+          {/* 見出しなしの1列。年は1つの選択にまとめる（2026-10-21） */}
           <div class="opts">
-            <label class="chk"><input type="radio" name="date" value="30d" />この30日</label>
-            <label class="chk"><input type="radio" name="date" value="1y" />この1年</label>
+            <label class="chk"><input type="radio" name="date" value="30d" />30日以内</label>
+            <label class="chk"><input type="radio" name="date" value="1y" />1年以内</label>
+            <label class="sr" for="opt-date-year">配信した年</label>
+            <select id="opt-date-year" class="pick">
+              <option value="">年を選ぶ</option>
+              {streamYears.map((y) => <option value={String(y)}>{y}年</option>)}
+            </select>
           </div>
-          <div class="subrow">
-            <span class="sublabel" id="lbl-date-year">年で選ぶ</span>
-            <div class="opts" role="group" aria-labelledby="lbl-date-year">
-              {streamYears.map((y) => <label class="chk"><input type="radio" name="date" value={String(y)} />{y}年</label>)}
-            </div>
-          </div>
-          <p class="hint">枠を配信した日（日本時間）で絞り込みます。作品の放送年は「作品の放送年」で選べます。</p>
+          <p class="hint">枠を配信した日（日本時間）で絞り込みます。作品の放送年は「放送年」で選べます。</p>
         </fieldset>
         <fieldset data-axis="aff">
           <legend class="sr">所属</legend>
@@ -197,7 +197,7 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
           <legend class="sr">作品の放送年・放送期</legend>
           <div class="yearrow">
             <label class="sr" for="opt-year">放送年</label>
-            <select id="opt-year">
+            <select id="opt-year" class="pick">
               <option value="">指定なし</option>
               {years.map((y) => <option value={String(y)}>{y}年</option>)}
             </select>
