@@ -1,6 +1,6 @@
 ---
 // ランキングのページ（2026-10-21 ユーザー決定。トップの順位表の「30位まで見る」から移る。その場で開くのはやめた）。
-// 3期間とも 30位まで HTML に入れ、期間はトップと同じ切り替え（site/scripts/rank.ts）。トップで選んでいた期間で開く
+// 3期間とも 30位まで HTML に入れ、期間はトップと同じ切り替え（site/scripts/rank.ts）。トップで選んでいた期間で開く。どの幅でも1列で、上から 1→30
 import Base from "../../layouts/Base.astro";
 import { cfg } from "../../lib/data.ts";
 import { RANKING_PAGE, rankRowsHtml, rankingNote, rankingPeriods } from "../../lib/ranking.ts";
@@ -41,7 +41,7 @@ const jsonLd = [{
       <div class="rank-pane" data-period={String(p.days)} hidden={i !== first}>
         <p class="note">{rankingNote(p.days)}</p>
         {p.evs.length
-          ? <ol class="rank-list" style={`--rows:${Math.ceil(p.evs.length / 2)}`} set:html={rankRowsHtml(p, RANKING_PAGE, (j) => i !== first || j >= 4)} />
+          ? <ol class="rank-list" set:html={rankRowsHtml(p, RANKING_PAGE, (j) => i !== first || j >= 4)} />
           : <p class="empty note">この期間に配信された公開枠はまだありません。ほかの期間を選んでください。</p>}
       </div>
     ))}

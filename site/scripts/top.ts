@@ -250,15 +250,20 @@ function syncPanel() {
   const f = S.filters;
   // 所属: 条件が無ければ全部にチェック。事務所の札は、区分が1つでも入っていればチェック。一部だけなら札に区分を書く
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="branch"]')) i.checked = !f.branch.length || f.branch.includes(i.value);
-  for (const b of panel.querySelectorAll<HTMLButtonElement>("button.agchip")) {
-    const ag = b.dataset.aff!;
-    const label = b.dataset.label!;
+  for (const sp of panel.querySelectorAll<HTMLElement>(".agsplit")) {
+    const ag = sp.dataset.aff!;
+    const nm = sp.querySelector<HTMLElement>(".nm")!;
     const subs = [...panel.querySelectorAll<HTMLInputElement>(`input[name="branch"][value^="${ag}:"]`)];
     const on = subs.filter((x) => x.checked);
     const names = on.map((x) => x.parentElement!.lastChild!.textContent).join("・");
-    b.querySelector(".nm")!.textContent = on.length && on.length < subs.length ? `${label} ${names}` : label;
-    b.classList.toggle("on", on.length > 0);
-    b.setAttribute("aria-label", `${label}：${names || "チェックなし"}`);
+    const part = on.length > 0 && on.length < subs.length;
+    nm.textContent = part ? `${nm.dataset.label} ${names}` : nm.dataset.label!;
+    sp.classList.toggle("on", on.length > 0);
+    // 事務所のチェック: 区分が全部なら入り、一部なら「一部」（読み上げ用）、無ければ外れる
+    const t = sp.querySelector<HTMLInputElement>("input[data-agtoggle]")!;
+    t.checked = on.length > 0;
+    t.indeterminate = part;
+    sp.querySelector(".agmenu")!.setAttribute("aria-label", `${nm.dataset.label}の区分を選ぶ（${names || "チェックなし"}）`);
   }
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="kind"]')) i.checked = f.kind.includes(i.value);
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="date"]')) i.checked = f.date === i.value;
@@ -301,13 +306,13 @@ function openPanel(a: Axis) {
 
 /** 所属の事務所の札の下に開くチェックの一覧（開くのは1つずつ） */
 function setAffPop(aff: string | null) {
-  for (const b of panel.querySelectorAll<HTMLButtonElement>("button.agchip")) {
+  for (const b of panel.querySelectorAll<HTMLButtonElement>("button.agmenu")) {
     const open = b.dataset.aff === aff;
     b.setAttribute("aria-expanded", String(open));
     $(`aff-pop-${b.dataset.aff}`).hidden = !open;
   }
 }
-const affPopOpen = () => !!panel.querySelector('button.agchip[aria-expanded="true"]');
+const affPopOpen = () => !!panel.querySelector('button.agmenu[aria-expanded="true"]');
 
 function closePanel(focusAxis: boolean) {
   const a = openAxis;
@@ -321,7 +326,9 @@ function closePanel(focusAxis: boolean) {
 panel.addEventListener("change", (ev) => {
   const t = ev.target as HTMLInputElement | HTMLSelectElement;
   const f = S.filters;
-  if (t instanceof HTMLInputElement && t.name === "branch") {
+  if (t instanceof HTMLInputElement && (t.name === "branch" || t.dataset.agtoggle)) {
+    // 事務所の札のチェック: 入っていた（一部でも）なら区分を全部外し、外れていたなら全部入れる
+    if (t.dataset.agtoggle) for (const i of panel.querySelectorAll<HTMLInputElement>(`input[name="branch"][value^="${t.dataset.agtoggle}:"]`)) i.checked = t.checked;
     // チェックの入った区分を事務所の順に。全部なら条件なし、1つも無ければ何も当たらない印
     const all = [...panel.querySelectorAll<HTMLInputElement>('input[name="branch"]')];
     const on = all.filter((i) => i.checked).map((i) => i.value);
@@ -346,7 +353,7 @@ panel.addEventListener("click", (ev) => {
     S.filters.season = S.filters.season === season.dataset.season ? "" : (season.dataset.season as Season);
     return applyNow();
   }
-  const affBtn = t.closest<HTMLButtonElement>("button.agchip");
+  const affBtn = t.closest<HTMLButtonElement>("button.agmenu");
   if (affBtn) return setAffPop(affBtn.getAttribute("aria-expanded") === "true" ? null : affBtn.dataset.aff!);
   // チェックの一覧の外を押したら閉じる
   if (affPopOpen() && !t.closest(".affpop")) setAffPop(null);
@@ -361,7 +368,7 @@ panel.addEventListener("click", (ev) => {
 panel.addEventListener("keydown", (ev) => {
   if (ev.key !== "Escape") return;
   // 所属のチェックの一覧が開いていれば、先にそれだけを閉じて札に戻る
-  const open = panel.querySelector<HTMLButtonElement>('button.agchip[aria-expanded="true"]');
+  const open = panel.querySelector<HTMLButtonElement>('button.agmenu[aria-expanded="true"]');
   if (open) { setAffPop(null); open.focus(); return; }
   closePanel(true);
 });

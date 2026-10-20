@@ -1,5 +1,5 @@
 ---
-// トップ。ランキング（3期間・8位まで。続きはランキングのページ）・これから始まる枠・よく同時視聴される作品・すべての同時視聴（新しい順24枠）をビルド時の HTML に入れる。
+// トップ。ランキング（3期間・5位まで。続きはランキングのページ）・これから始まる枠・よく同時視聴される作品・すべての同時視聴（新しい順24枠）をビルド時の HTML に入れる。
 // ランキングは縦の順位表、これから始まる枠とよく同時視聴される作品は横に流す棚（2026-10-21）。「さらに表示」で新しい順300枠の JSON、絞り込み・並べ替え・300枠より先で全件の索引と辞書を読む（site/scripts/top.ts）
 import Base from "../layouts/Base.astro";
 import RailButtons from "../components/RailButtons.astro";
@@ -12,8 +12,8 @@ import { AFFILIATION_LABEL, BRANCH_LABEL } from "../../src/shared/types.ts";
 import type { Branch } from "../../src/shared/types.ts";
 import { SEASONS, SEASON_LABEL, formatDate, metaLine } from "../../src/shared/site.ts";
 
-// ランキング: 縦の順位表に設定の枠数（8枠。スマホは最初の RANKING_SP 枠だけ見せる）。続きはランキングのページ（30位まで。その場では開かない。2026-10-21 ユーザー決定）
-const RANKING_SP = 5;
+// ランキング: 縦の順位表に RANKING_TOP 枠（どの幅でも1列。2026-10-21 ユーザー決定。設定の ranking_size は使わない）。続きはランキングのページ（30位まで。その場では開かない）
+const RANKING_TOP = 5;
 const { periods, first: firstPeriod } = rankingPeriods(RANKING_PAGE);
 const up = upcoming;
 const upDict = dictFor(up, streamerById, workById);
@@ -66,10 +66,10 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
       <div class="rank-pane" data-period={String(p.days)} hidden={i !== firstPeriod}>
         <p class="note">{rankingNote(p.days)}</p>
         {p.evs.length
-          ? <ol class="rank-list rank-top" style={`--rows:${Math.ceil(Math.min(p.evs.length, cfg.top.ranking_size) / 2)}`} set:html={rankRowsHtml(p, cfg.top.ranking_size, (j) => i !== firstPeriod || j >= 3)} />
+          ? <ol class="rank-list" set:html={rankRowsHtml(p, RANKING_TOP, (j) => i !== firstPeriod || j >= 3)} />
           : <p class="empty note">この期間に配信された公開枠はまだありません。ほかの期間を選んでください。</p>}
-        {/* 続きはランキングのページへ（スマホは6位から隠しているので、8枠以下でも出す） */}
-        {p.evs.length > RANKING_SP && <a class="btn rank-link" href="/ranking/" data-period={String(p.days)}>{p.evs.length}位まで見る</a>}
+        {/* 続きはランキングのページへ */}
+        {p.evs.length > RANKING_TOP && <a class="btn rank-link" href="/ranking/" data-period={String(p.days)}>{p.evs.length}位まで見る</a>}
       </div>
     ))}
   </section>
@@ -139,18 +139,20 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
               {streamYears.map((y) => <option value={String(y)}>{y}年</option>)}
             </select>
           </div>
-          <p class="hint">枠を配信した日（日本時間）で絞り込みます。作品の放送年は「放送年」で選べます。</p>
         </fieldset>
         <fieldset data-axis="aff">
           <legend class="sr">所属</legend>
           {/* 所属は事務所の札を横に並べ、札そのものにチェック（既定は全部にチェック。2026-10-21 ユーザー決定）。
-              区分が2つ以上の事務所は、札を押すとその下に区分のチェックの一覧が重なって開く（試作の P1。「すべて」の行は置かない）。一部だけなら札に区分を書く。
-              区分が1つの事務所（ぶいすぽっ！）は、札を押すとそのままチェックが切り替わる */}
+              区分が2つ以上の事務所の札は、左（チェックと名前）を押すと事務所を丸ごと入れる・外す、右の ▾ を押すと札の下に区分のチェックの一覧が重なって開く
+              （試作の P1。「すべて」の行は置かない）。一部だけなら札に区分を書く。区分が1つの事務所（ぶいすぽっ！）は札を押すとそのまま切り替わる */}
           <div class="affchips">
             {affs.map((a) => a.branches.length === 1
               ? <div class="affcol"><label class="agchip"><input type="checkbox" name="branch" value={`${a.aff}:${a.branches[0]}`} checked /><span class="ck" aria-hidden="true"></span>{a.label}</label></div>
               : <div class="affcol">
-                  <button type="button" class="agchip on" data-aff={a.aff} data-label={a.label} aria-expanded="false" aria-controls={`aff-pop-${a.aff}`} aria-label={`${a.label}：${a.branches.map((b) => BRANCH_LABEL[b]).join("・")}`}><span class="ck" aria-hidden="true"></span><span class="nm">{a.label}</span><span class="chev" aria-hidden="true"></span></button>
+                  <div class="agsplit on" data-aff={a.aff}>
+                    <label class="agchip"><input type="checkbox" data-agtoggle={a.aff} checked /><span class="ck" aria-hidden="true"></span><span class="nm" data-label={a.label}>{a.label}</span></label>
+                    <button type="button" class="agmenu" data-aff={a.aff} aria-expanded="false" aria-controls={`aff-pop-${a.aff}`} aria-label={`${a.label}の区分を選ぶ`}><span class="chev" aria-hidden="true"></span></button>
+                  </div>
                   <div class="affpop" id={`aff-pop-${a.aff}`} role="group" aria-label={`${a.label}の区分`} hidden>
                     {a.branches.map((b) => <label class="ckl"><input type="checkbox" name="branch" value={`${a.aff}:${b}`} checked /><span class="sr">{a.label} </span>{BRANCH_LABEL[b]}</label>)}
                   </div>
@@ -164,8 +166,6 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
             <label class="chk"><input type="checkbox" name="kind" value="tokusatsu" />特撮</label>
             <label class="chk"><input type="checkbox" name="kind" value="live_action" />実写</label>
           </div>
-          {/* ほかの欄と同じく説明の行を置く（無いと、この欄だけ低くなる。2026-10-21 ユーザーの指摘） */}
-          <p class="hint">特撮は日本の作品（仮面ライダーなど）です。怪獣映画（ゴジラ・ガメラ）は実写に入ります。</p>
         </fieldset>
         <fieldset data-axis="movie">
           <legend class="sr">映画かどうか</legend>
@@ -174,7 +174,6 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
             <label><input type="radio" name="movie" value="movie" />映画</label>
             <label><input type="radio" name="movie" value="other" />映画以外</label>
           </div>
-          <p class="hint">映画かどうかが分からない作品は、「映画」「映画以外」のどちらを選んでも出ません。</p>
         </fieldset>
         <fieldset data-axis="country">
           <legend class="sr">制作国</legend>
@@ -183,7 +182,6 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
             <label><input type="radio" name="country" value="jp" />日本</label>
             <label><input type="radio" name="country" value="foreign" />海外<span style="font-size: 11px; font-weight: 500;">（合作を含む）</span></label>
           </div>
-          <p class="hint">日本と海外の合作は、どちらを選んでも出ます。制作国が分からない作品は、どちらを選んでも出ません。</p>
         </fieldset>
         <fieldset data-axis="year">
           <legend class="sr">作品の放送年・放送期</legend>
@@ -197,7 +195,6 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
               {SEASONS.map((s) => <button type="button" data-season={s} aria-pressed="false" disabled>{SEASON_LABEL[s]}</button>)}
             </div>
           </div>
-          <p class="hint">作品が放送・公開された年です。放送期（冬・春・夏・秋）は、年を選ぶと選べます。アニメの作品（劇場版・OVA を含む）にだけ付いています。</p>
         </fieldset>
       </div>
     </div>

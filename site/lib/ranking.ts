@@ -23,9 +23,7 @@ export function rankingNote(days: number): string {
   return `${days ? `この${days}日に配信された` : "これまでに配信された"}公開枠を、再生数の多い順に。${at ? `再生数は ${at} 時点。` : ""}`;
 }
 
-/** 順位表の行。幅が広いときは2列で、左の列に前半（上から下へ読む）。右の列の先頭の行に印を付ける（上の罫を消す） */
+/** 順位表の行（どの幅でも1列で、上から順に。列をまたがせない。2026-10-21 ユーザーの指摘） */
 export function rankRowsHtml(p: RankingPeriod, count: number, lazy: (j: number) => boolean): string {
-  const evs = p.evs.slice(0, count);
-  const rows = Math.ceil(evs.length / 2);
-  return evs.map((e, j) => `<li${j === rows ? ' class="col-top"' : ""}><span class="rn">${j + 1}<span class="sr">位</span></span>${cardHtml(encodeRow(e), p.dict, { lazy: lazy(j) })}</li>`).join("");
+  return p.evs.slice(0, count).map((e, j) => `<li><span class="rn">${j + 1}<span class="sr">位</span></span>${cardHtml(encodeRow(e), p.dict, { lazy: lazy(j) })}</li>`).join("");
 }

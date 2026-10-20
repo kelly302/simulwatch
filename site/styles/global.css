@@ -102,7 +102,8 @@ section.block.band { background: var(--sky); box-shadow: none; color: var(--on-s
 @media (min-width: 720px) { .rail { grid-auto-columns: 264px; gap: 18px; margin-inline: -22px; padding-inline: 22px; scroll-padding-inline: 22px; } .rail.covers { grid-auto-columns: 132px; } }
 @media (min-width: 1000px) { .rail { grid-auto-columns: calc((100% - 98px) / 4); } .rail.covers { grid-auto-columns: calc((100% - 128px) / 8); gap: 12px; } }
 /* ランキング: 縦の順位表（2026-10-21 ユーザー決定。試作の案A）。左に大きな順位、サムネイル、作品名・配信者・再生数の行。
-   スマホは1列で上から（トップは5位まで）。幅 720px 以上は2列で、左の列に前半（上から下へ読む。トップは8位まで）。続きはランキングのページ（/ranking/。30位まで） */
+   どの幅でも1列で上から（列をまたがせない）。トップは5位まで、続きはランキングのページ（/ranking/。30位まで）。
+   幅 720px 以上は行を横に広く使う（サムネイル・作品名と種別・配信者・日付と再生数を横に並べる） */
 .rank-pane { display: flex; flex-direction: column; gap: 4px; }
 .rank-list { list-style: none; margin: 0; padding: 0; }
 .rank-list > li { display: grid; grid-template-columns: 34px minmax(0, 1fr); column-gap: 6px; padding: 10px 0; }
@@ -114,14 +115,18 @@ section.block.band { background: var(--sky); box-shadow: none; color: var(--on-s
 .rank-list .meta { font-size: 11px; }
 /* 配信者の段は押せる高さ 44px のまま、上下を詰めて見せる */
 .rank-list .card > .who { margin: -7px 0; }
-@media (max-width: 719px) { .rank-top > li:nth-child(n+6) { display: none; } }
 @media (min-width: 720px) {
-  .rank-list { display: grid; grid-auto-flow: column; grid-template-rows: repeat(var(--rows, 4), auto); grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 36px; }
-  .rank-list > li.col-top { border-top: 0; }
-  .rank-list > li { grid-template-columns: 46px minmax(0, 1fr); padding: 12px 0; }
-  .rank-list .rn { font-size: 30px; padding-top: 10px; }
-  .rank-list .card { grid-template-columns: 168px minmax(0, 1fr); column-gap: 14px; }
-  .rank-list .ttl { font-size: 14px; }
+  .rank-list > li { grid-template-columns: 52px minmax(0, 1fr); align-items: center; padding: 12px 0; }
+  .rank-list .rn { font-size: 30px; padding-top: 0; }
+  .rank-list .card { grid-template-columns: 176px minmax(0, 1fr) minmax(0, 220px) 96px; grid-template-areas: "th tt wh ft" "th me wh ft"; column-gap: 20px; row-gap: 4px; align-items: center; }
+  .rank-list .thumb { grid-area: th; }
+  .rank-list .card > .ttl, .rank-list .card > .title-row { grid-area: tt; align-self: end; }
+  .rank-list .card > .meta, .rank-list .card > .tag { grid-area: me; align-self: start; }
+  .rank-list .card > .who { grid-area: wh; margin: 0; }
+  .rank-list .card > .foot { grid-area: ft; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .rank-list .foot .views, .rank-list .foot .badge.mem { margin-left: 0; }
+  .rank-list .ttl { font-size: 15px; }
+  .rank-list .meta { font-size: 12px; }
 }
 .btn.rank-link { display: flex; align-items: center; justify-content: center; margin-top: 8px; text-decoration: none; }
 @media (min-width: 720px) { .btn.rank-link { align-self: center; padding: 0 48px; } }
@@ -229,6 +234,8 @@ a.wcard:hover b { text-decoration: underline; }
 .fpanel-head .linkish { color: var(--sub); font-weight: 700; }
 .icon-btn { width: 44px; height: 44px; border: 0; background: none; color: var(--ink); border-radius: 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .fpanel fieldset { border: 0; margin: 0; padding: 0 0 4px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+/* スマホの幅では、所属（札が2段）・放送年（折り返す）に合わせて、どの欄も2段ぶんの高さにそろえる（軸を切り替えても欄の高さが変わらない。2026-10-21） */
+@media (max-width: 719px) { .fpanel fieldset { min-height: 92px; } }
 /* 選択肢の丸い札（いくつでも選べる。選ぶと桃色の地に白字とチェックの印） */
 .opts { display: flex; flex-wrap: wrap; gap: 8px; }
 .chk { position: relative; min-height: 40px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px; border-radius: 20px; background: var(--card); color: var(--ink); cursor: pointer; font-size: 13px; font-weight: 700; }
@@ -243,7 +250,8 @@ a.wcard:hover b { text-decoration: underline; }
 .seg label::after { content: ""; position: absolute; inset: -2px 0; }
 .seg label:has(input:checked) { background: var(--uv); color: var(--on-uv); }
 /* 所属: 事務所の札を横に並べ、札そのものにチェック（種類の札と同じく、入っていれば桃色の地に白字とチェックの印）。
-   区分が2つ以上の事務所の札には ▾ があり、押すとその下に区分のチェックの一覧が重なって開く。3つで1行（幅 360px 以下は折り返す） */
+   区分が2つ以上の事務所の札は2つに分ける: 左（チェックと名前）は事務所を丸ごと入れる・外す、右の ▾（幅 44px）は札の下に区分のチェックの一覧を重ねて開く。
+   押す所が2つあるぶん札が長く、スマホの幅では2段になる */
 .affchips { display: flex; flex-wrap: wrap; gap: 8px 4px; }
 .affcol { position: relative; }
 .agchip { position: relative; min-height: 40px; display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 0; border-radius: 20px; background: var(--card); color: var(--ink); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
@@ -252,13 +260,20 @@ a.wcard:hover b { text-decoration: underline; }
 .agchip.on, .agchip:has(input:checked) { background: var(--uv); color: var(--on-uv); }
 .agchip .ck { display: none; width: 9px; height: 5px; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(-45deg); }
 .agchip.on .ck, .agchip:has(input:checked) .ck { display: block; }
-.agchip .chev { width: 6px; height: 6px; margin-left: 1px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); }
-.agchip[aria-expanded="true"] .chev { transform: translateY(1px) rotate(225deg); }
-.agchip[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--uv); }
-.agchip.on[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--uv), inset 0 0 0 4px var(--card); }
 .agchip:has(input:focus-visible) { outline: 3px solid var(--uv); outline-offset: 2px; }
-/* 幅 375px 未満（360px の端末など）は余白を詰めて1行に収める（320px では折り返す） */
-@media (max-width: 374px) { .affchips { gap: 8px 3px; } .agchip { gap: 4px; padding: 0 7px; } }
+.agsplit { display: inline-flex; align-items: stretch; border-radius: 20px; background: var(--card); color: var(--ink); }
+.agsplit.on { background: var(--uv); color: var(--on-uv); }
+.agsplit .agchip, .agsplit .agchip:has(input:checked) { padding-right: 6px; border-radius: 20px 0 0 20px; background: none; color: inherit; }
+.agsplit.on .agchip .ck { display: block; }
+.agsplit:not(.on) .agchip .ck { display: none; }
+.agmenu { position: relative; width: 44px; min-height: 40px; padding: 0; border: 0; border-radius: 0 20px 20px 0; background: none; color: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.agmenu::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 1px; background: currentColor; opacity: 0.35; }
+.agmenu::after { content: ""; position: absolute; inset: -2px 0; }
+.agmenu .chev { width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); }
+.agmenu[aria-expanded="true"] .chev { transform: translateY(1px) rotate(225deg); }
+.agmenu[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--uv); }
+.agsplit.on .agmenu[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--uv), inset 0 0 0 4px var(--card); }
+.agmenu:focus-visible { outline: 3px solid var(--uv); outline-offset: 2px; }
 .affpop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 4; min-width: 100%; padding: 4px 14px; border-radius: 14px; background: var(--card); box-shadow: 0 0 0 1px var(--hair), 0 8px 24px rgb(0 0 0 / 0.18); }
 .affcol:last-child .affpop { left: auto; right: 0; }
 .affpop .ckl { white-space: nowrap; }
