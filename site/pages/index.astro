@@ -155,14 +155,16 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
         </fieldset>
         <fieldset data-axis="aff">
           <legend class="sr">所属</legend>
-          {/* 所属は事務所を横に並べたチェック（2026-10-21 ユーザー決定）。既定は全部にチェック。事務所のチェックはその事務所の区分をまとめて切り替える（一部だけなら「－」）。
-              区分が1つの事務所（ぶいすぽっ！）は事務所のチェックだけ */}
-          <div class="affcols">
+          {/* 所属は事務所の札を横に並べ、札そのものにチェック（既定は全部にチェック。2026-10-21 ユーザー決定）。
+              区分が2つ以上の事務所は、札を押すとその下に「すべて」と区分のチェックの一覧が重なって開く（試作の P1）。一部だけなら札に区分を書く。
+              区分が1つの事務所（ぶいすぽっ！）は、札を押すとそのままチェックが切り替わる */}
+          <div class="affchips">
             {affs.map((a) => a.branches.length === 1
-              ? <div class="affcol"><label class="ckl ag"><input type="checkbox" name="branch" value={`${a.aff}:${a.branches[0]}`} checked />{a.label}</label></div>
-              : <div class="affcol" role="group" aria-label={a.label}>
-                  <label class="ckl ag"><input type="checkbox" data-ag={a.aff} checked />{a.label}</label>
-                  <div class="subs">
+              ? <div class="affcol"><label class="agchip"><input type="checkbox" name="branch" value={`${a.aff}:${a.branches[0]}`} checked /><span class="ck" aria-hidden="true"></span>{a.label}</label></div>
+              : <div class="affcol">
+                  <button type="button" class="agchip on" data-aff={a.aff} data-label={a.label} aria-expanded="false" aria-controls={`aff-pop-${a.aff}`} aria-label={`${a.label}：すべて`}><span class="ck" aria-hidden="true"></span><span class="nm">{a.label}</span><span class="chev" aria-hidden="true"></span></button>
+                  <div class="affpop" id={`aff-pop-${a.aff}`} role="group" aria-label={`${a.label}の区分`} hidden>
+                    <label class="ckl"><input type="checkbox" data-agall={a.aff} checked />すべて</label>
                     {a.branches.map((b) => <label class="ckl"><input type="checkbox" name="branch" value={`${a.aff}:${b}`} checked /><span class="sr">{a.label} </span>{BRANCH_LABEL[b]}</label>)}
                   </div>
                 </div>)}

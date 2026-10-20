@@ -251,22 +251,28 @@ a.wcard:hover b { text-decoration: underline; }
 .seg label { position: relative; min-height: 40px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 20px; color: var(--sub); cursor: pointer; font-size: 13px; font-weight: 700; }
 .seg label::after { content: ""; position: absolute; inset: -2px 0; }
 .seg label:has(input:checked) { background: var(--uv); color: var(--on-uv); }
-/* 所属: 事務所を横に並べたチェック。事務所の下に区分のチェックを縦に（少し下げる）。行の高さは 40px（押せる高さは 44px） */
-.affcols { display: flex; flex-wrap: wrap; gap: 0 10px; }
-.affcol { display: flex; flex-direction: column; }
-.affcol .ckl { white-space: nowrap; }
-.affcol .subs { display: flex; flex-direction: column; padding-left: 12px; }
-@media (min-width: 720px) { .affcols { gap: 0 48px; } }
-/* 幅 360px 未満は、事務所の名前が折れないように少し小さく（それでも収まらなければ、ぶいすぽっ！の列が下の段に回る） */
-@media (max-width: 359px) {
-  .affcols { gap: 0 4px; }
-  .affcol .ckl { gap: 4px; font-size: 13px; }
-  .affcol .ckl input { width: 18px; height: 18px; }
-  .affcol .subs { padding-left: 10px; }
-}
+/* 所属: 事務所の札を横に並べ、札そのものにチェック（種類の札と同じく、入っていれば桃色の地に白字とチェックの印）。
+   区分が2つ以上の事務所の札には ▾ があり、押すとその下に区分のチェックの一覧が重なって開く。3つで1行（幅 360px 以下は折り返す） */
+.affchips { display: flex; flex-wrap: wrap; gap: 8px 4px; }
+.affcol { position: relative; }
+.agchip { position: relative; min-height: 40px; display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 0; border-radius: 20px; background: var(--card); color: var(--ink); font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.agchip::after { content: ""; position: absolute; inset: -2px 0; }
+.agchip input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.agchip.on, .agchip:has(input:checked) { background: var(--uv); color: var(--on-uv); }
+.agchip .ck { display: none; width: 9px; height: 5px; border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(-45deg); }
+.agchip.on .ck, .agchip:has(input:checked) .ck { display: block; }
+.agchip .chev { width: 6px; height: 6px; margin-left: 1px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); }
+.agchip[aria-expanded="true"] .chev { transform: translateY(1px) rotate(225deg); }
+.agchip[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--uv); }
+.agchip.on[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--uv), inset 0 0 0 4px var(--card); }
+.agchip:has(input:focus-visible) { outline: 3px solid var(--uv); outline-offset: 2px; }
+/* 幅 375px 未満（360px の端末など）は余白を詰めて1行に収める（320px では折り返す） */
+@media (max-width: 374px) { .affchips { gap: 8px 3px; } .agchip { gap: 4px; padding: 0 7px; } }
+.affpop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 4; min-width: 100%; padding: 4px 14px; border-radius: 14px; background: var(--card); box-shadow: 0 0 0 1px var(--hair), 0 8px 24px rgb(0 0 0 / 0.18); }
+.affcol:last-child .affpop { left: auto; right: 0; }
+.affpop .ckl { white-space: nowrap; }
 .ckl { position: relative; display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 14px; font-weight: 700; color: var(--ink); cursor: pointer; }
 .ckl::after { content: ""; position: absolute; inset: -2px 0; }
-.ckl.ag { font-weight: 800; }
 .ckl input { appearance: none; -webkit-appearance: none; display: grid; place-content: center; flex-shrink: 0; width: 20px; height: 20px; margin: 0; border: 2px solid var(--sub); border-radius: 6px; background: var(--card); cursor: pointer; }
 .ckl input:checked, .ckl input:indeterminate { border-color: var(--uv); background: var(--uv); }
 .ckl input:checked::before { content: ""; width: 9px; height: 5px; border-left: 2px solid var(--on-uv); border-bottom: 2px solid var(--on-uv); transform: translateY(-1px) rotate(-45deg); }

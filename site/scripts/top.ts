@@ -270,13 +270,20 @@ let openAxis: Axis | null = null;
 
 function syncPanel() {
   const f = S.filters;
-  // 所属: 条件が無ければ全部にチェック。事務所のチェックは、区分が全部なら入り、一部なら「－」
+  // 所属: 条件が無ければ全部にチェック。事務所の札は、区分が1つでも入っていればチェック。一部だけなら札に区分を書く
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="branch"]')) i.checked = !f.branch.length || f.branch.includes(i.value);
-  for (const i of panel.querySelectorAll<HTMLInputElement>("input[data-ag]")) {
-    const subs = [...panel.querySelectorAll<HTMLInputElement>(`input[name="branch"][value^="${i.dataset.ag}:"]`)];
-    const on = subs.filter((x) => x.checked).length;
-    i.checked = on === subs.length;
-    i.indeterminate = on > 0 && on < subs.length;
+  for (const b of panel.querySelectorAll<HTMLButtonElement>("button.agchip")) {
+    const ag = b.dataset.aff!;
+    const label = b.dataset.label!;
+    const subs = [...panel.querySelectorAll<HTMLInputElement>(`input[name="branch"][value^="${ag}:"]`)];
+    const on = subs.filter((x) => x.checked);
+    const part = on.length && on.length < subs.length ? on.map((x) => x.parentElement!.lastChild!.textContent).join("・") : "";
+    b.querySelector(".nm")!.textContent = part ? `${label} ${part}` : label;
+    b.classList.toggle("on", on.length > 0);
+    b.setAttribute("aria-label", `${label}：${on.length === subs.length ? "すべて" : part || "除く"}`);
+    const all = panel.querySelector<HTMLInputElement>(`input[data-agall="${ag}"]`)!;
+    all.checked = on.length === subs.length;
+    all.indeterminate = on.length > 0 && on.length < subs.length;
   }
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="kind"]')) i.checked = f.kind.includes(i.value);
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="date"]')) i.checked = f.date === i.value;
@@ -305,6 +312,7 @@ function applyNow() {
 
 function openPanel(a: Axis) {
   openAxis = a;
+  setAffPop(null);
   for (const fs of panel.querySelectorAll<HTMLElement>("fieldset[data-axis]")) fs.hidden = fs.dataset.axis !== a;
   $("fpanel-h").textContent = AXIS_LABEL[a];
   panel.hidden = false;
@@ -316,8 +324,19 @@ function openPanel(a: Axis) {
   ensureIndex().catch(() => {});
 }
 
+/** 所属の事務所の札の下に開くチェックの一覧（開くのは1つずつ） */
+function setAffPop(aff: string | null) {
+  for (const b of panel.querySelectorAll<HTMLButtonElement>("button.agchip")) {
+    const open = b.dataset.aff === aff;
+    b.setAttribute("aria-expanded", String(open));
+    $(`aff-pop-${b.dataset.aff}`).hidden = !open;
+  }
+}
+const affPopOpen = () => !!panel.querySelector('button.agchip[aria-expanded="true"]');
+
 function closePanel(focusAxis: boolean) {
   const a = openAxis;
+  setAffPop(null);
   panel.hidden = true;
   openAxis = null;
   renderChips();
@@ -327,9 +346,9 @@ function closePanel(focusAxis: boolean) {
 panel.addEventListener("change", (ev) => {
   const t = ev.target as HTMLInputElement | HTMLSelectElement;
   const f = S.filters;
-  if (t instanceof HTMLInputElement && (t.name === "branch" || t.dataset.ag)) {
-    // 事務所のチェックは、その事務所の区分をまとめて切り替える
-    if (t.dataset.ag) for (const i of panel.querySelectorAll<HTMLInputElement>(`input[name="branch"][value^="${t.dataset.ag}:"]`)) i.checked = t.checked;
+  if (t instanceof HTMLInputElement && (t.name === "branch" || t.dataset.agall)) {
+    // 一覧の「すべて」は、その事務所の区分をまとめて切り替える
+    if (t.dataset.agall) for (const i of panel.querySelectorAll<HTMLInputElement>(`input[name="branch"][value^="${t.dataset.agall}:"]`)) i.checked = t.checked;
     // チェックの入った区分を事務所の順に。全部なら条件なし、1つも無ければ何も当たらない印
     const all = [...panel.querySelectorAll<HTMLInputElement>('input[name="branch"]')];
     const on = all.filter((i) => i.checked).map((i) => i.value);
@@ -354,6 +373,10 @@ panel.addEventListener("click", (ev) => {
     S.filters.season = S.filters.season === season.dataset.season ? "" : (season.dataset.season as Season);
     return applyNow();
   }
+  const affBtn = t.closest<HTMLButtonElement>("button.agchip");
+  if (affBtn) return setAffPop(affBtn.getAttribute("aria-expanded") === "true" ? null : affBtn.dataset.aff!);
+  // チェックの一覧の外を押したら閉じる
+  if (affPopOpen() && !t.closest(".affpop")) setAffPop(null);
   if (t.closest("#fpanel-close")) return closePanel(true);
   if (t.closest("#fpanel-clear")) {
     // この軸だけを指定なしに戻す
@@ -363,5 +386,13 @@ panel.addEventListener("click", (ev) => {
 });
 
 panel.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") closePanel(true);
+  if (ev.key !== "Escape") return;
+  // 所属のチェックの一覧が開いていれば、先にそれだけを閉じて札に戻る
+  const open = panel.querySelector<HTMLButtonElement>('button.agchip[aria-expanded="true"]');
+  if (open) { setAffPop(null); open.focus(); return; }
+  closePanel(true);
+});
+// 欄の外を押したら、所属のチェックの一覧を閉じる
+document.addEventListener("click", (ev) => {
+  if (affPopOpen() && !panel.contains(ev.target as Node)) setAffPop(null);
 });
