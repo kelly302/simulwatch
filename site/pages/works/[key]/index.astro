@@ -3,7 +3,7 @@
 import Base from "../../../layouts/Base.astro";
 import RailButtons from "../../../components/RailButtons.astro";
 import { TAB_LABEL, cfg, kindTab, seriesOf, streamerRowsOf, tabPath, workPages } from "../../../lib/data.ts";
-import { CHEVRON, EXT_ICON, REV_ICON, affLabel, avatarHtml, frameItemHtml, workCardHtml } from "../../../lib/views.ts";
+import { CHECK_ICON, CHEVRON, EXT_ICON, REV_ICON, affLabel, avatarHtml, frameItemHtml, workCardHtml } from "../../../lib/views.ts";
 import { WORK_KIND_LABEL } from "../../../../src/shared/types.ts";
 import type { SiteWork } from "../../../../src/shared/site.ts";
 import {
@@ -16,6 +16,13 @@ export function getStaticPaths() {
 
 const { work: w } = Astro.props as { work: SiteWork };
 const rows = streamerRowsOf(w);
+// 「メン限を除く」で出す値（公開の枠の数と、公開の枠で最後に観た日）。site/scripts/rows.ts が切り替える
+const pubOf = (evs: { membersOnly: boolean; startedAt: string }[]) => {
+  const pub = evs.filter((e) => !e.membersOnly);
+  return { n: pub.length, latest: pub.at(-1)?.startedAt ?? "" };
+};
+const pubStreamers = rows.filter((r) => pubOf(r.events).n > 0).length;
+const memToggle = w.membersCount > 0 && w.membersCount < w.eventsCount;
 const series = seriesOf(w);
 const tab = kindTab(w.kind);
 const MEDIA_LABEL = { tv: "TV", movie: "映画", ova: "OVA", web: "Web" } as const;
@@ -101,7 +108,7 @@ const jsonLd = [
 <main>
   <section class="pane" aria-labelledby="h-who">
     <div class="section-head">
-      <h2 id="h-who">観た配信者 <span class="count">{w.streamersCount}人</span></h2>
+      <h2 id="h-who">観た配信者 <span class="count" data-all={`${w.streamersCount}人`} data-pub={`${pubStreamers}人`}>{w.streamersCount}人</span></h2>
       {rows.length > 1 && (
         <div class="sortbar" data-sortbar>
           <div class="keys" role="group" aria-label="並び順">
@@ -111,21 +118,24 @@ const jsonLd = [
           <button type="button" class="pill rev" data-rev aria-pressed="false" aria-label="逆順にする（今は多い順）"><Fragment set:html={REV_ICON} /><span data-rev-label>多い順</span></button>
         </div>
       )}
+      {memToggle && <div class="xtools"><button type="button" class="fchip check" data-mem-toggle aria-pressed="false"><Fragment set:html={CHECK_ICON} />メン限を除く</button></div>}
     </div>
     <ol class="rows" data-xrows>
-      {rows.map((r, i) => (
-        <li data-i={String(i)} data-views={r.viewsMax == null ? "" : String(r.viewsMax)} data-latest={r.latest}>
+      {rows.map((r, i) => {
+        const pub = pubOf(r.events);
+        return (
+        <li data-i={String(i)} data-views={r.viewsMax == null ? "" : String(r.viewsMax)} data-latest={r.latest} data-pub={String(pub.n)} data-latest-pub={pub.latest}>
           <div class="xrow">
             <a href={streamerPath(r.streamer.channelId)}>
               <Fragment set:html={avatarHtml(r.streamer.name, r.streamer.iconUrl, 48, "xav")} />
               <span class="xbody">
                 <span class="xname">{r.streamer.name}</span>
                 {showsNameEn(r.streamer) && <span class="sen" lang="en">{r.streamer.nameEn}</span>}
-                <span class="xfacts"><span>{affLabel(r.streamer.affiliation, r.streamer.branch)}</span><span>{r.events.length}枠</span>{r.members > 0 && <span>メン限 {r.members}</span>}</span>
+                <span class="xfacts"><span>{affLabel(r.streamer.affiliation, r.streamer.branch)}</span><span data-all={`${r.events.length}枠`} data-pub={`${pub.n}枠`}>{r.events.length}枠</span>{r.members > 0 && <span data-memonly>メン限 {r.members}</span>}</span>
               </span>
             </a>
             <button type="button" class="xbtn" aria-expanded="false" aria-controls={`f-${i}`} aria-label={`${r.streamer.name} の枠を開く`}>
-              <span class="vals"><span class={`v1${r.viewsMax == null ? " none" : ""}`}>{formatViews(r.viewsMax)}</span><span class="v2">{formatDate(r.latest)}</span></span>
+              <span class="vals"><span class={`v1${r.viewsMax == null ? " none" : ""}`}>{formatViews(r.viewsMax)}</span><span class="v2" data-all={formatDate(r.latest)} data-pub={formatDate(pub.latest)}>{formatDate(r.latest)}</span></span>
               <Fragment set:html={CHEVRON} />
             </button>
           </div>
@@ -134,7 +144,8 @@ const jsonLd = [
             detail: e.works.find((x) => x.id === w.id)?.episodes ?? null,
           })).join("")} />
         </li>
-      ))}
+        );
+      })}
     </ol>
     <p class="foot-note">メン限の枠は再生数を取得できません（—）。再生数で並べたときは、メン限の枠だけの配信者を末尾に置いています。</p>
   </section>

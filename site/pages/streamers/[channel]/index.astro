@@ -3,7 +3,7 @@
 // 既定の並びは名前順（読みがな、無ければ作品名）。作品ページの無い枠（外部DBに無い作品・作品を特定できない枠）は末尾に枠のまま並べる
 import Base from "../../../layouts/Base.astro";
 import { AFF_SLUG, cfg, framesOf, streamerPages, workRowsOf } from "../../../lib/data.ts";
-import { CHEVRON, EXT_ICON, REV_ICON, affLabel, avatarHtml, frameItemHtml } from "../../../lib/views.ts";
+import { CHECK_ICON, CHEVRON, EXT_ICON, REV_ICON, affLabel, avatarHtml, frameItemHtml, workThumbHtml } from "../../../lib/views.ts";
 import { AFFILIATION_LABEL } from "../../../../src/shared/types.ts";
 import type { SiteStreamer } from "../../../../src/shared/site.ts";
 import { formatDate, formatMonth, formatViews, metaLine, showsNameEn, streamerPath, workPath } from "../../../../src/shared/site.ts";
@@ -15,6 +15,15 @@ export function getStaticPaths() {
 const { streamer: s } = Astro.props as { streamer: SiteStreamer };
 const rows = workRowsOf(s);
 const frames = framesOf(s);
+// 「メン限を除く」で出す値（公開の枠の数と、公開の枠で最後に観た日）。site/scripts/rows.ts が切り替える
+const pubOf = (evs: { membersOnly: boolean; startedAt: string }[]) => {
+  const pub = evs.filter((e) => !e.membersOnly);
+  return { n: pub.length, latest: pub.at(-1)?.startedAt ?? "" };
+};
+const pubWorks = rows.filter((r) => pubOf(r.events).n > 0).length;
+const pubFrames = frames.filter((e) => !e.membersOnly).length;
+const memToggle = s.membersCount > 0 && s.membersCount < s.eventsCount;
+const MEM_TOGGLE = `<div class="xtools"><button type="button" class="fchip check" data-mem-toggle aria-pressed="false">${CHECK_ICON}メン限を除く</button></div>`;
 const affHref = s.affiliation === "other" ? "/streamers/" : `/streamers/${AFF_SLUG[s.affiliation]}/`;
 const en = showsNameEn(s) ? s.nameEn : null;
 const nameWith = en ? `${s.name}（${en}）` : s.name;
@@ -61,7 +70,7 @@ const jsonLd = [{
   {rows.length > 0 && (
     <section class="pane" aria-labelledby="h-works">
       <div class="section-head">
-        <h2 id="h-works">観た作品 <span class="count">{rows.length}作品</span></h2>
+        <h2 id="h-works">観た作品 <span class="count" data-all={`${rows.length}作品`} data-pub={`${pubWorks}作品`}>{rows.length}作品</span></h2>
         {rows.length > 1 && (
           <div class="sortbar" data-sortbar>
             <div class="keys" role="group" aria-label="並び順">
@@ -72,19 +81,23 @@ const jsonLd = [{
             <button type="button" class="pill rev" data-rev aria-pressed="false" aria-label="逆順にする（今は五十音順）"><Fragment set:html={REV_ICON} /><span data-rev-label>五十音順</span></button>
           </div>
         )}
+        {memToggle && <Fragment set:html={MEM_TOGGLE} />}
       </div>
       <ol class="rows" data-xrows>
-        {rows.map((r, i) => (
-          <li data-i={String(i)} data-views={r.viewsMax == null ? "" : String(r.viewsMax)} data-latest={r.latest}>
+        {rows.map((r, i) => {
+          const pub = pubOf(r.events);
+          return (
+          <li data-i={String(i)} data-views={r.viewsMax == null ? "" : String(r.viewsMax)} data-latest={r.latest} data-pub={String(pub.n)} data-latest-pub={pub.latest}>
             <div class="xrow">
               <a href={workPath(r.work.key!)}>
+                <Fragment set:html={workThumbHtml(r.work.imageUrl, r.work.kind, r.work.media)} />
                 <span class="xbody">
                   <span class="xname">{r.work.title}</span>
                   <span class="xfacts"><span>{metaLine(r.work)}</span></span>
                 </span>
               </a>
               <button type="button" class="xbtn" aria-expanded="false" aria-controls={`f-${i}`} aria-label={`${r.work.title} の枠を開く`}>
-                <span class="vals"><span class="v1 date">{formatDate(r.latest)}</span><span class="v2">{r.events.length}枠{r.viewsMax != null ? ` · ${formatViews(r.viewsMax)}` : ""}</span></span>
+                <span class="vals"><span class="v1 date" data-all={formatDate(r.latest)} data-pub={formatDate(pub.latest)}>{formatDate(r.latest)}</span><span class="v2" data-all={`${r.events.length}枠${r.viewsMax != null ? ` · ${formatViews(r.viewsMax)}` : ""}`} data-pub={`${pub.n}枠${r.viewsMax != null ? ` · ${formatViews(r.viewsMax)}` : ""}`}>{r.events.length}枠{r.viewsMax != null ? ` · ${formatViews(r.viewsMax)}` : ""}</span></span>
                 <Fragment set:html={CHEVRON} />
               </button>
             </div>
@@ -92,7 +105,8 @@ const jsonLd = [{
               videoId: e.videoId, startedAt: e.startedAt, views: e.views, members: e.membersOnly, detail: r.episodes.get(e.id) ?? null,
             })).join("")} />
           </li>
-        ))}
+          );
+        })}
       </ol>
       <p class="foot-note">メン限の枠は再生数を取得できません（—）。再生数で並べたときは、メン限の枠だけの作品を末尾に置いています。</p>
     </section>
@@ -101,9 +115,11 @@ const jsonLd = [{
   {frames.length > 0 && (
     <section class="pane" aria-labelledby="h-frames">
       <div class="section-head">
-        <h2 id="h-frames">作品ページの無い枠 <span class="count">{frames.length}枠</span></h2>
+        <h2 id="h-frames">作品ページの無い枠 <span class="count" data-all={`${frames.length}枠`} data-pub={`${pubFrames}枠`}>{frames.length}枠</span></h2>
         <p class="note">外部の作品データベースに無い作品や、作品名が書かれていない枠です。</p>
+        {rows.length === 0 && memToggle && <Fragment set:html={MEM_TOGGLE} />}
       </div>
+      {pubFrames === 0 && <p class="note foot-note" data-pub-empty hidden>メン限を除くと、ここに出る枠はありません。</p>}
       <ol class="frames tiles" set:html={frames.map((e) => frameItemHtml({
         videoId: e.videoId, startedAt: e.startedAt, views: e.views, members: e.membersOnly, detail: e.frame?.title ?? null,
       })).join("")} />

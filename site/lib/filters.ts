@@ -5,7 +5,7 @@ import { AFFILIATION_LABEL, BRANCH_LABEL } from "../../src/shared/types.ts";
 import type { Affiliation, Branch } from "../../src/shared/types.ts";
 import { SEASON_LABEL } from "../../src/shared/site.ts";
 import type { Season } from "../../src/shared/site.ts";
-import { esc } from "./views.ts";
+import { CHECK_ICON, esc } from "./views.ts";
 
 export interface Filters {
   /** 配信日。"30d"（この30日）・"1y"（この1年）・"2025"（その年に配信）。空は指定なし */
@@ -70,7 +70,6 @@ export function axisValue(f: Filters, axis: Axis, agAll: (ag: string) => string[
 /** 指定している条件の数（軸とメン限） */
 export const activeAxes = (f: Filters, agAll: (ag: string) => string[]) => AXES.filter((a) => axisValue(f, a, agAll)).length + (f.mem === "ex" ? 1 : 0);
 
-const CHECK = '<svg class="ck" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>';
 
 /**
  * 条件のボタン。軸は押すと選択肢が下に開く（open はいま開いている軸）。指定している軸は塗って値を出す。
@@ -85,5 +84,5 @@ export function axisButtonsHtml(f: Filters, agAll: (ag: string) => string[], ope
       : `<button type="button" class="fchip axis" ${attrs}>${esc(AXIS_LABEL[a])}</button>`;
   }).join("");
   const ex = f.mem === "ex";
-  return `${axes}<span class="fdiv" aria-hidden="true"></span><button type="button" class="fchip check${ex ? " on" : ""}" data-toggle="mem" aria-pressed="${ex}">${CHECK}メン限を除く</button>`;
+  return `${axes}<span class="fdiv" aria-hidden="true"></span><button type="button" class="fchip check${ex ? " on" : ""}" data-toggle="mem" aria-pressed="${ex}">${CHECK_ICON}メン限を除く</button>`;
 }

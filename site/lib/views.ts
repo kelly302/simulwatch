@@ -107,12 +107,16 @@ ${whoHtml}
 export type WorkRowMetric = "streamers" | "views" | "latest";
 
 /** 作品一覧の行。右の上は並び順の値（配信者数・再生数）、下は最終視聴日 */
+/** 行の作品の画像（AniList の画像。無ければ種別形式を書いた黒い札）。作品一覧の行と配信者ページの作品の行 */
+export function workThumbHtml(image: string | null, kind: WorkKind | null, media: WorkMedia | null): string {
+  return image
+    ? `<img class="wimg" src="${esc(image)}" alt="" width="44" height="62" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
+    : `<span class="wimg none" aria-hidden="true">${esc(formLabel(kind, media) || "作品")}</span>`;
+}
+
 export function workRowHtml(r: WorkListRow, metric: WorkRowMetric = "streamers", titleHtml?: string): string {
   const [key, title, kind, media, year, season, image, streamers, viewsMax, latest] = r;
-  const img = unpackImage(image);
-  const thumb = img
-    ? `<img class="wimg" src="${esc(img)}" alt="" width="44" height="62" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
-    : `<span class="wimg none" aria-hidden="true">${esc(formLabel((kind || null) as WorkKind | null, (media || null) as WorkMedia | null) || "作品")}</span>`;
+  const thumb = workThumbHtml(unpackImage(image), (kind || null) as WorkKind | null, (media || null) as WorkMedia | null);
   const meta = metaLine({ kind: (kind || null) as WorkKind | null, media: (media || null) as WorkMedia | null, year: year || null, season: (season || null) as Season | null });
   const top = metric === "views"
     ? `<span class="num${viewsMax == null ? " none" : ""}">${esc(formatViews(viewsMax))}</span>`
@@ -158,9 +162,11 @@ export interface FrameItem {
 /** 展開行の中の枠（日付の昇順で並べる側が渡す）。サムネは開いたときに読む */
 export function frameItemHtml(f: FrameItem): string {
   const date = formatDate(f.startedAt);
-  return `<li><a class="fthumb" href="${esc(youtubeUrl(f.videoId))}" aria-label="YouTube で開く（${esc(date)} の枠）"><img src="${esc(thumbnailUrl(f.videoId))}" alt="" width="320" height="180" loading="lazy" decoding="async" referrerpolicy="no-referrer"></a><span class="finfo"><span class="fdate">${esc(date)}</span>${f.detail ? `<span class="ftitle">${esc(f.detail)}</span>` : ""}<span class="fviews">${f.members ? '<span class="badge mem">メン限</span>' : `<span>${esc(formatViews(f.views))}</span>`}</span></span></li>`;
+  // メン限の枠には data-mem（ページの「メン限を除く」で隠す。site/scripts/rows.ts）
+  return `<li${f.members ? ' data-mem="1"' : ""}><a class="fthumb" href="${esc(youtubeUrl(f.videoId))}" aria-label="YouTube で開く（${esc(date)} の枠）"><img src="${esc(thumbnailUrl(f.videoId))}" alt="" width="320" height="180" loading="lazy" decoding="async" referrerpolicy="no-referrer"></a><span class="finfo"><span class="fdate">${esc(date)}</span>${f.detail ? `<span class="ftitle">${esc(f.detail)}</span>` : ""}<span class="fviews">${f.members ? '<span class="badge mem">メン限</span>' : `<span>${esc(formatViews(f.views))}</span>`}</span></span></li>`;
 }
 
+export const CHECK_ICON = '<svg class="ck" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>';
 export const CHEVRON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>';
 export const EXT_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"></path></svg>';
 export const REV_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M4 17l3 3 3-3M17 20V4M14 7l3-3 3 3"></path></svg>';
