@@ -164,7 +164,9 @@ a.who:hover .nm { text-decoration: underline; }
 .av { width: 24px; height: 24px; border-radius: 50%; background: var(--ph); color: var(--ink); font-size: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; object-fit: cover; }
 .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .br { flex-shrink: 0; padding: 0 6px; border-radius: 8px; background: var(--soft); font-size: 11px; font-weight: 700; line-height: 1.5; color: var(--sub); }
-.foot { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--sub); }
+.foot { display: flex; align-items: center; gap: 6px; min-height: 22px; font-size: 12px; color: var(--sub); }
+/* 同じ段に並ぶカードの、配信者・日付・再生数の段をカードの底にそろえる（作品名が1〜3行で変わっても隣とずれない。2026-10-21） */
+.card > .who, .card > :not(.who) + .foot { margin-top: auto; }
 .foot .views { margin-left: auto; font-weight: 800; font-size: 13px; color: var(--ink); }
 .badge { padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 700; white-space: nowrap; line-height: 1.6; }
 .badge.mem { background: #E6F3FF; color: #1D4F7A; }
@@ -187,6 +189,8 @@ a.who:hover .nm { text-decoration: underline; }
 .wcard b { font-size: 13px; font-weight: 700; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 a.wcard:hover b { text-decoration: underline; }
 .wcard span { font-size: 12px; color: var(--sub); }
+/* 観た配信者数・枠数の段をカードの底にそろえる（作品名が1行でも2行でも隣とずれない） */
+.wcard > span { margin-top: auto; }
 .wcard span strong { color: var(--uv); font-weight: 800; font-size: 14px; }
 .wcard[aria-current] .wimg { outline: 3px solid var(--uv); outline-offset: 3px; }
 .wcard[aria-current] span { color: var(--link); font-weight: 700; }
@@ -247,12 +251,27 @@ a.wcard:hover b { text-decoration: underline; }
 .seg label { position: relative; min-height: 40px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 20px; color: var(--sub); cursor: pointer; font-size: 13px; font-weight: 700; }
 .seg label::after { content: ""; position: absolute; inset: -2px 0; }
 .seg label:has(input:checked) { background: var(--uv); color: var(--on-uv); }
-/* 所属: 事務所ごとの選択を横に並べる（3つは同じ幅）。事務所の名前を上に小さく。選択の部品は配信した年・作品の放送年と同じ .pick */
-.affsel { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.affcol { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.afflabel { padding-left: 4px; font-size: 12px; font-weight: 800; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.affsel .pick { width: 100%; min-width: 0; padding: 0 26px 0 12px; background-position: right 10px center; }
-@media (min-width: 720px) { .affsel { grid-template-columns: repeat(3, 150px); } }
+/* 所属: 事務所を横に並べたチェック。事務所の下に区分のチェックを縦に（少し下げる）。行の高さは 40px（押せる高さは 44px） */
+.affcols { display: flex; flex-wrap: wrap; gap: 0 10px; }
+.affcol { display: flex; flex-direction: column; }
+.affcol .ckl { white-space: nowrap; }
+.affcol .subs { display: flex; flex-direction: column; padding-left: 12px; }
+@media (min-width: 720px) { .affcols { gap: 0 48px; } }
+/* 幅 360px 未満は、事務所の名前が折れないように少し小さく（それでも収まらなければ、ぶいすぽっ！の列が下の段に回る） */
+@media (max-width: 359px) {
+  .affcols { gap: 0 4px; }
+  .affcol .ckl { gap: 4px; font-size: 13px; }
+  .affcol .ckl input { width: 18px; height: 18px; }
+  .affcol .subs { padding-left: 10px; }
+}
+.ckl { position: relative; display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 14px; font-weight: 700; color: var(--ink); cursor: pointer; }
+.ckl::after { content: ""; position: absolute; inset: -2px 0; }
+.ckl.ag { font-weight: 800; }
+.ckl input { appearance: none; -webkit-appearance: none; display: grid; place-content: center; flex-shrink: 0; width: 20px; height: 20px; margin: 0; border: 2px solid var(--sub); border-radius: 6px; background: var(--card); cursor: pointer; }
+.ckl input:checked, .ckl input:indeterminate { border-color: var(--uv); background: var(--uv); }
+.ckl input:checked::before { content: ""; width: 9px; height: 5px; border-left: 2px solid var(--on-uv); border-bottom: 2px solid var(--on-uv); transform: translateY(-1px) rotate(-45deg); }
+.ckl input:indeterminate::before { content: ""; width: 10px; height: 2px; border-radius: 1px; background: var(--on-uv); }
+.ckl input:focus-visible { outline: 3px solid var(--uv); outline-offset: 2px; }
 .subrow { display: flex; flex-direction: column; gap: 8px; }
 .sublabel { font-size: 12px; font-weight: 700; color: var(--sub); }
 .yearrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

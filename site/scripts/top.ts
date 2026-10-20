@@ -116,10 +116,9 @@ function sortRows(rows: TopRow[]): TopRow[] {
   return sortByViews(rows, (r) => r[2], (r) => r[1], S.rev);
 }
 
-/** その事務所の区分（「nijisanji:en」の形）。所属の欄の事務所ごとの選択に持たせてある */
+/** その事務所の区分（「nijisanji:en」の形）。所属の欄の区分のチェックから */
 function agBranches(ag: string): string[] {
-  const sel = document.querySelector<HTMLSelectElement>(`#fpanel select[data-aff="${ag}"]`);
-  return (sel?.dataset.branches ?? "").split(" ").filter(Boolean).map((b) => `${ag}:${b}`);
+  return [...document.querySelectorAll<HTMLInputElement>(`#fpanel input[name="branch"][value^="${ag}:"]`)].map((i) => i.value);
 }
 
 const activeCount = (f: Filters) => activeAxes(f, agBranches);
@@ -271,12 +270,13 @@ let openAxis: Axis | null = null;
 
 function syncPanel() {
   const f = S.filters;
-  // 所属: 事務所ごとの選択（すべて・区分の1つ・除く）。条件が無ければ全部「すべて」
-  for (const sel of panel.querySelectorAll<HTMLSelectElement>("select[data-aff]")) {
-    const ag = sel.dataset.aff!;
-    const picked = f.branch.filter((v) => v.startsWith(`${ag}:`));
-    sel.value = !f.branch.length || picked.length === agBranches(ag).length ? "all" : !picked.length ? "ex" : picked[0]!.split(":")[1]!;
-    sel.classList.toggle("on", sel.value !== "all");
+  // 所属: 条件が無ければ全部にチェック。事務所のチェックは、区分が全部なら入り、一部なら「－」
+  for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="branch"]')) i.checked = !f.branch.length || f.branch.includes(i.value);
+  for (const i of panel.querySelectorAll<HTMLInputElement>("input[data-ag]")) {
+    const subs = [...panel.querySelectorAll<HTMLInputElement>(`input[name="branch"][value^="${i.dataset.ag}:"]`)];
+    const on = subs.filter((x) => x.checked).length;
+    i.checked = on === subs.length;
+    i.indeterminate = on > 0 && on < subs.length;
   }
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="kind"]')) i.checked = f.kind.includes(i.value);
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="date"]')) i.checked = f.date === i.value;
@@ -327,14 +327,13 @@ function closePanel(focusAxis: boolean) {
 panel.addEventListener("change", (ev) => {
   const t = ev.target as HTMLInputElement | HTMLSelectElement;
   const f = S.filters;
-  if (t instanceof HTMLSelectElement && t.dataset.aff) {
-    // 3つの選択から、出す事務所と区分を作り直す（事務所の順）。全部「すべて」なら条件なし、全部「除く」なら何も当たらない印
-    const sels = [...panel.querySelectorAll<HTMLSelectElement>("select[data-aff]")];
-    const shown = sels.flatMap((s) => {
-      const ag = s.dataset.aff!;
-      return s.value === "all" ? agBranches(ag) : s.value === "ex" ? [] : [`${ag}:${s.value}`];
-    });
-    f.branch = sels.every((s) => s.value === "all") ? [] : shown.length ? shown : [AFF_NONE];
+  if (t instanceof HTMLInputElement && (t.name === "branch" || t.dataset.ag)) {
+    // 事務所のチェックは、その事務所の区分をまとめて切り替える
+    if (t.dataset.ag) for (const i of panel.querySelectorAll<HTMLInputElement>(`input[name="branch"][value^="${t.dataset.ag}:"]`)) i.checked = t.checked;
+    // チェックの入った区分を事務所の順に。全部なら条件なし、1つも無ければ何も当たらない印
+    const all = [...panel.querySelectorAll<HTMLInputElement>('input[name="branch"]')];
+    const on = all.filter((i) => i.checked).map((i) => i.value);
+    f.branch = on.length === all.length ? [] : on.length ? on : [AFF_NONE];
   } else if (t instanceof HTMLInputElement && t.name === "kind") {
     f.kind = t.checked ? [...f.kind, t.value] : f.kind.filter((k) => k !== t.value);
   } else if (t instanceof HTMLInputElement && (t.name === "date" || t.name === "movie" || t.name === "country")) {

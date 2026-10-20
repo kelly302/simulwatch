@@ -168,9 +168,16 @@ test("トップの絞り込みの軸のボタン（指定した軸は黒く塗�
   assert.equal(axisValue(f, "aff", agAll), "にじさんじ");
   f.branch = [...f.branch, "hololive:jp", "vspo:jp"];
   assert.equal(axisValue(f, "aff", agAll), "にじさんじ ほか2");
-  // どの事務所も「除く」にしたときの印
+  // 外したほうが短く書けるときは「○○を除く」（既定は全部にチェック）
+  f.branch = ["nijisanji:jp", "nijisanji:en", "nijisanji:kr", "nijisanji:id", "hololive:jp"];
+  assert.equal(axisValue(f, "aff", agAll), "ぶいすぽっ！を除く");
+  f.branch = ["nijisanji:jp", "nijisanji:en", "nijisanji:id", "hololive:jp", "vspo:jp"];
+  assert.equal(axisValue(f, "aff", agAll), "にじさんじ KR を除く");
+  f.branch = ["nijisanji:jp", "nijisanji:kr", "nijisanji:id", "vspo:jp"];
+  assert.equal(axisValue(f, "aff", agAll), "にじさんじ EN・ホロライブを除く");
+  // 所属のチェックを全部外したときの印
   f.branch = [AFF_NONE];
-  assert.equal(axisValue(f, "aff", agAll), "事務所をすべて除く");
+  assert.equal(axisValue(f, "aff", agAll), "所属のチェックなし");
   assert.equal(activeAxes(f, agAll), 5);
   // その軸だけ指定なしに戻す
   resetAxis(f, "year");

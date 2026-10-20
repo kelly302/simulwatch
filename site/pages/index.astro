@@ -6,9 +6,9 @@ import RailButtons from "../components/RailButtons.astro";
 import { cfg, completed, ranking, site, sortWorks, streamerById, upcoming, workById, viewsUpdated, worksOfTab } from "../lib/data.ts";
 import { dictFor, encodeRow } from "../lib/encode.ts";
 import { cardHtml, workCardHtml } from "../lib/views.ts";
-import { EMPTY, axisButtonsHtml } from "../lib/filters.ts";
+import { EMPTY, FILTER_AFFS, axisButtonsHtml } from "../lib/filters.ts";
 import { AFFILIATION_LABEL, BRANCH_LABEL } from "../../src/shared/types.ts";
-import type { Affiliation, Branch } from "../../src/shared/types.ts";
+import type { Branch } from "../../src/shared/types.ts";
 import { SEASONS, SEASON_LABEL, formatDate, metaLine } from "../../src/shared/site.ts";
 
 // ランキング: 棚に設定の枠数（8枠）、「続きを見る」で RANKING_MORE 位まで（HTML に入れて隠しておく。2026-10-20）
@@ -32,7 +32,7 @@ const topWorks = sortWorks(worksOfTab("all"), "streamers", false).slice(0, WORKS
 
 // 絞り込みの選択肢（データにある所属の区分・放送年だけ）
 const BRANCH_ORDER: Branch[] = ["jp", "en", "kr", "id"];
-const affs = (["nijisanji", "hololive", "vspo"] as Affiliation[]).map((aff) => {
+const affs = FILTER_AFFS.map((aff) => {
   const ids = new Set(completed.map((e) => e.streamerId));
   const branches = BRANCH_ORDER.filter((b) => site.streamers.some((s) => s.affiliation === aff && s.branch === b && ids.has(s.id)));
   return { aff, label: AFFILIATION_LABEL[aff], branches };
@@ -155,18 +155,17 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
         </fieldset>
         <fieldset data-axis="aff">
           <legend class="sr">所属</legend>
-          {/* 所属は事務所ごとの選択を横に並べる（2026-10-21 ユーザー決定）。事務所の名前を上に小さく、選択は既定の「すべて」・区分の1つ・「除く」。区分が1つの事務所は「すべて」と「除く」 */}
-          <div class="affsel">
-            {affs.map((a) => (
-              <div class="affcol">
-                <label class="afflabel" for={`opt-aff-${a.aff}`}>{a.label}</label>
-                <select id={`opt-aff-${a.aff}`} class="pick" data-aff={a.aff} data-branches={a.branches.join(" ")}>
-                  <option value="all" selected>すべて</option>
-                  {a.branches.length > 1 && a.branches.map((b) => <option value={b}>{BRANCH_LABEL[b]}</option>)}
-                  <option value="ex">除く</option>
-                </select>
-              </div>
-            ))}
+          {/* 所属は事務所を横に並べたチェック（2026-10-21 ユーザー決定）。既定は全部にチェック。事務所のチェックはその事務所の区分をまとめて切り替える（一部だけなら「－」）。
+              区分が1つの事務所（ぶいすぽっ！）は事務所のチェックだけ */}
+          <div class="affcols">
+            {affs.map((a) => a.branches.length === 1
+              ? <div class="affcol"><label class="ckl ag"><input type="checkbox" name="branch" value={`${a.aff}:${a.branches[0]}`} checked />{a.label}</label></div>
+              : <div class="affcol" role="group" aria-label={a.label}>
+                  <label class="ckl ag"><input type="checkbox" data-ag={a.aff} checked />{a.label}</label>
+                  <div class="subs">
+                    {a.branches.map((b) => <label class="ckl"><input type="checkbox" name="branch" value={`${a.aff}:${b}`} checked /><span class="sr">{a.label} </span>{BRANCH_LABEL[b]}</label>)}
+                  </div>
+                </div>)}
           </div>
         </fieldset>
         <fieldset data-axis="kind">

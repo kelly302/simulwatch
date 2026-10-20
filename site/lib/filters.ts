@@ -22,7 +22,10 @@ export interface Filters {
   mem: "all" | "ex";
 }
 
-/** 所属で、どの事務所も「除く」にしたときの印（どの枠にも当たらない。branch が空だと条件なしになるため） */
+/** 所属の欄に並べる事務所（この順） */
+export const FILTER_AFFS: Affiliation[] = ["nijisanji", "hololive", "vspo"];
+
+/** 所属のチェックを全部外したときの印（どの枠にも当たらない。branch が空だと条件なしになるため） */
 export const AFF_NONE = "none";
 
 export const EMPTY = (): Filters => ({ date: "", branch: [], kind: [], movie: "all", country: "all", year: "", season: "", mem: "all" });
@@ -57,17 +60,18 @@ export function axisValue(f: Filters, axis: Axis, agAll: (ag: string) => string[
   switch (axis) {
     case "date": return f.date === "30d" ? "30日以内に配信" : f.date === "1y" ? "1年以内に配信" : f.date ? `${f.date}年に配信` : "";
     case "aff": {
-      if (f.branch.length === 1 && f.branch[0] === AFF_NONE) return "事務所をすべて除く";
-      const byAg = new Map<string, string[]>();
-      for (const v of f.branch) {
-        const ag = v.split(":")[0]!;
-        byAg.set(ag, [...(byAg.get(ag) ?? []), v]);
-      }
-      const names = [...byAg].map(([ag, sel]) => {
-        const name = AFFILIATION_LABEL[ag as Affiliation] ?? ag;
-        return sel.length === agAll(ag).length ? name : `${name} ${sel.map((v) => BRANCH_LABEL[v.split(":")[1] as Branch]).join("・")}`;
-      });
-      return names.length > 2 ? `${names[0]} ほか${names.length - 1}` : names.join("・");
+      if (f.branch.length === 1 && f.branch[0] === AFF_NONE) return "所属のチェックなし";
+      if (!f.branch.length) return "";
+      // 既定は全部にチェックなので、外したほうが少ない事務所で書けるとき（同じ数なら短いとき）は「○○を除く」
+      const all = FILTER_AFFS.flatMap((ag) => agAll(ag));
+      const excluded = all.filter((v) => !f.branch.includes(v));
+      const shown = affNames(f.branch, agAll);
+      if (!excluded.length) return joinNames(shown);
+      const exNames = affNames(excluded, agAll);
+      const ex = joinNames(exNames);
+      const exText = `${ex}${/[A-Za-z]$/.test(ex) ? " " : ""}を除く`;
+      const shownText = joinNames(shown);
+      return exNames.length < shown.length || (exNames.length === shown.length && exText.length < shownText.length) ? exText : shownText;
     }
     case "kind": return f.kind.map((k) => KIND_LABEL[k] ?? k).join("・");
     case "movie": return f.movie === "movie" ? "映画" : f.movie === "other" ? "映画以外" : "";
@@ -75,6 +79,21 @@ export function axisValue(f: Filters, axis: Axis, agAll: (ag: string) => string[
     case "year": return f.year ? `${f.year}年${f.season ? SEASON_LABEL[f.season] : ""}の作品` : "";
   }
 }
+
+/** 所属の区分の並びを、事務所ごとの名前に（事務所の区分が全部なら事務所の名前だけ） */
+function affNames(list: string[], agAll: (ag: string) => string[]): string[] {
+  const byAg = new Map<string, string[]>();
+  for (const v of list) {
+    const ag = v.split(":")[0]!;
+    byAg.set(ag, [...(byAg.get(ag) ?? []), v]);
+  }
+  return [...byAg].map(([ag, sel]) => {
+    const name = AFFILIATION_LABEL[ag as Affiliation] ?? ag;
+    return sel.length === agAll(ag).length ? name : `${name} ${sel.map((v) => BRANCH_LABEL[v.split(":")[1] as Branch]).join("・")}`;
+  });
+}
+/** 3つ以上は「ほか」 */
+const joinNames = (names: string[]) => (names.length > 2 ? `${names[0]} ほか${names.length - 1}` : names.join("・"));
 
 /** 指定している条件の数（軸とメン限） */
 export const activeAxes = (f: Filters, agAll: (ag: string) => string[]) => AXES.filter((a) => axisValue(f, a, agAll)).length + (f.mem === "ex" ? 1 : 0);
