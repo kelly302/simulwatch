@@ -21,7 +21,6 @@ const S = {
   rev: false,
   shown: cfg.recentHtml,
   filters: EMPTY(),
-  draft: null as Filters | null,
   recent: null as TopRecent | null,
   recentPromise: null as Promise<void> | null,
   index: null as TopRow[] | null,
@@ -258,42 +257,46 @@ document.getElementById("done")?.addEventListener("click", (ev) => {
 // メン限を除く（チェック1つ。押すとすぐ切り替わる）
 function toggleMem() {
   S.filters.mem = S.filters.mem === "ex" ? "all" : "ex";
-  if (S.draft) S.draft.mem = S.filters.mem;
   S.shown = cfg.recentHtml;
   render();
   document.querySelector<HTMLElement>('#chips [data-toggle="mem"]')?.focus();
 }
 
-// ---------------------------------------------------------------- 軸の選択肢（条件の段のすぐ下に開く）
+// ---------------------------------------------------------------- 軸の選択肢（条件のボタンのすぐ下に開く。選んだらすぐ絞り込む。2026-10-21）
 
 const panel = $("fpanel");
 let openAxis: Axis | null = null;
 
 function syncPanel() {
-  const d = S.draft!;
-  for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="branch"]')) i.checked = d.branch.includes(i.value);
+  const f = S.filters;
+  for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="branch"]')) i.checked = f.branch.includes(i.value);
   for (const i of panel.querySelectorAll<HTMLInputElement>("input[data-ag]")) {
     const keys = agBranches(i.dataset.ag!);
-    const n = keys.filter((k) => d.branch.includes(k)).length;
+    const n = keys.filter((k) => f.branch.includes(k)).length;
     i.checked = n === keys.length;
     i.indeterminate = n > 0 && n < keys.length;
   }
-  for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="kind"]')) i.checked = d.kind.includes(i.value);
-  for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="date"]')) i.checked = d.date === i.value;
+  for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="kind"]')) i.checked = f.kind.includes(i.value);
+  for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="date"]')) i.checked = f.date === i.value;
   for (const name of ["movie", "country"] as const) {
-    for (const i of panel.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)) i.checked = d[name] === i.value;
+    for (const i of panel.querySelectorAll<HTMLInputElement>(`input[name="${name}"]`)) i.checked = f[name] === i.value;
   }
-  ($("opt-year") as HTMLSelectElement).value = d.year;
+  ($("opt-year") as HTMLSelectElement).value = f.year;
   for (const b of panel.querySelectorAll<HTMLButtonElement>("[data-season]")) {
-    b.disabled = !d.year;
-    b.setAttribute("aria-pressed", String(d.season === b.dataset.season));
+    b.disabled = !f.year;
+    b.setAttribute("aria-pressed", String(f.season === b.dataset.season));
   }
-  $("fpanel-apply").textContent = S.index ? `${S.index.filter((r) => matches(r, d, S.dict!)).length.toLocaleString()}枠を表示` : "この条件で表示";
+}
+
+/** 条件を変えたら、すぐ一覧・件数・軸のボタンを描き直す */
+function applyNow() {
+  S.shown = cfg.recentHtml;
+  render();
+  syncPanel();
 }
 
 function openPanel(a: Axis) {
   openAxis = a;
-  S.draft = structuredClone(S.filters);
   for (const fs of panel.querySelectorAll<HTMLElement>("fieldset[data-axis]")) fs.hidden = fs.dataset.axis !== a;
   $("fpanel-h").textContent = AXIS_LABEL[a];
   panel.hidden = false;
@@ -301,60 +304,50 @@ function openPanel(a: Axis) {
   syncPanel();
   document.querySelector<HTMLElement>(`#chips [data-axis="${a}"]`)?.focus();
   panel.scrollIntoView({ block: "nearest" });
-  ensureIndex().then(() => { if (openAxis === a) syncPanel(); }, () => {});
+  // 件数を早く出せるように、索引を先に読んでおく
+  ensureIndex().catch(() => {});
 }
 
 function closePanel(focusAxis: boolean) {
   const a = openAxis;
   panel.hidden = true;
   openAxis = null;
-  S.draft = null;
   renderChips();
   if (focusAxis && a) document.querySelector<HTMLElement>(`#chips [data-axis="${a}"]`)?.focus();
 }
 
 panel.addEventListener("change", (ev) => {
   const t = ev.target as HTMLInputElement | HTMLSelectElement;
-  const d = S.draft!;
+  const f = S.filters;
   if (t instanceof HTMLInputElement && t.dataset.ag) {
     const keys = agBranches(t.dataset.ag);
-    d.branch = d.branch.filter((k) => !keys.includes(k));
-    if (t.checked) d.branch.push(...keys);
+    f.branch = f.branch.filter((k) => !keys.includes(k));
+    if (t.checked) f.branch.push(...keys);
   } else if (t instanceof HTMLInputElement && t.name === "branch") {
-    d.branch = t.checked ? [...d.branch, t.value] : d.branch.filter((k) => k !== t.value);
+    f.branch = t.checked ? [...f.branch, t.value] : f.branch.filter((k) => k !== t.value);
   } else if (t instanceof HTMLInputElement && t.name === "kind") {
-    d.kind = t.checked ? [...d.kind, t.value] : d.kind.filter((k) => k !== t.value);
+    f.kind = t.checked ? [...f.kind, t.value] : f.kind.filter((k) => k !== t.value);
   } else if (t instanceof HTMLInputElement && (t.name === "date" || t.name === "movie" || t.name === "country")) {
-    (d as unknown as Record<string, string>)[t.name] = t.value;
+    (f as unknown as Record<string, string>)[t.name] = t.value;
   } else if (t.id === "opt-year") {
-    d.year = t.value;
-    if (!d.year) d.season = "";
+    f.year = t.value;
+    if (!f.year) f.season = "";
   }
-  syncPanel();
+  applyNow();
 });
 
 panel.addEventListener("click", (ev) => {
   const t = ev.target as HTMLElement;
   const season = t.closest<HTMLButtonElement>("[data-season]");
   if (season && !season.disabled) {
-    S.draft!.season = S.draft!.season === season.dataset.season ? "" : (season.dataset.season as Season);
-    return syncPanel();
+    S.filters.season = S.filters.season === season.dataset.season ? "" : (season.dataset.season as Season);
+    return applyNow();
   }
   if (t.closest("#fpanel-close")) return closePanel(true);
   if (t.closest("#fpanel-clear")) {
     // この軸だけを指定なしに戻す
-    resetAxis(S.draft!, openAxis!);
-    return syncPanel();
-  }
-  if (t.closest("#fpanel-apply")) {
-    const a = openAxis;
-    S.filters = S.draft!;
-    S.shown = cfg.recentHtml;
-    panel.hidden = true;
-    openAxis = null;
-    S.draft = null;
-    render();
-    if (a) document.querySelector<HTMLElement>(`#chips [data-axis="${a}"]`)?.focus();
+    resetAxis(S.filters, openAxis!);
+    return applyNow();
   }
 });
 

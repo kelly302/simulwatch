@@ -131,8 +131,10 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
       <div class="fchips" id="chips" role="group" aria-label="絞り込みの条件" set:html={axisButtonsHtml(EMPTY(), () => [])} />
       {/* 押した軸の選択肢を、条件の段のすぐ下に開く（2026-10-20。開いた軸の fieldset だけを出す。site/scripts/top.ts） */}
       <div class="fpanel" id="fpanel" role="region" aria-labelledby="fpanel-h" hidden>
+        {/* 選んだらすぐ絞り込む（2026-10-21）。欄には「クリア」と閉じるだけ */}
         <div class="fpanel-head">
           <h3 id="fpanel-h">条件</h3>
+          <button type="button" class="linkish" id="fpanel-clear">クリア</button>
           <button type="button" class="icon-btn" id="fpanel-close" aria-label="閉じる">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
           </button>
@@ -153,17 +155,17 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
         </fieldset>
         <fieldset data-axis="aff">
           <legend class="sr">所属</legend>
+          {/* 事務所ごとに1段。事務所の名前は四角いチェック（全部・一部・なし）、区分は丸い札（2026-10-21） */}
           <div class="aff-list">
             {affs.map((a) => a.branches.length === 1
-              ? <div class="aff-group"><label class="chk"><input type="checkbox" name="branch" value={`${a.aff}:${a.branches[0]}`} />{a.label}</label></div>
-              : <div class="aff-group">
-                  <label class="chk"><input type="checkbox" data-ag={a.aff} />{a.label}</label>
-                  <div class="opts sub" role="group" aria-label={`${a.label}の区分`}>
+              ? <div class="affrow"><label class="tri"><input type="checkbox" name="branch" value={`${a.aff}:${a.branches[0]}`} /><span>{a.label}</span></label></div>
+              : <div class="affrow">
+                  <label class="tri"><input type="checkbox" data-ag={a.aff} /><span>{a.label}</span></label>
+                  <div class="opts" role="group" aria-label={`${a.label}の区分`}>
                     {a.branches.map((b) => <label class="chk"><input type="checkbox" name="branch" value={`${a.aff}:${b}`} />{BRANCH_LABEL[b]}</label>)}
                   </div>
                 </div>)}
           </div>
-          <p class="hint">区分は、枠のある区分だけを出します。</p>
         </fieldset>
         <fieldset data-axis="kind">
           <legend class="sr">作品の種類</legend>
@@ -203,12 +205,8 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
               {SEASONS.map((s) => <button type="button" data-season={s} aria-pressed="false" disabled>{SEASON_LABEL[s]}</button>)}
             </div>
           </div>
-          <p class="hint">作品が放送・公開された年です。放送期（冬・春・夏・秋）は、年を選ぶと選べます。TV・Web のアニメだけに付いています。</p>
+          <p class="hint">作品が放送・公開された年です。放送期（冬・春・夏・秋）は、年を選ぶと選べます。アニメの作品（劇場版・OVA を含む）にだけ付いています。</p>
         </fieldset>
-        <div class="fpanel-foot">
-          <button type="button" class="btn" id="fpanel-clear">クリア</button>
-          <button type="button" class="btn primary" id="fpanel-apply">この条件で表示</button>
-        </div>
       </div>
     </div>
     <p class="sortnote" id="sort-note" hidden></p>
