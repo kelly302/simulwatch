@@ -1,5 +1,5 @@
 ---
-// トップ。ランキング（3期間・8位まで。続きはランキングのページ）・これから始まる枠・よく同時視聴される作品・同時視聴した枠（新しい順24枠）をビルド時の HTML に入れる。
+// トップ。ランキング（3期間・8位まで。続きはランキングのページ）・これから始まる枠・よく同時視聴される作品・すべての同時視聴（新しい順24枠）をビルド時の HTML に入れる。
 // ランキングは縦の順位表、これから始まる枠とよく同時視聴される作品は横に流す棚（2026-10-21）。「さらに表示」で新しい順300枠の JSON、絞り込み・並べ替え・300枠より先で全件の索引と辞書を読む（site/scripts/top.ts）
 import Base from "../layouts/Base.astro";
 import RailButtons from "../components/RailButtons.astro";
@@ -103,7 +103,7 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
   )}
 
   <section class="block" aria-labelledby="h-done" id="done">
-    <h2 id="h-done">同時視聴した枠</h2>
+    <h2 id="h-done">すべての同時視聴</h2>
     {/* 並び順の段と条件のボタン（2026-10-20。条件は軸のボタンを折り返して全部並べ、押すとその軸の選択肢がすぐ下に開く） */}
     <div class="ftool">
       <div class="sortbar">

@@ -1,4 +1,4 @@
-// トップ「同時視聴した枠」の「さらに表示」で読む、新しい順の枠（辞書つき。索引を読まずに出せる）
+// トップ「すべての同時視聴」の「さらに表示」で読む、新しい順の枠（辞書つき。索引を読まずに出せる）
 import { completed, cfg, streamerById, workById } from "../../../lib/data.ts";
 import { dictFor, encodeRow } from "../../../lib/encode.ts";
 import type { TopRecent } from "../../../lib/encode.ts";

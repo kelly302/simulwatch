@@ -190,7 +190,7 @@ a.wcard:hover b { text-decoration: underline; }
 .sortbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 /* 逆順と「メン限を除く」はひとまとまり（幅が足りなければ並び順の札の下の段に） */
 .sortbar .end { display: flex; align-items: center; gap: 8px; }
-/* 「同時視聴した枠」: 並び順の段・条件のボタン（折り返して全部見せる）・押した軸の選択肢の欄（site/lib/filters.ts・site/scripts/top.ts） */
+/* 「すべての同時視聴」: 並び順の段・条件のボタン（折り返して全部見せる）・押した軸の選択肢の欄（site/lib/filters.ts・site/scripts/top.ts） */
 .ftool { display: flex; flex-direction: column; gap: 10px; }
 .fchips { display: flex; flex-wrap: wrap; gap: 8px; }
 .fchip { position: relative; min-height: 40px; padding: 0 14px; border: 0; border-radius: 20px; background: var(--soft); color: var(--ink); font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; max-width: 100%; }
