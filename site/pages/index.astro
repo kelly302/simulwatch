@@ -155,16 +155,9 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
         </fieldset>
         <fieldset data-axis="aff">
           <legend class="sr">所属</legend>
-          {/* 事務所ごとに1段。事務所の名前は四角いチェック（全部・一部・なし）、区分は丸い札（2026-10-21） */}
-          <div class="aff-list">
-            {affs.map((a) => a.branches.length === 1
-              ? <div class="affrow"><label class="tri"><input type="checkbox" name="branch" value={`${a.aff}:${a.branches[0]}`} /><span>{a.label}</span></label></div>
-              : <div class="affrow">
-                  <label class="tri"><input type="checkbox" data-ag={a.aff} /><span>{a.label}</span></label>
-                  <div class="opts" role="group" aria-label={`${a.label}の区分`}>
-                    {a.branches.map((b) => <label class="chk"><input type="checkbox" name="branch" value={`${a.aff}:${b}`} />{BRANCH_LABEL[b]}</label>)}
-                  </div>
-                </div>)}
+          {/* 事務所と区分を組んだ札を1つの並びに（2026-10-21 ユーザー決定。区分が1つの事務所は名前だけ） */}
+          <div class="opts">
+            {affs.flatMap((a) => a.branches.map((b) => <label class="chk"><input type="checkbox" name="branch" value={`${a.aff}:${b}`} />{a.branches.length === 1 ? a.label : `${a.label} ${BRANCH_LABEL[b]}`}</label>))}
           </div>
         </fieldset>
         <fieldset data-axis="kind">

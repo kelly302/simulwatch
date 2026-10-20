@@ -270,12 +270,6 @@ let openAxis: Axis | null = null;
 function syncPanel() {
   const f = S.filters;
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="branch"]')) i.checked = f.branch.includes(i.value);
-  for (const i of panel.querySelectorAll<HTMLInputElement>("input[data-ag]")) {
-    const keys = agBranches(i.dataset.ag!);
-    const n = keys.filter((k) => f.branch.includes(k)).length;
-    i.checked = n === keys.length;
-    i.indeterminate = n > 0 && n < keys.length;
-  }
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="kind"]')) i.checked = f.kind.includes(i.value);
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="date"]')) i.checked = f.date === i.value;
   // 配信した年の選択（30日以内・1年以内のときは「年を選ぶ」に戻す）
@@ -325,11 +319,7 @@ function closePanel(focusAxis: boolean) {
 panel.addEventListener("change", (ev) => {
   const t = ev.target as HTMLInputElement | HTMLSelectElement;
   const f = S.filters;
-  if (t instanceof HTMLInputElement && t.dataset.ag) {
-    const keys = agBranches(t.dataset.ag);
-    f.branch = f.branch.filter((k) => !keys.includes(k));
-    if (t.checked) f.branch.push(...keys);
-  } else if (t instanceof HTMLInputElement && t.name === "branch") {
+  if (t instanceof HTMLInputElement && t.name === "branch") {
     f.branch = t.checked ? [...f.branch, t.value] : f.branch.filter((k) => k !== t.value);
   } else if (t instanceof HTMLInputElement && t.name === "kind") {
     f.kind = t.checked ? [...f.kind, t.value] : f.kind.filter((k) => k !== t.value);
