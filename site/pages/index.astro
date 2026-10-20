@@ -155,9 +155,16 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
         </fieldset>
         <fieldset data-axis="aff">
           <legend class="sr">所属</legend>
-          {/* 事務所と区分を組んだ札を1つの並びに（2026-10-21 ユーザー決定。区分が1つの事務所は名前だけ） */}
-          <div class="opts">
-            {affs.flatMap((a) => a.branches.map((b) => <label class="chk"><input type="checkbox" name="branch" value={`${a.aff}:${b}`} />{a.branches.length === 1 ? a.label : `${a.label} ${BRANCH_LABEL[b]}`}</label>))}
+          {/* 所属は1行（2026-10-21 ユーザー決定）: 事務所の名前を上に小さく、区分の札（JP・EN・KR・ID）を横1列に。札には区分だけ、読み上げは「にじさんじ JP」 */}
+          <div class="affline">
+            {affs.map((a) => (
+              <div class="affgrp">
+                <span class="afflabel" aria-hidden="true">{a.label}</span>
+                <div class="affpills">
+                  {a.branches.map((b) => <label class="chk"><input type="checkbox" name="branch" value={`${a.aff}:${b}`} /><span class="sr">{a.label} </span>{BRANCH_LABEL[b]}</label>)}
+                </div>
+              </div>
+            ))}
           </div>
         </fieldset>
         <fieldset data-axis="kind">

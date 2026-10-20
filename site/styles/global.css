@@ -85,10 +85,13 @@ h2 .count { display: block; margin: 2px 0 0 18px; font-size: 13px; font-weight: 
 section.block.band { background: var(--sky); box-shadow: none; color: var(--on-sky);
   --ink: var(--on-sky); --sub: var(--on-sky); --faint: var(--on-sky); --card: var(--sky); }
 
-/* 丸い札の切り替え（期間・並び順）。押せる高さは 44px（見た目は 38px） */
-.utabs, .keys { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 22px; background: var(--soft); }
-.utabs button, .pill { position: relative; min-height: 38px; padding: 0 14px; border: 0; border-radius: 19px; background: none; color: var(--sub); font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.utabs button::before, .pill::before { content: ""; position: absolute; inset: -3px 0; }
+/* ボタン・札・切り替え（外枠）・選択は、見た目の高さを 40px にそろえる（2026-10-21）。押せる高さは 44px（::before で上下に広げる） */
+/* 丸い札の切り替え（期間・並び順）。外枠 40px（3px の余白＋34px の札） */
+.utabs, .keys { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 20px; background: var(--soft); }
+.utabs button, .pill { position: relative; min-height: 40px; padding: 0 14px; border: 0; border-radius: 20px; background: none; color: var(--sub); font-weight: 700; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.utabs button, .keys .pill { min-height: 34px; border-radius: 17px; }
+.utabs button::before, .pill::before { content: ""; position: absolute; inset: -2px 0; }
+.utabs button::before, .keys .pill::before { inset: -5px 0; }
 .utabs button[aria-pressed="true"], .keys .pill[aria-pressed="true"] { background: var(--uv); color: var(--on-uv); font-weight: 800; }
 .pill:disabled { color: var(--faint); text-decoration: line-through; cursor: not-allowed; }
 /* 逆順は札の切り替えの外に置く丸いボタン */
@@ -197,11 +200,13 @@ a.wcard:hover b { text-decoration: underline; }
 /* 「同時視聴した枠」: 並び順の段・条件のボタン（折り返して全部見せる）・押した軸の選択肢の欄（site/lib/filters.ts・site/scripts/top.ts） */
 .ftool { display: flex; flex-direction: column; gap: 10px; }
 .fchips { display: flex; flex-wrap: wrap; gap: 8px; }
-.fchip { position: relative; min-height: 36px; padding: 0 14px; border: 0; border-radius: 18px; background: var(--soft); color: var(--ink); font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; max-width: 100%; }
-.fchip::before { content: ""; position: absolute; inset: -4px 0; }
+.fchip { position: relative; min-height: 40px; padding: 0 14px; border: 0; border-radius: 20px; background: var(--soft); color: var(--ink); font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; max-width: 100%; }
+.fchip::before { content: ""; position: absolute; inset: -2px 0; }
 .fchip:hover { background: var(--hair); }
 .fchip.on { background: var(--uv); color: var(--on-uv); }
-.fchip[aria-expanded="true"] { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--uv); }
+/* 開いている軸は内側の縁取り（外に広げると、ほかのボタンより高く見える） */
+.fchip[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--uv); }
+.fchip.on[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--uv), inset 0 0 0 4px var(--card); }
 .fchip.axis::after { content: ""; width: 6px; height: 6px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: translateY(-2px) rotate(45deg); }
 .fchip.axis[aria-expanded="true"]::after { transform: translateY(1px) rotate(225deg); }
 /* チェック（メン限を除く）: 外れているときは四角の印、入っているときはチェックの印 */
@@ -233,7 +238,6 @@ a.wcard:hover b { text-decoration: underline; }
 .fpanel fieldset { border: 0; margin: 0; padding: 0 0 4px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 /* 選択肢の丸い札（いくつでも選べる。選ぶと桃色の地に白字とチェックの印） */
 .opts { display: flex; flex-wrap: wrap; gap: 8px; }
-/* 欄の中の部品は、札・選択・切り替え（外枠）とも高さ 40px にそろえる（2026-10-21） */
 .chk { position: relative; min-height: 40px; display: inline-flex; align-items: center; gap: 6px; padding: 0 16px; border-radius: 20px; background: var(--card); color: var(--ink); cursor: pointer; font-size: 13px; font-weight: 700; }
 .chk::after { content: ""; position: absolute; inset: -2px 0; }
 .chk input, .seg input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
@@ -245,6 +249,15 @@ a.wcard:hover b { text-decoration: underline; }
 .seg label { position: relative; min-height: 34px; display: inline-flex; align-items: center; padding: 0 14px; border-radius: 18px; color: var(--sub); cursor: pointer; font-size: 13px; font-weight: 700; }
 .seg label::after { content: ""; position: absolute; inset: -5px 0; }
 .seg label:has(input:checked) { background: var(--uv); color: var(--on-uv); }
+/* 所属: 1行。事務所の名前を上に小さく、区分の札を横1列に。幅が足りなければ横に流す（右の端を薄くして続きがあると示す。一覧のタブと同じ）。
+   札は幅を決めておき、選んでチェックの印が付いても幅が変わらない */
+.affline { display: flex; gap: 14px; overflow-x: auto; scrollbar-width: none; margin-inline: -14px; padding: 0 28px 2px 14px; }
+.affline::-webkit-scrollbar { display: none; }
+@media (max-width: 719px) { .affline { mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); } }
+.affgrp { flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; }
+.afflabel { padding-left: 4px; font-size: 12px; font-weight: 800; color: var(--sub); white-space: nowrap; }
+.affpills { display: flex; gap: 4px; }
+.affpills .chk, .affpills .chk:has(input:checked) { width: 50px; padding: 0; justify-content: center; }
 .subrow { display: flex; flex-direction: column; gap: 8px; }
 .sublabel { font-size: 12px; font-weight: 700; color: var(--sub); }
 .yearrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -280,8 +293,8 @@ a.wcard:hover b { text-decoration: underline; }
 .search .clear::before { content: ""; position: absolute; inset: -4px; }
 .branch-box { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .branch-box .lbl { font-size: 12px; font-weight: 700; color: var(--sub); margin-right: 2px; }
-.branch-box label { position: relative; min-height: 36px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 18px; background: var(--card); font-size: 12px; font-weight: 700; cursor: pointer; }
-.branch-box label::before { content: ""; position: absolute; inset: -4px 0; }
+.branch-box label { position: relative; min-height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 20px; background: var(--card); font-size: 12px; font-weight: 700; cursor: pointer; }
+.branch-box label::before { content: ""; position: absolute; inset: -2px 0; }
 .branch-box label:has(input:checked) { box-shadow: inset 0 0 0 2px var(--uv); }
 .branch-box input { accent-color: var(--uv); margin: 0; }
 .branch-box .n { font-weight: 500; color: var(--sub); }
