@@ -1,0 +1,53 @@
+---
+// ランキングのページ（2026-10-21 ユーザー決定。トップの順位表の「30位まで見る」から移る。その場で開くのはやめた）。
+// 3期間とも 30位まで HTML に入れ、期間はトップと同じ切り替え（site/scripts/rank.ts）。トップで選んでいた期間で開く
+import Base from "../../layouts/Base.astro";
+import { cfg } from "../../lib/data.ts";
+import { RANKING_PAGE, rankRowsHtml, rankingNote, rankingPeriods } from "../../lib/ranking.ts";
+
+const { periods, first } = rankingPeriods(RANKING_PAGE);
+const title = `同時視聴ランキング（再生数の多い枠） | ${cfg.site_name}`;
+const description = `にじさんじ・ホロライブ・ぶいすぽっ！の同時視聴（ミラー配信）の公開枠を、再生数の多い順に${RANKING_PAGE}位まで。この7日・この30日・全期間。`;
+const crumbs = [{ name: "トップ", href: "/" }, { name: "ランキング", href: "/ranking/" }];
+const jsonLd = [{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: crumbs.map((c, i) => ({ "@type": "ListItem", position: i + 1, name: c.name, item: new URL(c.href, Astro.site).href })),
+}];
+---
+<Base title={title} description={description} path="/ranking/" nav="top" jsonLd={jsonLd}>
+<div class="list-head">
+  <div class="wrap">
+    <nav class="crumbs" aria-label="パンくずリスト">
+      <ol>
+        <li><a href="/">トップ</a><span aria-hidden="true">›</span></li>
+        <li aria-current="page">ランキング</li>
+      </ol>
+    </nav>
+    <div class="h1row">
+      <h1>同時視聴ランキング</h1>
+      <span class="total">{RANKING_PAGE}位まで</span>
+    </div>
+  </div>
+</div>
+<main class="wrap">
+  <section class="block" aria-label="期間ごとの順位" data-rank-page>
+    <div class="block-head">
+      <div class="utabs" role="group" aria-label="期間" id="rank-period">
+        {periods.map((p, i) => <button type="button" data-period={String(p.days)} aria-pressed={i === first ? "true" : "false"}>{p.label}</button>)}
+      </div>
+    </div>
+    {periods.map((p, i) => (
+      <div class="rank-pane" data-period={String(p.days)} hidden={i !== first}>
+        <p class="note">{rankingNote(p.days)}</p>
+        {p.evs.length
+          ? <ol class="rank-list" style={`--rows:${Math.ceil(p.evs.length / 2)}`} set:html={rankRowsHtml(p, RANKING_PAGE, (j) => i !== first || j >= 4)} />
+          : <p class="empty note">この期間に配信された公開枠はまだありません。ほかの期間を選んでください。</p>}
+      </div>
+    ))}
+  </section>
+</main>
+<script>
+  import "../../scripts/rank.ts";
+</script>
+</Base>

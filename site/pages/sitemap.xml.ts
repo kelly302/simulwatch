@@ -10,6 +10,8 @@ export function GET({ site: base }: { site: URL }) {
   const entries: { path: string; lastmod: string | null }[] = [];
   const allLast = maxOf([...workPages.map((w) => w.lastmod), ...streamerPages.map((s) => s.lastmod)]) ?? site.generatedAt;
   entries.push({ path: "/", lastmod: allLast });
+  // ランキングのページ（再生数が毎日変わるので、データを書き出した日）
+  entries.push({ path: "/ranking/", lastmod: site.generatedAt });
   for (const tab of WORK_TABS) {
     const ws = worksOfTab(tab);
     if (!ws.length) continue;

@@ -1,5 +1,5 @@
 // トップのブラウザ側の動き。条件の軸のボタンを押すと、その軸の選択肢が条件の段のすぐ下に開く（2026-10-20）。
-//   ランキングの期間の切り替え（3期間とも HTML に入っている）
+//   （ランキングの期間の切り替えは site/scripts/rank.ts）
 //   「同時視聴した枠」: さらに表示（新しい順300枠の JSON）→ 絞り込み・並べ替え・300枠より先（全件の索引と辞書）
 // 件数は索引を読んだあとに出す。読み込みに失敗しても今の表示は消さない
 
@@ -27,29 +27,6 @@ const S = {
   dict: null as TopDict | null,
   indexPromise: null as Promise<void> | null,
 };
-
-// ---------------------------------------------------------------- ランキングの期間
-
-const periodGroup = $("rank-period");
-periodGroup?.addEventListener("click", (ev) => {
-  const b = (ev.target as HTMLElement).closest<HTMLButtonElement>("button[data-period]");
-  if (!b) return;
-  for (const x of periodGroup.querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
-  for (const p of document.querySelectorAll<HTMLElement>(".rank-pane")) p.hidden = p.dataset.period !== b.dataset.period;
-});
-
-// ランキングの続き（スマホは6位から、幅が広ければ9位から。HTML に入っている行を開く・閉じる）
-document.querySelector('[aria-labelledby="h-rank"]')?.addEventListener("click", (ev) => {
-  const b = (ev.target as HTMLElement).closest<HTMLButtonElement>(".rank-more");
-  if (!b) return;
-  const open = b.getAttribute("aria-expanded") !== "true";
-  b.setAttribute("aria-expanded", String(open));
-  b.closest(".rank-pane")?.classList.toggle("open", open);
-  const more = b.closest(".rank-pane")?.querySelector<HTMLElement>(".rank-list:not(.rank-top)");
-  if (more) more.hidden = !open;
-  b.textContent = open ? "閉じる" : (b.dataset.label ?? "続きを見る");
-  if (!open) b.scrollIntoView({ block: "nearest" });
-});
 
 // ---------------------------------------------------------------- 読み込み
 
@@ -278,13 +255,10 @@ function syncPanel() {
     const label = b.dataset.label!;
     const subs = [...panel.querySelectorAll<HTMLInputElement>(`input[name="branch"][value^="${ag}:"]`)];
     const on = subs.filter((x) => x.checked);
-    const part = on.length && on.length < subs.length ? on.map((x) => x.parentElement!.lastChild!.textContent).join("・") : "";
-    b.querySelector(".nm")!.textContent = part ? `${label} ${part}` : label;
+    const names = on.map((x) => x.parentElement!.lastChild!.textContent).join("・");
+    b.querySelector(".nm")!.textContent = on.length && on.length < subs.length ? `${label} ${names}` : label;
     b.classList.toggle("on", on.length > 0);
-    b.setAttribute("aria-label", `${label}：${on.length === subs.length ? "すべて" : part || "除く"}`);
-    const all = panel.querySelector<HTMLInputElement>(`input[data-agall="${ag}"]`)!;
-    all.checked = on.length === subs.length;
-    all.indeterminate = on.length > 0 && on.length < subs.length;
+    b.setAttribute("aria-label", `${label}：${names || "チェックなし"}`);
   }
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="kind"]')) i.checked = f.kind.includes(i.value);
   for (const i of panel.querySelectorAll<HTMLInputElement>('input[name="date"]')) i.checked = f.date === i.value;
@@ -347,9 +321,7 @@ function closePanel(focusAxis: boolean) {
 panel.addEventListener("change", (ev) => {
   const t = ev.target as HTMLInputElement | HTMLSelectElement;
   const f = S.filters;
-  if (t instanceof HTMLInputElement && (t.name === "branch" || t.dataset.agall)) {
-    // 一覧の「すべて」は、その事務所の区分をまとめて切り替える
-    if (t.dataset.agall) for (const i of panel.querySelectorAll<HTMLInputElement>(`input[name="branch"][value^="${t.dataset.agall}:"]`)) i.checked = t.checked;
+  if (t instanceof HTMLInputElement && t.name === "branch") {
     // チェックの入った区分を事務所の順に。全部なら条件なし、1つも無ければ何も当たらない印
     const all = [...panel.querySelectorAll<HTMLInputElement>('input[name="branch"]')];
     const on = all.filter((i) => i.checked).map((i) => i.value);

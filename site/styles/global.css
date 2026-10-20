@@ -102,10 +102,10 @@ section.block.band { background: var(--sky); box-shadow: none; color: var(--on-s
 @media (min-width: 720px) { .rail { grid-auto-columns: 264px; gap: 18px; margin-inline: -22px; padding-inline: 22px; scroll-padding-inline: 22px; } .rail.covers { grid-auto-columns: 132px; } }
 @media (min-width: 1000px) { .rail { grid-auto-columns: calc((100% - 98px) / 4); } .rail.covers { grid-auto-columns: calc((100% - 128px) / 8); gap: 12px; } }
 /* ランキング: 縦の順位表（2026-10-21 ユーザー決定。試作の案A）。左に大きな順位、サムネイル、作品名・配信者・再生数の行。
-   スマホは1列で上から。最初は5位まで（6位からと9位からは「○位まで見る」で開く）。幅 720px 以上は2列で、左の列に前半（上から下へ読む）・8位まで */
+   スマホは1列で上から（トップは5位まで）。幅 720px 以上は2列で、左の列に前半（上から下へ読む。トップは8位まで）。続きはランキングのページ（/ranking/。30位まで） */
 .rank-pane { display: flex; flex-direction: column; gap: 4px; }
 .rank-list { list-style: none; margin: 0; padding: 0; }
-.rank-list > li { display: grid; grid-template-columns: 30px minmax(0, 1fr); column-gap: 6px; padding: 10px 0; }
+.rank-list > li { display: grid; grid-template-columns: 34px minmax(0, 1fr); column-gap: 6px; padding: 10px 0; }
 .rank-list > li + li { border-top: 1px solid var(--hair); }
 .rank-list .rn { font-size: 24px; font-weight: 800; line-height: 1; color: var(--uv); text-align: center; padding-top: 6px; }
 .rank-list .card { display: grid; grid-template-columns: 124px minmax(0, 1fr); column-gap: 10px; row-gap: 2px; align-content: start; }
@@ -114,18 +114,19 @@ section.block.band { background: var(--sky); box-shadow: none; color: var(--on-s
 .rank-list .meta { font-size: 11px; }
 /* 配信者の段は押せる高さ 44px のまま、上下を詰めて見せる */
 .rank-list .card > .who { margin: -7px 0; }
-@media (max-width: 719px) { .rank-pane:not(.open) .rank-top > li:nth-child(n+6) { display: none; } }
+@media (max-width: 719px) { .rank-top > li:nth-child(n+6) { display: none; } }
 @media (min-width: 720px) {
   .rank-list { display: grid; grid-auto-flow: column; grid-template-rows: repeat(var(--rows, 4), auto); grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 36px; }
   .rank-list > li.col-top { border-top: 0; }
-  .rank-list > li { grid-template-columns: 40px minmax(0, 1fr); padding: 12px 0; }
+  .rank-list > li { grid-template-columns: 46px minmax(0, 1fr); padding: 12px 0; }
   .rank-list .rn { font-size: 30px; padding-top: 10px; }
   .rank-list .card { grid-template-columns: 168px minmax(0, 1fr); column-gap: 14px; }
   .rank-list .ttl { font-size: 14px; }
-  .btn.rank-more.sp-only { display: none; }
 }
-.btn.rank-more { width: 100%; margin-top: 8px; }
-@media (min-width: 720px) { .btn.rank-more { width: auto; align-self: center; padding: 0 48px; } }
+.btn.rank-link { display: flex; align-items: center; justify-content: center; margin-top: 8px; text-decoration: none; }
+@media (min-width: 720px) { .btn.rank-link { align-self: center; padding: 0 48px; } }
+/* ランキングのページ: 期間の切り替えは見出しの段の左 */
+[data-rank-page] .block-head { justify-content: flex-start; }
 .rail-btns { display: none; gap: 6px; }
 @media (hover: hover) and (pointer: fine) { .rail-btns { display: flex; } }
 .rail-btns button { width: 40px; height: 40px; border: 0; border-radius: 50%; background: var(--soft); color: var(--uv); cursor: pointer; display: flex; align-items: center; justify-content: center; }
@@ -264,9 +265,8 @@ a.wcard:hover b { text-decoration: underline; }
 .ckl { position: relative; display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 14px; font-weight: 700; color: var(--ink); cursor: pointer; }
 .ckl::after { content: ""; position: absolute; inset: -2px 0; }
 .ckl input { appearance: none; -webkit-appearance: none; display: grid; place-content: center; flex-shrink: 0; width: 20px; height: 20px; margin: 0; border: 2px solid var(--sub); border-radius: 6px; background: var(--card); cursor: pointer; }
-.ckl input:checked, .ckl input:indeterminate { border-color: var(--uv); background: var(--uv); }
+.ckl input:checked { border-color: var(--uv); background: var(--uv); }
 .ckl input:checked::before { content: ""; width: 9px; height: 5px; border-left: 2px solid var(--on-uv); border-bottom: 2px solid var(--on-uv); transform: translateY(-1px) rotate(-45deg); }
-.ckl input:indeterminate::before { content: ""; width: 10px; height: 2px; border-radius: 1px; background: var(--on-uv); }
 .ckl input:focus-visible { outline: 3px solid var(--uv); outline-offset: 2px; }
 .subrow { display: flex; flex-direction: column; gap: 8px; }
 .sublabel { font-size: 12px; font-weight: 700; color: var(--sub); }

@@ -1,33 +1,20 @@
 ---
-// トップ。ランキング（3期間）・これから始まる枠・よく同時視聴される作品・同時視聴した枠（新しい順24枠）をビルド時の HTML に入れる。
+// トップ。ランキング（3期間・8位まで。続きはランキングのページ）・これから始まる枠・よく同時視聴される作品・同時視聴した枠（新しい順24枠）をビルド時の HTML に入れる。
 // ランキングは縦の順位表、これから始まる枠とよく同時視聴される作品は横に流す棚（2026-10-21）。「さらに表示」で新しい順300枠の JSON、絞り込み・並べ替え・300枠より先で全件の索引と辞書を読む（site/scripts/top.ts）
 import Base from "../layouts/Base.astro";
 import RailButtons from "../components/RailButtons.astro";
-import { cfg, completed, ranking, site, sortWorks, streamerById, upcoming, workById, viewsUpdated, worksOfTab } from "../lib/data.ts";
+import { cfg, completed, site, sortWorks, streamerById, upcoming, workById, worksOfTab } from "../lib/data.ts";
 import { dictFor, encodeRow } from "../lib/encode.ts";
 import { cardHtml, workCardHtml } from "../lib/views.ts";
+import { RANKING_PAGE, rankRowsHtml, rankingNote, rankingPeriods } from "../lib/ranking.ts";
 import { EMPTY, FILTER_AFFS, axisButtonsHtml } from "../lib/filters.ts";
 import { AFFILIATION_LABEL, BRANCH_LABEL } from "../../src/shared/types.ts";
 import type { Branch } from "../../src/shared/types.ts";
 import { SEASONS, SEASON_LABEL, formatDate, metaLine } from "../../src/shared/site.ts";
 
-// ランキング: 縦の順位表に設定の枠数（8枠。スマホは最初の RANKING_SP 枠だけ見せる）、「○位まで見る」で RANKING_MORE 位まで（HTML に入れて隠しておく。2026-10-21）
-const RANKING_MORE = 30;
+// ランキング: 縦の順位表に設定の枠数（8枠。スマホは最初の RANKING_SP 枠だけ見せる）。続きはランキングのページ（30位まで。その場では開かない。2026-10-21 ユーザー決定）
 const RANKING_SP = 5;
-/** 順位表の行（順位は行の左に大きく）。幅が広いときは2列で、左の列に前半（上から下へ読む）。右の列の先頭の行に印を付ける（上の罫を消す） */
-const rankRows = (evs: typeof periods[number]["evs"], dict: typeof periods[number]["dict"], from: number, lazy: (j: number) => boolean) => {
-  const rows = Math.ceil(evs.length / 2);
-  return evs.map((e, j) => `<li${j === rows ? ' class="col-top"' : ""}><span class="rn">${from + j}<span class="sr">位</span></span>${cardHtml(encodeRow(e), dict, { lazy: lazy(j) })}</li>`).join("");
-};
-const periods = cfg.top.ranking_periods.map((days) => {
-  const all = ranking(days, RANKING_MORE);
-  const evs = all.slice(0, cfg.top.ranking_size);
-  const more = all.slice(cfg.top.ranking_size);
-  return { days, label: days ? `${days}日` : "全期間", evs, more, dict: dictFor(all, streamerById, workById) };
-});
-// 最初に出す期間: 7日。7日に枠が無いときだけ30日、それも無ければ全期間（2026-10-20 ユーザー決定。巡回が止まったときに空の箱から始まらないように）
-const firstPeriod = Math.max(0, periods.findIndex((p) => p.evs.length > 0));
-const viewsAt = viewsUpdated ? formatDate(viewsUpdated).slice(5) : "";
+const { periods, first: firstPeriod } = rankingPeriods(RANKING_PAGE);
 const up = upcoming;
 const upDict = dictFor(up, streamerById, workById);
 const recent = completed.slice(0, cfg.top.recent_html);
@@ -77,15 +64,12 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
     </div>
     {periods.map((p, i) => (
       <div class="rank-pane" data-period={String(p.days)} hidden={i !== firstPeriod}>
-        <p class="note">{p.days ? `この${p.days}日に配信された` : "これまでに配信された"}公開枠を、再生数の多い順に。{viewsAt && `再生数は ${viewsAt} 時点。`}</p>
+        <p class="note">{rankingNote(p.days)}</p>
         {p.evs.length
-          ? <ol class="rank-list rank-top" id={`rank-top-${p.days}`} style={`--rows:${Math.ceil(p.evs.length / 2)}`} set:html={rankRows(p.evs, p.dict, 1, (j) => i !== firstPeriod || j >= 3)} />
+          ? <ol class="rank-list rank-top" style={`--rows:${Math.ceil(Math.min(p.evs.length, cfg.top.ranking_size) / 2)}`} set:html={rankRowsHtml(p, cfg.top.ranking_size, (j) => i !== firstPeriod || j >= 3)} />
           : <p class="empty note">この期間に配信された公開枠はまだありません。ほかの期間を選んでください。</p>}
-        {p.more.length > 0 && <ol class="rank-list" id={`rank-more-${p.days}`} style={`--rows:${Math.ceil(p.more.length / 2)}`} hidden set:html={rankRows(p.more, p.dict, cfg.top.ranking_size + 1, () => true)} />}
-        {/* スマホは6位からを隠しているので、続きが無くても押せる（幅が広くて続きも無ければ出さない） */}
-        {(p.more.length > 0 || p.evs.length > RANKING_SP) && (
-          <button type="button" class={`btn rank-more${p.more.length ? "" : " sp-only"}`} aria-expanded="false" aria-controls={`rank-top-${p.days}${p.more.length ? ` rank-more-${p.days}` : ""}`} data-label={`${p.evs.length + p.more.length}位まで見る`}>{p.evs.length + p.more.length}位まで見る</button>
-        )}
+        {/* 続きはランキングのページへ（スマホは6位から隠しているので、8枠以下でも出す） */}
+        {p.evs.length > RANKING_SP && <a class="btn rank-link" href="/ranking/" data-period={String(p.days)}>{p.evs.length}位まで見る</a>}
       </div>
     ))}
   </section>
@@ -160,15 +144,14 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
         <fieldset data-axis="aff">
           <legend class="sr">所属</legend>
           {/* 所属は事務所の札を横に並べ、札そのものにチェック（既定は全部にチェック。2026-10-21 ユーザー決定）。
-              区分が2つ以上の事務所は、札を押すとその下に「すべて」と区分のチェックの一覧が重なって開く（試作の P1）。一部だけなら札に区分を書く。
+              区分が2つ以上の事務所は、札を押すとその下に区分のチェックの一覧が重なって開く（試作の P1。「すべて」の行は置かない）。一部だけなら札に区分を書く。
               区分が1つの事務所（ぶいすぽっ！）は、札を押すとそのままチェックが切り替わる */}
           <div class="affchips">
             {affs.map((a) => a.branches.length === 1
               ? <div class="affcol"><label class="agchip"><input type="checkbox" name="branch" value={`${a.aff}:${a.branches[0]}`} checked /><span class="ck" aria-hidden="true"></span>{a.label}</label></div>
               : <div class="affcol">
-                  <button type="button" class="agchip on" data-aff={a.aff} data-label={a.label} aria-expanded="false" aria-controls={`aff-pop-${a.aff}`} aria-label={`${a.label}：すべて`}><span class="ck" aria-hidden="true"></span><span class="nm">{a.label}</span><span class="chev" aria-hidden="true"></span></button>
+                  <button type="button" class="agchip on" data-aff={a.aff} data-label={a.label} aria-expanded="false" aria-controls={`aff-pop-${a.aff}`} aria-label={`${a.label}：${a.branches.map((b) => BRANCH_LABEL[b]).join("・")}`}><span class="ck" aria-hidden="true"></span><span class="nm">{a.label}</span><span class="chev" aria-hidden="true"></span></button>
                   <div class="affpop" id={`aff-pop-${a.aff}`} role="group" aria-label={`${a.label}の区分`} hidden>
-                    <label class="ckl"><input type="checkbox" data-agall={a.aff} checked />すべて</label>
                     {a.branches.map((b) => <label class="ckl"><input type="checkbox" name="branch" value={`${a.aff}:${b}`} checked /><span class="sr">{a.label} </span>{BRANCH_LABEL[b]}</label>)}
                   </div>
                 </div>)}
@@ -236,6 +219,7 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
 <script type="application/json" id="top-config" set:html={JSON.stringify(topConfig)} />
 <script>
   import "../scripts/top.ts";
+  import "../scripts/rank.ts";
   import "../scripts/rail.ts";
 </script>
 </Base>
