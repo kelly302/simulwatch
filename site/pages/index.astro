@@ -175,6 +175,8 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
             <label class="chk"><input type="checkbox" name="kind" value="tokusatsu" />特撮</label>
             <label class="chk"><input type="checkbox" name="kind" value="live_action" />実写</label>
           </div>
+          {/* ほかの欄と同じく説明の行を置く（無いと、この欄だけ低くなる。2026-10-21 ユーザーの指摘） */}
+          <p class="hint">特撮は日本の作品（仮面ライダーなど）です。怪獣映画（ゴジラ・ガメラ）は実写に入ります。</p>
         </fieldset>
         <fieldset data-axis="movie">
           <legend class="sr">映画かどうか</legend>
