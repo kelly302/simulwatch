@@ -6,6 +6,7 @@ import type { Affiliation, Branch, EventStatus, WorkKind, WorkMedia } from "../s
 import type { Season, SiteData, SiteEvent, SiteFrame, SiteStreamer, SiteWork } from "../shared/site.ts";
 import { SEASONS, episodeLabel, streamerPath, workPath } from "../shared/site.ts";
 import { assignPublicKeys } from "./keys.ts";
+import { splitMembers } from "../resolve/splitcour.ts";
 
 // サイト用のデータ（SiteData）を DB から書き出す（Phase 3）。Astro のビルドはこのデータだけを読む。
 //
@@ -200,8 +201,10 @@ export function buildSiteData(db: DB, opts: SnapshotOptions): SiteData {
   const usedWorkIds = new Set(events.flatMap((e) => e.works.map((w) => w.id)));
   const workRows = (db.prepare(`SELECT id, annict_id, anilist_id, wikidata_id, title, title_kana, media, season_name, series_id, series_title,
       episodes_count, image_url, release_year, kind, countries FROM works`).all() as unknown as WorkRow[]).filter((w) => usedWorkIds.has(w.id));
+  const split = splitMembers(db);
   const { keys, redirects } = assignPublicKeys(db, workRows.filter((w) => workAgg.has(w.id)).map((w) => ({
     id: w.id, annictId: w.annict_id, anilistId: w.anilist_id, wikidataId: w.wikidata_id,
+    ...(w.annict_id !== null && split.has(w.annict_id) ? { splitAnnictIds: split.get(w.annict_id) } : {}),
   })), nowIso);
   db.prepare("UPDATE works SET public_key = NULL WHERE public_key IS NOT NULL").run();
   const setKey = db.prepare("UPDATE works SET public_key = ? WHERE id = ?");

@@ -7,6 +7,7 @@ import { AnnictClient } from "./sources/annict.ts";
 import { AniListClient } from "./sources/anilist.ts";
 import { WikipediaClient } from "./sources/wikipedia.ts";
 import type { WdAttrs } from "./sources/wikipedia.ts";
+import { splitMembers } from "./splitcour.ts";
 import type { WorkKind } from "../shared/types.ts";
 
 // 作品の属性（UI の絞り込み用。2026-10-02 の決定）を外部DBから自動で埋める。手で分類しない。
@@ -127,6 +128,7 @@ export async function enrichWorks(ctx: Ctx, cfg: ExtractConfig, opts: { all?: bo
   const up = db.prepare("UPDATE works SET kind = ?, countries = ?, series_title = ?, series_id = COALESCE(series_id, ?), attrs_at = ? WHERE id = ?");
   const retitle = db.prepare("UPDATE works SET title = ? WHERE id = ?");
   const setEpisodes = db.prepare("UPDATE works SET episodes_count = ? WHERE id = ? AND episodes_count IS NOT ?");
+  const splitHeads = new Set(splitMembers(db).keys());
   tx(db, () => {
     for (const r of rows) {
       const e = r.wikidata_id ? ents.get(r.wikidata_id) : undefined;
@@ -161,7 +163,8 @@ export async function enrichWorks(ctx: Ctx, cfg: ExtractConfig, opts: { all?: bo
       }
       up.run(kind, countries ? JSON.stringify(countries) : null, seriesTitle, fillSeries, now, r.id);
       if (/^Q\d+$/.test(r.title) && a?.labelEn) retitle.run(a.labelEn, r.id);
-      const eps = r.annict_id !== null ? annictWorks.get(r.annict_id)?.episodesCount : null;
+      // 分割クールでまとめた作品は、まとめたときの話数（前半と後半の話の数。src/resolve/splitcour.ts）のまま
+      const eps = r.annict_id !== null && !splitHeads.has(r.annict_id) ? annictWorks.get(r.annict_id)?.episodesCount : null;
       if (eps && setEpisodes.run(eps, r.id, eps).changes > 0) out.episodes++;
       out.updated++;
       out.kinds[kind] = (out.kinds[kind] ?? 0) + 1;

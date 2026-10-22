@@ -29,6 +29,7 @@ import { assignSeasons } from "./series.ts";
 import { liftLiveSeasons } from "./lift.ts";
 import { enrichWorks } from "./enrich.ts";
 import { linkAnimeIds } from "./link.ts";
+import { mergeSplitCours } from "./splitcour.ts";
 import type { SeriesStats } from "./series.ts";
 
 // 名寄せの本体。
@@ -429,6 +430,7 @@ export interface ResolveStats {
   images_linked: number;
   /** Wikidata で引いたアニメをアニメのDBの行にまとめた件数（src/resolve/link.ts） */
   anime_linked?: { checked: number; merged: number; converted: number; idsOnly: number; multi: number; byTitle: number };
+  split_cours?: { pairs: number; merged: number; created: number };
   requests: Record<string, number>;
   cache: { hits: number; misses: number; stale?: number };
   source_errors: string[];
@@ -1053,6 +1055,11 @@ export async function resolveEvents(ctx: Ctx, opts: ResolveOptions): Promise<Res
   // Wikidata で引いたアニメの作品を、MyAnimeList・AniList の ID でアニメのDBの行にまとめる（src/resolve/link.ts）
   await runStep(ctx, "resolve: Wikidata のアニメをまとめる", async () => {
     stats.anime_linked = await linkAnimeIds(ctx, cfg);
+  });
+
+  // 分割クール（Annict が前半と後半に分けた作品）を前の作品の行にまとめる（src/resolve/splitcour.ts）
+  await runStep(ctx, "resolve: 分割クールをまとめる", async () => {
+    stats.split_cours = await mergeSplitCours(ctx, cfg);
   });
 
   // Annict で同定した作品に AniList の ID と画像を付ける

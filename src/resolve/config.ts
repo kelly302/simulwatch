@@ -52,6 +52,8 @@ export interface ExtractConfig {
     };
   };
   ai_routes?: string[];
+  /** 分割クールを前の作品にまとめる決まり（src/resolve/splitcour.ts） */
+  split_cour?: { max_gap_seasons: number; strip_chars: string; first_markers: string[]; later_markers: string[]; title_strip: string };
   /** 視聴系列による期の割り当て（src/resolve/series.ts）。false で止める */
   series_assignment?: boolean;
   match_normalize: { strip_chars: string; season_patterns: string[]; fold_chars?: Record<string, string>; fold_kana?: boolean };

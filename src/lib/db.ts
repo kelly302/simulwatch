@@ -265,6 +265,14 @@ const MIGRATIONS: string[] = [
     built_at     TEXT NOT NULL
   );
   `,
+  // 11: 分割クール（2026-10-21）。後半の作品（Annict の ID）→ まとめ先の前半の作品。名寄せのたびに作り直す（src/resolve/splitcour.ts）
+  `
+  CREATE TABLE split_cours (
+    annict_id       INTEGER PRIMARY KEY,
+    head_annict_id  INTEGER NOT NULL,
+    checked_at      TEXT NOT NULL
+  );
+  `,
 ];
 
 export function openDb(path: string = DB_PATH): DB {

@@ -17,6 +17,8 @@ export interface KeyedWork {
   annictId: number | null;
   anilistId: number | null;
   wikidataId: string | null;
+  /** 分割クールでまとめた後半の作品の Annict の ID（src/resolve/splitcour.ts）。そのキー（annict-1856）はこの作品へ転送する */
+  splitAnnictIds?: number[];
 }
 
 interface KeyRow {
@@ -31,7 +33,7 @@ const PRIORITY: Record<string, number> = { annict: 0, anilist: 1, wikidata: 2 };
 const rank = (k: string) => PRIORITY[k.slice(0, k.indexOf("-"))] ?? 9;
 
 function overlaps(r: KeyRow, w: KeyedWork): boolean {
-  return (r.annict_id != null && r.annict_id === w.annictId)
+  return (r.annict_id != null && (r.annict_id === w.annictId || !!w.splitAnnictIds?.includes(r.annict_id)))
     || (r.anilist_id != null && r.anilist_id === w.anilistId)
     || (r.wikidata_id != null && r.wikidata_id === w.wikidataId);
 }

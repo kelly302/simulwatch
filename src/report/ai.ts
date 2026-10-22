@@ -16,6 +16,7 @@ import { applyAiDecisions } from "../resolve/ai.ts";
 import { liftLiveSeasons } from "../resolve/lift.ts";
 import { enrichWorks } from "../resolve/enrich.ts";
 import { linkAnimeIds } from "../resolve/link.ts";
+import { mergeSplitCours } from "../resolve/splitcour.ts";
 import type { AiStatus, AiConfidence, AiWork } from "../resolve/ai.ts";
 import type { WorkCandidate } from "../resolve/types.ts";
 import { sampleOrder } from "./sample.ts";
@@ -274,9 +275,10 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string): Promi
     }
     applyAiDecisions(db, cfg.version, applied);
   });
-  // Wikidata で引いたアニメをアニメのDBの行にまとめ、新しく入った作品の属性（映像の種類・制作国・シリーズの名前）を埋める
+  // Wikidata で引いたアニメをアニメのDBの行にまとめ、分割クールを前の作品にまとめ、新しく入った作品の属性（映像の種類・制作国・シリーズの名前）を埋める
   try {
     await linkAnimeIds(ctx, cfg);
+    await mergeSplitCours(ctx, cfg);
     await enrichWorks(ctx, cfg);
   } catch (e) {
     problems.push(`作品の属性を埋められなかった（次の resolve で埋める）: ${String(e).slice(0, 200)}`);
