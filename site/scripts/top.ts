@@ -5,7 +5,7 @@
 
 import type { TopDict, TopRecent, TopRow } from "../lib/encode.ts";
 import { cardHtml, esc } from "../lib/views.ts";
-import { AFF_NONE, AXIS_LABEL, EMPTY, activeAxes, axisButtonsHtml, resetAxis } from "../lib/filters.ts";
+import { AFF_NONE, AXIS_LABEL, EMPTY, activeAxes, axisButtonsHtml, matchesTop, resetAxis } from "../lib/filters.ts";
 import type { Axis, Filters } from "../lib/filters.ts";
 import { formatDate, sortByViews } from "../../src/shared/site.ts";
 import type { Season } from "../../src/shared/site.ts";
@@ -14,7 +14,6 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const cfg = JSON.parse($("top-config").textContent ?? "{}") as { generatedAt: string; recentHtml: number; recentJson: number; total: number };
 /** 配信日の「この30日」「この1年」の起点（ビルドの時刻。ランキングの期間と同じ） */
 const nowSec = Math.floor(Date.parse(cfg.generatedAt) / 1000);
-const jstYear = (t: number) => new Date((t + 9 * 3600) * 1000).getUTCFullYear();
 
 const S = {
   sort: "date" as "date" | "views",
@@ -66,28 +65,6 @@ function ensureIndex(): Promise<void> {
 
 // ---------------------------------------------------------------- 絞り込みと並べ替え
 
-function matches(r: TopRow, f: Filters, d: TopDict): boolean {
-  if (f.date === "30d" && r[1] < nowSec - 30 * 86_400) return false;
-  if (f.date === "1y" && r[1] < nowSec - 365 * 86_400) return false;
-  if (f.date && f.date !== "30d" && f.date !== "1y" && jstYear(r[1]) !== Number(f.date)) return false;
-  const st = d.s[r[4]];
-  if (f.branch.length && !(st && f.branch.includes(`${st[2]}:${st[3]}`))) return false;
-  if (f.mem === "ex" && r[3]) return false;
-  if (!f.kind.length && f.movie === "all" && f.country === "all" && !f.year) return true;
-  // 作品の属性。付いた作品（辞書）と、作品を付けない枠の作品名（種類・映画かどうかだけ分かる）
-  const ws = r[5].map((x) => d.w[Array.isArray(x) ? x[0] : x]).filter((w) => !!w).map((w) => ({
-    kind: w[2], movie: w[3] ? w[3] === "movie" : null, countries: w[6] === "?" ? null : w[6].split(",").filter(Boolean), year: w[4], season: w[5],
-  }));
-  const fr = r[6];
-  if (fr && fr[1]) ws.push({ kind: fr[2], movie: fr[3] === -1 ? null : fr[3] === 1, countries: null, year: 0, season: "" });
-  if (f.kind.length && !ws.some((w) => w.kind && f.kind.includes(w.kind))) return false;
-  if (f.movie !== "all" && !ws.some((w) => w.movie != null && w.movie === (f.movie === "movie"))) return false;
-  if (f.country === "jp" && !ws.some((w) => w.countries?.includes("JP"))) return false;
-  if (f.country === "foreign" && !ws.some((w) => w.countries?.some((c) => c !== "JP"))) return false;
-  if (f.year && !ws.some((w) => String(w.year) === f.year && (!f.season || w.season === f.season))) return false;
-  return true;
-}
-
 function sortRows(rows: TopRow[]): TopRow[] {
   if (S.sort === "date") return [...rows].sort((a, b) => (S.rev ? a[1] - b[1] : b[1] - a[1]));
   // 再生数: 値のある枠を多い順（逆順で少ない順）。メン限で再生数の無い枠は、逆順でも末尾で新しい順
@@ -108,6 +85,9 @@ const grid = $("done-grid");
 const more = $("more");
 const status = $("status");
 const empty = $("done-empty");
+/** 最初の HTML（新しい順の枠と「さらに表示」）。読み込みに失敗したらここに戻す（骨組みのまま残さない） */
+const initialGrid = grid.innerHTML;
+const initialMore = more.innerHTML;
 
 const skeleton = (n: number) => Array.from({ length: n }, () =>
   '<div class="card skel" aria-hidden="true"><div class="thumb"></div><div class="bar" style="width:90%"></div><div class="bar" style="width:60%"></div><div class="bar" style="width:70%;margin-top:14px"></div></div>').join("");
@@ -157,6 +137,8 @@ function draw() {
   if (!S.index) {
     // 索引を読む前: 新しい順の300枠（読んでいなければ HTML の24枠のまま）
     if (!S.recent) {
+      grid.innerHTML = initialGrid;
+      more.innerHTML = initialMore;
       status.textContent = "";
       return;
     }
@@ -164,15 +146,19 @@ function draw() {
     grid.innerHTML = rows.map((r) => cardHtml(r, S.recent!.d)).join("");
     status.textContent = "";
     const last = rows.at(-1);
-    more.innerHTML = `<button type="button" class="btn" id="more-btn">さらに表示</button>${last ? `<p>${esc(formatDate(new Date(last[1] * 1000).toISOString()))} までの枠を表示しています</p>` : ""}`;
+    // 11: 「さらに表示」は、まだ出していない枠があるときだけ（新しい順の JSON の残りか、その先の索引）
+    const hasMore = rows.length < S.recent.e.length || S.recent.e.length < cfg.total;
+    more.innerHTML = hasMore
+      ? `<button type="button" class="btn" id="more-btn">さらに表示</button>${last ? `<p>${esc(formatDate(new Date(last[1] * 1000).toISOString()))} までの枠を表示しています</p>` : ""}`
+      : `<p>すべて表示しました（${rows.length.toLocaleString()}枠）</p>`;
     return;
   }
-  const rows = sortRows(S.index.filter((r) => matches(r, S.filters, S.dict!)));
+  const rows = sortRows(S.index.filter((r) => matchesTop(r, S.filters, S.dict!, nowSec)));
   const total = rows.length;
   status.innerHTML = activeCount(S.filters) > 0 ? `条件に当たる <strong>${total.toLocaleString()}</strong>枠` : `全 <strong>${total.toLocaleString()}</strong>枠`;
   if (total === 0) {
     grid.innerHTML = "";
-    empty.innerHTML = `<div class="empty"><p><strong>条件に当たる枠がありません</strong></p><p class="note">上の黒い条件のボタンを押すと、その条件を変えられます。</p><button type="button" class="btn" data-remove="all">条件をすべて外す</button></div>`;
+    empty.innerHTML = `<div class="empty"><p><strong>条件に当たる枠がありません</strong></p><p class="note">上の桃色の条件のボタンを押すと、その条件を変えられます。</p><button type="button" class="btn" data-remove="all">条件をすべて外す</button></div>`;
     more.innerHTML = "";
     return;
   }
@@ -201,8 +187,7 @@ function showMore(btn: HTMLButtonElement) {
 
 function removeAll() {
   S.filters = EMPTY();
-  S.shown = cfg.recentHtml;
-  render();
+  applyNow();
 }
 
 document.getElementById("done")?.addEventListener("click", (ev) => {

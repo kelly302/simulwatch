@@ -15,9 +15,11 @@ interface Props {
   ogImage?: string;
   ogType?: string;
   noindex?: boolean;
+  /** canonical と og:url を出すか（404 は出さない） */
+  canonical?: boolean;
 }
 
-const { title, description, path, nav = null, jsonLd = [], ogImage = "/og/default.png", ogType = "website", noindex = false } = Astro.props;
+const { title, description, path, nav = null, jsonLd = [], ogImage = "/og/default.png", ogType = "website", noindex = false, canonical: withCanonical = true } = Astro.props;
 const canonical = new URL(path, Astro.site).href;
 const ogImageUrl = new URL(ogImage, Astro.site).href;
 const ld = (o: unknown) => JSON.stringify(o).replace(/</g, "\\u003c");
@@ -29,7 +31,7 @@ const ld = (o: unknown) => JSON.stringify(o).replace(/</g, "\\u003c");
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>{title}</title>
 <meta name="description" content={description}>
-<link rel="canonical" href={canonical}>
+{withCanonical && <link rel="canonical" href={canonical}>}
 {noindex && <meta name="robots" content="noindex">}
 <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#221A29" media="(prefers-color-scheme: dark)">
@@ -39,7 +41,7 @@ const ld = (o: unknown) => JSON.stringify(o).replace(/</g, "\\u003c");
 <meta property="og:type" content={ogType}>
 <meta property="og:title" content={title}>
 <meta property="og:description" content={description}>
-<meta property="og:url" content={canonical}>
+{withCanonical && <meta property="og:url" content={canonical} />}
 <meta property="og:image" content={ogImageUrl}>
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">

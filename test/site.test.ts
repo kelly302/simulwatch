@@ -7,7 +7,7 @@ import { cardHtml, workCardHtml, workRowHtml } from "../site/lib/views.ts";
 import type { TopDict, TopRow } from "../site/lib/encode.ts";
 import { packImage, unpackImage } from "../site/lib/encode.ts";
 import { norm } from "../site/lib/text.ts";
-import { AFF_NONE, EMPTY, activeAxes, axisButtonsHtml, axisValue, resetAxis } from "../site/lib/filters.ts";
+import { AFF_NONE, EMPTY, activeAxes, axisButtonsHtml, axisValue, matchesTop, resetAxis } from "../site/lib/filters.ts";
 
 test("種別形式・時期の表記（モックアップ「作品の属性の出し方」）", () => {
   assert.equal(metaLine({ kind: "anime", media: "tv", year: 2013, season: "spring" }), "TVアニメ · 2013年春");
@@ -139,7 +139,7 @@ test("作品の画像のカード（よく同時視聴される作品・同じ�
   assert.match(cur, /この作品/);
 });
 
-test("トップの絞り込みの軸のボタン（指定した軸は黒く塗って値を出す）", () => {
+test("トップの絞り込みの軸のボタン（指定した軸は桃色に塗って値を出す）", () => {
   const agAll = (ag: string) => (ag === "nijisanji" ? ["nijisanji:jp", "nijisanji:en", "nijisanji:kr", "nijisanji:id"] : [`${ag}:jp`]);
   const f = EMPTY();
   // 何も指定していなければ6つの軸の名前と、入っていないメン限のチェック
@@ -192,4 +192,44 @@ test("検索の照合: カタカナとひらがな・全角半角・記号をそ
   assert.equal(norm("ルカ・カネシロ"), "るかかねしろ");
   assert.ok(norm("ＳＴＥＩＮＳ；ＧＡＴＥ").includes("steinsgate"));
   assert.ok(norm("Luca Kaneshiro").includes("lucakaneshiro"));
+});
+
+test("トップの絞り込みの判定（配信日・所属・メン限・作品の種類・映画・制作国・放送年）", () => {
+  const now = Date.parse("2026-10-19T00:00:00Z") / 1000;
+  const d: TopDict = {
+    s: { 1: ["", "A", "nijisanji", "en", ""], 2: ["", "B", "hololive", "jp", ""] },
+    w: {
+      10: ["", "W", "anime", "movie", 2013, "spring", "JP"],
+      11: ["", "X", "live_action", "tv", 2020, "", "US,JP"],
+      12: ["", "Y", "anime", "tv", 0, "", "?"],
+    },
+  };
+  // 10日前・にじさんじ EN・アニメ映画（日本・2013年春）
+  const r1: TopRow = ["v1", now - 10 * 86_400, 100, 0, 1, [10], 0, []];
+  // 400日前（2025年）・ホロライブ JP・メン限・実写のテレビ作品（米日合作）
+  const r2: TopRow = ["v2", now - 400 * 86_400, null, 1, 2, [[11, "第1話"]], 0, []];
+  // 40日前・作品名の書かれていない枠（種類も映画かどうかも分からない）
+  const r3: TopRow = ["v3", now - 40 * 86_400, 5, 0, 2, [], ["映画同時視聴", 0, "", -1], []];
+  // 制作国の分からないアニメ
+  const r4: TopRow = ["v4", now - 5 * 86_400, 7, 0, 1, [12], 0, []];
+  // 外部DBに無い作品の名前だけ分かる枠（実写の映画）
+  const r5: TopRow = ["v5", now - 5 * 86_400, 3, 0, 1, [], ["ある舞台の映像", 1, "live_action", 1], []];
+  const all = [r1, r2, r3, r4, r5];
+  const hit = (f: Partial<ReturnType<typeof EMPTY>>) => all.filter((r) => matchesTop(r, { ...EMPTY(), ...f }, d, now)).map((r) => r[0]).join(",");
+  assert.equal(hit({}), "v1,v2,v3,v4,v5");
+  assert.equal(hit({ date: "30d" }), "v1,v4,v5");
+  assert.equal(hit({ date: "1y" }), "v1,v3,v4,v5");
+  assert.equal(hit({ date: "2025" }), "v2");
+  assert.equal(hit({ branch: ["nijisanji:en"] }), "v1,v4,v5");
+  assert.equal(hit({ branch: [AFF_NONE] }), "");
+  assert.equal(hit({ mem: "ex" }), "v1,v3,v4,v5");
+  assert.equal(hit({ kind: ["live_action"] }), "v2,v5");
+  // 映画かどうか・制作国が分からない作品は、どちらを選んでも出ない
+  assert.equal(hit({ movie: "movie" }), "v1,v5");
+  assert.equal(hit({ movie: "other" }), "v2,v4");
+  // 合作は「日本」「海外」の両方に入る
+  assert.equal(hit({ country: "jp" }), "v1,v2");
+  assert.equal(hit({ country: "foreign" }), "v2");
+  assert.equal(hit({ year: "2013", season: "spring" }), "v1");
+  assert.equal(hit({ year: "2013", season: "summer" }), "");
 });

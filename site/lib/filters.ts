@@ -6,6 +6,7 @@ import type { Affiliation, Branch } from "../../src/shared/types.ts";
 import { SEASON_LABEL } from "../../src/shared/site.ts";
 import type { Season } from "../../src/shared/site.ts";
 import { CHECK_ICON, esc } from "./views.ts";
+import type { TopDict, TopRow } from "./encode.ts";
 
 export interface Filters {
   /** 配信日。"30d"（30日以内）・"1y"（1年以内）・"2025"（その年に配信）。空は指定なし */
@@ -78,6 +79,35 @@ export function axisValue(f: Filters, axis: Axis, agAll: (ag: string) => string[
     case "country": return f.country === "jp" ? "日本の作品" : f.country === "foreign" ? "海外の作品" : "";
     case "year": return f.year ? `${f.year}年${f.season ? SEASON_LABEL[f.season] : ""}の作品` : "";
   }
+}
+
+/** 日本時間の年（配信日の「年ごと」） */
+const jstYear = (t: number) => new Date((t + 9 * 3600) * 1000).getUTCFullYear();
+
+/**
+ * 「すべての同時視聴」の絞り込みの判定（ブラウザの site/scripts/top.ts が使う。テストは test/site.test.ts）。
+ * nowSec は配信日の「30日以内」「1年以内」の起点（ビルドの時刻。ランキングの期間と同じ）
+ */
+export function matchesTop(r: TopRow, f: Filters, d: TopDict, nowSec: number): boolean {
+  if (f.date === "30d" && r[1] < nowSec - 30 * 86_400) return false;
+  if (f.date === "1y" && r[1] < nowSec - 365 * 86_400) return false;
+  if (f.date && f.date !== "30d" && f.date !== "1y" && jstYear(r[1]) !== Number(f.date)) return false;
+  const st = d.s[r[4]];
+  if (f.branch.length && !(st && f.branch.includes(`${st[2]}:${st[3]}`))) return false;
+  if (f.mem === "ex" && r[3]) return false;
+  if (!f.kind.length && f.movie === "all" && f.country === "all" && !f.year) return true;
+  // 作品の属性。付いた作品（辞書）と、作品を付けない枠の作品名（種類・映画かどうかだけ分かる）
+  const ws = r[5].map((x) => d.w[Array.isArray(x) ? x[0] : x]).filter((w) => !!w).map((w) => ({
+    kind: w[2], movie: w[3] ? w[3] === "movie" : null, countries: w[6] === "?" ? null : w[6].split(",").filter(Boolean), year: w[4], season: w[5],
+  }));
+  const fr = r[6];
+  if (fr && fr[1]) ws.push({ kind: fr[2], movie: fr[3] === -1 ? null : fr[3] === 1, countries: null, year: 0, season: "" });
+  if (f.kind.length && !ws.some((w) => w.kind && f.kind.includes(w.kind))) return false;
+  if (f.movie !== "all" && !ws.some((w) => w.movie != null && w.movie === (f.movie === "movie"))) return false;
+  if (f.country === "jp" && !ws.some((w) => w.countries?.includes("JP"))) return false;
+  if (f.country === "foreign" && !ws.some((w) => w.countries?.some((c) => c !== "JP"))) return false;
+  if (f.year && !ws.some((w) => String(w.year) === f.year && (!f.season || w.season === f.season))) return false;
+  return true;
 }
 
 /** 所属の区分の並びを、事務所ごとの名前に（事務所の区分が全部なら事務所の名前だけ） */

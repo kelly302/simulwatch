@@ -15,7 +15,7 @@ const jsonLd = [{
   itemListElement: crumbs.map((c, i) => ({ "@type": "ListItem", position: i + 1, name: c.name, item: new URL(c.href, Astro.site).href })),
 }];
 ---
-<Base title={title} description={description} path="/ranking/" nav="top" jsonLd={jsonLd}>
+<Base title={title} description={description} path="/ranking/" jsonLd={jsonLd}>
 <div class="list-head">
   <div class="wrap">
     <nav class="crumbs" aria-label="パンくずリスト">
@@ -31,7 +31,8 @@ const jsonLd = [{
   </div>
 </div>
 <main class="wrap">
-  <section class="block" aria-label="期間ごとの順位" data-rank-page>
+  <section class="block" aria-labelledby="h-rank-list" data-rank-page>
+    <h2 class="sr" id="h-rank-list">期間ごとの順位</h2>
     <div class="block-head">
       <div class="utabs" role="group" aria-label="期間" id="rank-period">
         {periods.map((p, i) => <button type="button" data-period={String(p.days)} aria-pressed={i === first ? "true" : "false"}>{p.label}</button>)}

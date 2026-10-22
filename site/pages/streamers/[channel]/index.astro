@@ -52,7 +52,7 @@ const jsonLd = [{
       </ol>
     </nav>
     <div class="hero">
-      <Fragment set:html={avatarHtml(s.name, s.iconUrl, 112, "hav")} />
+      <Fragment set:html={avatarHtml(s.name, s.iconUrl, 112, "hav", false)} />
       <div class="hbody">
         <h1>{s.name}</h1>
         {en && <p class="en" lang="en">{en}</p>}

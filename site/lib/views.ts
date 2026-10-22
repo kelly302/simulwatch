@@ -37,11 +37,11 @@ export interface CardOptions {
 
 const workOf = (w: DictWork) => ({ kind: (w[2] || null) as WorkKind | null, media: (w[3] || null) as WorkMedia | null, year: w[4] || null, season: (w[5] || null) as Season | null });
 
-/** アイコン（無ければ名前の1文字目） */
-export function avatarHtml(name: string, icon: string | null, px: number, cls = "av"): string {
+/** アイコン（無ければ名前の1文字目）。lazy を false にするとすぐ読む（画面の上に出るヒーローのアイコン） */
+export function avatarHtml(name: string, icon: string | null, px: number, cls = "av", lazy = true): string {
   const src = iconAt(icon, px * 2);
   return src
-    ? `<img class="${cls}" src="${esc(src)}" alt="" width="${px}" height="${px}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
+    ? `<img class="${cls}" src="${esc(src)}" alt="" width="${px}" height="${px}"${lazy ? ' loading="lazy"' : ""} decoding="async" referrerpolicy="no-referrer">`
     : `<span class="${cls}" aria-hidden="true">${esc(name.slice(0, 1))}</span>`;
 }
 
@@ -107,7 +107,7 @@ ${whoHtml}
 export type WorkRowMetric = "streamers" | "views" | "latest";
 
 /** 作品一覧の行。右の上は並び順の値（配信者数・再生数）、下は最終視聴日 */
-/** 行の作品の画像（AniList の画像。無ければ種別形式を書いた黒い札）。作品一覧の行と配信者ページの作品の行 */
+/** 行の作品の画像（AniList の画像。無ければ種別形式を書いた桃色の札）。作品一覧の行と配信者ページの作品の行 */
 export function workThumbHtml(image: string | null, kind: WorkKind | null, media: WorkMedia | null): string {
   return image
     ? `<img class="wimg" src="${esc(image)}" alt="" width="44" height="62" loading="lazy" decoding="async" referrerpolicy="no-referrer">`

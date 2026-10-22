@@ -28,7 +28,7 @@ for (const btns of document.querySelectorAll<HTMLElement>(".rail-btns")) {
     rail.scrollBy({ left: Number(b.dataset.railDir) * rail.clientWidth * 0.9, behavior: reduce.matches ? "auto" : "smooth" });
   });
   for (const rail of scope.querySelectorAll<HTMLElement>(".rail")) rail.addEventListener("scroll", () => sync(scope), { passive: true });
-  // ランキングの期間を切り替えたあと（見える棚が変わる）
+  // 押したあと（見える棚が変わることがある）に矢印を合わせ直す
   scope.addEventListener("click", () => requestAnimationFrame(() => sync(scope)));
   addEventListener("resize", () => sync(scope), { passive: true });
   sync(scope);
