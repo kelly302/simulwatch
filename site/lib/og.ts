@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
+import { cfg } from "./data.ts";
 
 const FONT_DIR = join(process.cwd(), "node_modules", "@expo-google-fonts", "noto-sans-jp");
 const fonts = [
@@ -45,7 +46,8 @@ const CACHE_DIR = process.env.OG_CACHE ?? join(process.cwd(), "data", "site", "o
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 export async function ogPng(c: OgContent): Promise<Uint8Array> {
-  const hash = createHash("sha1").update(JSON.stringify([OG_VERSION, c])).digest("hex");
+  // サイトの名前も鍵に入れる（設定の名前を変えたら描き直す）
+  const hash = createHash("sha1").update(JSON.stringify([OG_VERSION, cfg.site_name, c])).digest("hex");
   const cached = join(CACHE_DIR, `${hash}.png`);
   if (existsSync(cached)) return readFileSync(cached);
   const png = await render(c);
@@ -76,7 +78,7 @@ async function render(c: OgContent): Promise<Uint8Array> {
             el("div", { position: "absolute", left: 0, top: 0, width: 36, height: 28, background: UV, borderRadius: 7, display: "flex" }),
             el("div", { position: "absolute", left: 18, top: 18, width: 38, height: 32, background: MINT, border: `4px solid ${INK}`, borderRadius: 8, display: "flex" }),
           ]),
-          "同時視聴まとめ",
+          cfg.site_name,
         ]),
       ]),
     ]),
