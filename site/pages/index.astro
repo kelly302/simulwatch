@@ -34,7 +34,7 @@ const affs = FILTER_AFFS.map((aff) => {
 const streamYears = [...new Set(completed.map((e) => Number(formatDate(e.startedAt).slice(0, 4))))].sort((a, b) => b - a);
 const years = [...new Set(completed.flatMap((e) => e.works.map((w) => workById.get(w.id)?.year)).filter((y): y is number => !!y))].sort((a, b) => b - a);
 
-// h1 と title（2026-10-20 ユーザー決定。「ミラー配信」は title と meta description に残す）
+// h1（2026-10-20 ユーザー決定）と title（2026-10-23 ユーザー決定。サイトの名前を前に。「ミラー配信」は meta description に残す）
 const H1_PREFIX = "にじさんじ・ホロライブ・ぶいすぽっ！";
 const description = `にじさんじ・ホロライブ・ぶいすぽっ！の配信者が同時視聴（ミラー配信）した作品と枠をまとめています。${site.works.filter((w) => w.hasPage).length.toLocaleString()}作品・${completed.length.toLocaleString()}枠。作品から配信者を、配信者から観た作品をたどれます。`;
 const jsonLd = [{
@@ -48,7 +48,7 @@ const jsonLd = [{
 const lastShown = recent.at(-1);
 const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_html, recentJson: cfg.top.recent_json, total: completed.length };
 ---
-<Base title={`${H1_PREFIX}の同時視聴（ミラー配信）まとめ | ${cfg.site_name}`} description={description} path="/" nav="top" jsonLd={jsonLd}>
+<Base title={`${cfg.site_name} | ${H1_PREFIX}のアニメ・映画同時視聴`} description={description} path="/" nav="top" jsonLd={jsonLd}>
 <main class="wrap" id="top">
   {/* 事務所名の途中では折り返さない（「ぶいす／ぽっ！」にならないように） */}
   <h1 class="lead">{H1_PREFIX.split(/(?<=・)/).map((x) => <span class="nw">{x}</span>)}の同時視聴まとめ</h1>
