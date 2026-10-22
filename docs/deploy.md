@@ -9,7 +9,7 @@ CLAUDE.md の決定（Cloudflare Pages へ Actions から直接アップロー�
 | もの | 状態 |
 | --- | --- |
 | 取得・名寄せのジョブ（CLI） | ある（ローカルで実行している） |
-| サイトのビルド（集計・Astro。出力は `dist/`） | ある（2026-10-19。`npm run cli -- site:data` → `npm run site:build`。約3,800ファイル・32MB。og:image のキャッシュが無いと約3分） |
+| サイトのビルド（集計・Astro。出力は `dist/`） | ある（2026-10-19。`npm run cli -- site:data` → `npm run site:build`。2026-10-21 の UI のブランチで3,823ファイル・約90MB（og:image の PNG 58MB・HTML 29MB）。og:image のキャッシュが無いと約3分） |
 | ワークフロー（`.github/workflows/`） | 無い（Phase 4） |
 | GitHub のリポジトリ | 無い（git の remote が未設定。予定は `kelly302/simulwatch`） |
 | Cloudflare（Pages・R2） | 未設定 |
@@ -98,6 +98,8 @@ CLAUDE.md の決定（Cloudflare Pages へ Actions から直接アップロー�
 - ビルドが失敗したらアップロードしない（前の版がそのまま公開され続ける）
 - アップロードの前に `dist/` のファイル数を数え、上限（20,000）に近づいたら止めて知らせる（2026-10-19 に約3,800）
 - `site:data` は作品の公開キーと lastmod の表を DB に書くので、DB の書き戻しより前に動かす
+- `site:data` は最初に前回の `site-data.json` を消す。書き出しに失敗するとビルドがファイル無しで失敗し、アップロードしない（前の版が公開され続ける）。
+  `data/site/` をキャッシュに入れても、古いデータを公開しない
 - og:image のキャッシュ（`data/site/og-cache/`）を残す（Actions のキャッシュか R2。無いと毎回約3分のびる）
 - schedule は正時（0分）を避ける（混雑で遅れる。公式の注意）
 
@@ -130,6 +132,7 @@ CLAUDE.md の決定（Cloudflare Pages へ Actions から直接アップロー�
 | --- | --- |
 | 5つの画面が開く | 本番の URL をブラウザで（スマホの幅でも） |
 | 無いページが 404 になる | 枠が0の作品の URL など |
+| 公開キーが変わった作品の旧 URL が 301 になる | `curl -I` で末尾スラッシュあり・なしの両方（`_redirects` に両方の形を書いている。Pages の上での効き方は未確認） |
 | JSON に `X-Robots-Tag: noindex` が付いている | `curl -I <JSON の URL>` |
 | ジョブが2時間ごとに動いている | GitHub の Actions の履歴、DB の `runs` |
 | YouTube のクォータ | `report:quota`（1日 10,000 のうち 9,000 で止まる設定） |

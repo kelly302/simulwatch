@@ -22,9 +22,11 @@ function cloudflareFiles() {
         const out = fileURLToPath(dir);
         writeFileSync(join(out, "_headers"), ["/data/*", "  X-Robots-Tag: noindex", ""].join("\n"));
         const redirects = existsSync(dataPath) ? JSON.parse(readFileSync(dataPath, "utf8")).redirects ?? [] : [];
-        if (redirects.length > 2000) throw new Error(`_redirects が ${redirects.length} 件で、Cloudflare の上限（2,000件）を超えます`);
-        writeFileSync(join(out, "_redirects"), redirects.map((r) => `${r.from} ${r.to} 301`).join("\n") + (redirects.length ? "\n" : ""));
-        logger.info(`_headers と _redirects（${redirects.length}件）を書きました`);
+        // 末尾スラッシュの無い形（/works/annict-1856）も転送する（無くなったページには Pages のスラッシュの付け直しが効かないため）
+        const lines = redirects.flatMap((r) => [`${r.from} ${r.to} 301`, ...(r.from.endsWith("/") ? [`${r.from.slice(0, -1)} ${r.to} 301`] : [])]);
+        if (lines.length > 2000) throw new Error(`_redirects が ${lines.length} 行で、Cloudflare の上限（2,000件）を超えます`);
+        writeFileSync(join(out, "_redirects"), lines.join("\n") + (lines.length ? "\n" : ""));
+        logger.info(`_headers と _redirects（${redirects.length}件・${lines.length}行）を書きました`);
       },
     },
   };

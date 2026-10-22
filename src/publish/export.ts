@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, renameSync } from "node:fs";
+import { mkdirSync, writeFileSync, renameSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { DB } from "../lib/db.ts";
 import { tx } from "../lib/db.ts";
@@ -10,8 +10,13 @@ import { buildSiteData } from "./snapshot.ts";
 /** サイト用のデータの置き場（Astro のビルドが読む。公開しない。SITE_DATA で変えられる） */
 export const SITE_DATA_PATH = process.env.SITE_DATA ?? join(DATA_DIR, "site", "site-data.json");
 
-/** サイト用のデータを書き出す（公開キーと lastmod の表も更新する）。件数を返す */
+/**
+ * サイト用のデータを書き出す（公開キーと lastmod の表も更新する）。件数を返す。
+ * 最初に前回のファイルを消す: 書き出しに失敗したら、ビルドが前回の古いデータで成功してアップロードされないように、
+ * ファイル無しでビルドを失敗させる（前の版のサイトがそのまま公開され続ける）。ジョブの終了コードは 0 のまま（CLAUDE.md「実行方法」）
+ */
 export function exportSiteData(db: DB, cfg: { site: SiteConfig; crawl: CrawlConfig; extract: ExtractConfig }, out = SITE_DATA_PATH, now = new Date()): Record<string, number> {
+  rmSync(out, { force: true });
   const data = tx(db, () => buildSiteData(db, {
     now,
     aiRoutes: cfg.extract.ai_routes ?? [],
@@ -34,5 +39,6 @@ export function exportSiteData(db: DB, cfg: { site: SiteConfig; crawl: CrawlConf
     streamers: data.streamers.length,
     streamer_pages: data.streamers.filter((s) => s.hasPage).length,
     redirects: data.redirects.length,
+    skipped_no_works: data.skipped?.noWorks.length ?? 0,
   };
 }

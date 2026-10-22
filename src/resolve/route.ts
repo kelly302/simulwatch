@@ -214,12 +214,14 @@ function settledState(
   p: { type: string | null; sub: string | null; ai: { status: string; confidence: string } | null; hasWorks: boolean; unresolvedReason: string | null },
   aiRoutes: string[],
 ): PublishState {
-  if (p.ai && p.ai.status !== "hold") {
+  // AI が保留にした枠は、型に関係なく出さない（ルールのまま出す型の枠を ai:queue --video で回して保留になったときも。2026-10-22 ユーザー決定）
+  if (p.ai?.status === "hold") return "pending_ai";
+  if (p.ai) {
     if (p.ai.status === "identified") return p.ai.confidence === "low" ? "frame" : "work";
     if (p.ai.status === "not_a_work") return "hidden";
     return "frame"; // not_in_db・unidentifiable
   }
-  // AI の判定が無い（または保留）。型が分からない枠と AI に回す型の枠は、AI が確かめるまで出さない
+  // AI の判定が無い。型が分からない枠と AI に回す型の枠は、AI が確かめるまで出さない
   if (!p.type || needsAi({ type: p.type, sub: p.sub }, aiRoutes)) return "pending_ai";
   if (p.hasWorks) return "work";
   if (p.unresolvedReason === "not_a_work") return "hidden";

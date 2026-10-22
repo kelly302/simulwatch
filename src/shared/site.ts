@@ -109,6 +109,8 @@ export interface SiteData {
   events: SiteEvent[];
   /** 公開キーが変わった作品の 301（古い URL → 新しい URL） */
   redirects: { from: string; to: string }[];
+  /** 出し方は work なのに作品の行が無く、出さなかった枠（起きないはず。起きたら名寄せの不具合） */
+  skipped?: { noWorks: number[] };
 }
 
 // ---------------------------------------------------------------- URL

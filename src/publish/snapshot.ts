@@ -142,6 +142,7 @@ export function buildSiteData(db: DB, opts: SnapshotOptions): SiteData {
 
   // 出す枠
   const events: SiteEvent[] = [];
+  const noWorks: number[] = [];
   for (const r of rows) {
     if (!r.started_at) continue;
     const state = publishState({
@@ -153,8 +154,14 @@ export function buildSiteData(db: DB, opts: SnapshotOptions): SiteData {
     if (r.status === "upcoming" && (r.scheduled_start_at ?? r.started_at) < staleBefore) continue;
     const extra = parseJson<AiExtra>(r.ai_extra);
     const ws = state === "work" ? [...(worksOfEvent.get(r.id) ?? new Map()).entries()] : [];
-    if (state === "work" && ws.length === 0) continue;
-    const members = !!r.is_members_only;
+    if (state === "work" && ws.length === 0) {
+      noWorks.push(r.id);
+      continue;
+    }
+    // メン限かどうか。題名の語（メン限など）で立てた印でも、終わった枠で再生数が取れていれば公開の枠として扱う（2026-10-22 ユーザー決定）。
+    // メン限の動画は再生数が取れない（10-21 の DB で、メン限の再生リストで見つかった 1,513枠は再生数が取れた枠が0。
+    // 再生数が取れた印つきの11枠はすべて公開の一覧で見つかった枠で、「メン限特別公開！」など公開に切り替えた枠だった）
+    const members = !!r.is_members_only && !(r.status === "completed" && r.view_count != null);
     events.push({
       id: r.id,
       videoId: r.video_id,
@@ -162,7 +169,7 @@ export function buildSiteData(db: DB, opts: SnapshotOptions): SiteData {
       startedAt: r.started_at,
       status: r.status,
       membersOnly: members,
-      views: r.status === "completed" && !members ? r.view_count : null,
+      views: r.status === "completed" ? r.view_count : null,
       thumbnailUrl: r.thumbnail_url,
       works: ws.map(([id, eps]) => ({ id, episodes: episodeLabel(eps) })).sort((a, b) => a.id - b.id),
       missing: state === "work" ? (extra?.missing ?? []) : [],
@@ -267,7 +274,7 @@ export function buildSiteData(db: DB, opts: SnapshotOptions): SiteData {
   });
 
   const viewsFetchedAt = (db.prepare(`SELECT MAX(view_count_fetched_at) AS t FROM watch_events e WHERE ${activeEventSql("e")}`).get(cutoff) as { t: string | null }).t;
-  const data: SiteData = { generatedAt: nowIso, viewsFetchedAt, streamers, works, events, redirects };
+  const data: SiteData = { generatedAt: nowIso, viewsFetchedAt, streamers, works, events, redirects, skipped: { noWorks } };
   stampLastmod(db, data, nowIso);
   return data;
 }

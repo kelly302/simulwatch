@@ -70,13 +70,13 @@ test("出す枠は publishState の work・frame だけ。予定枠は予定時�
   assert.deepEqual(d.events.find((e) => e.id === pendingUp)!.frame, { named: false, title: `【同時視聴】枠${pendingUp}`, kind: null, movie: null });
 });
 
-test("集計: 終わった枠だけ。再生数はメン限を除き、取れた枠が無ければ NULL（0 と区別する）", () => {
+test("集計: 終わった枠だけ。再生数は取れた枠だけで、取れた枠が無ければ NULL（0 と区別する）", () => {
   const db = freshDb();
   work(db, 1, { annict: 1 });
   work(db, 2, { wikidata: "Q2", kind: "live_action", media: "movie" });
   ev(db, { streamer: 1, at: "2026-01-01T10:00:00Z", views: 500, works: [[1, 1], [1, 2]] });
   ev(db, { streamer: 2, at: "2026-02-01T10:00:00Z", views: 900, works: [[1, 3]] });
-  ev(db, { streamer: 2, at: "2026-03-01T10:00:00Z", members: true, views: 77, works: [[1, 4]] });
+  ev(db, { streamer: 2, at: "2026-03-01T10:00:00Z", members: true, views: null, works: [[1, 4]] });
   ev(db, { streamer: 1, at: "2026-04-01T10:00:00Z", members: true, views: null, works: [[2]] });
   ev(db, { streamer: 3, at: "2026-10-20T10:00:00Z", scheduled: "2026-10-20T10:00:00Z", status: "upcoming", views: null, works: [[2]] });
   const d = build(db);
@@ -85,7 +85,7 @@ test("集計: 終わった枠だけ。再生数はメン限を除き、取れた
   assert.equal(w1.key, "annict-1");
   const w2 = d.works.find((w) => w.id === 2)!;
   assert.deepEqual([w2.streamersCount, w2.viewsMax, w2.viewsTotal, w2.key], [1, null, null, "wikidata-Q2"]);
-  // メン限の枠の再生数は出さない
+  // メン限の枠は再生数が無い（NULL のまま）
   assert.equal(d.events.find((e) => e.membersOnly && e.works[0]!.id === 1)!.views, null);
   // 話数の表記
   assert.equal(d.events.find((e) => e.views === 500)!.works[0]!.episodes, "第1話〜第2話");
@@ -142,4 +142,71 @@ test("lastmod: ページの中身（再生数を除く）が変わった日。�
   assert.equal(third.works[0]!.lastmod, "2026-10-03T00:00:00.000Z");
   // 枠が増えていない配信者のページは変わらない
   assert.equal(third.streamers.find((s) => s.id === 1)!.lastmod, "2026-10-01T00:00:00.000Z");
+});
+
+test("メン限の印があっても、終わった枠で再生数が取れていれば公開の枠として扱う（2026-10-22 ユーザー決定）", () => {
+  const db = freshDb();
+  work(db, 1, { annict: 1 });
+  const madePublic = ev(db, { streamer: 1, at: "2026-01-01T10:00:00Z", members: true, views: 15790, works: [[1]] });
+  const members = ev(db, { streamer: 2, at: "2026-02-01T10:00:00Z", members: true, views: null, works: [[1]] });
+  const upcoming = ev(db, { streamer: 3, at: "2026-10-20T10:00:00Z", scheduled: "2026-10-20T10:00:00Z", status: "upcoming", members: true, views: null, works: [[1]] });
+  const d = build(db);
+  const by = new Map(d.events.map((e) => [e.id, e]));
+  assert.deepEqual([by.get(madePublic)!.membersOnly, by.get(madePublic)!.views], [false, 15790]);
+  assert.deepEqual([by.get(members)!.membersOnly, by.get(members)!.views], [true, null]);
+  // 予定枠は再生数が無いので、印のまま
+  assert.deepEqual([by.get(upcoming)!.membersOnly, by.get(upcoming)!.views], [true, null]);
+  const w = d.works.find((x) => x.id === 1)!;
+  assert.deepEqual([w.membersCount, w.viewsMax], [1, 15790]);
+});
+
+test("出す枠の境目: 配信中は出す・予定時刻が無ければ started_at で6時間・判定から外した枠・保留・確度 low・外部DBに無い作品の名前", () => {
+  const db = freshDb();
+  work(db, 1, { annict: 1 });
+  const live = ev(db, { streamer: 1, at: "2026-10-19T11:00:00Z", status: "live", views: null, works: [[1]] });
+  // 予定時刻が無い予定枠は started_at（7時間前）で判定して出さない（竜胆尊の 2020 年の枠の形）
+  ev(db, { streamer: 1, at: "2026-10-19T05:00:00Z", scheduled: null, status: "upcoming", views: null, works: [[1]] });
+  // 判定ルールの変更で外した枠
+  const excluded = ev(db, { streamer: 1, at: "2026-10-01T10:00:00Z", works: [[1]] });
+  db.prepare("UPDATE watch_events SET excluded_at = 'n', excluded_reason = 'detect_rule:x' WHERE id = ?").run(excluded);
+  // AI が保留にした枠は、ルールのまま出す型（unique_exact）でも出さない（2026-10-22 ユーザー決定）
+  ev(db, { streamer: 1, at: "2026-10-02T10:00:00Z", route: "unique_exact", ai: { status: "hold", confidence: "low" }, works: [[1]] });
+  // 確度 low の同定は、ルールの作品の行があっても作品を付けない
+  const low = ev(db, { streamer: 2, at: "2026-10-03T10:00:00Z", route: "ai_identified", ai: { status: "identified", confidence: "low" }, works: [[1]] });
+  // 外部DBに無い作品の名前は、付いた作品と一緒に並べる
+  const missing = ev(db, { streamer: 2, at: "2026-10-04T10:00:00Z", route: "ai_identified", ai: { status: "identified", confidence: "high", extra: { missing: ["クネクネ"] } }, works: [[1]] });
+  const d = build(db);
+  assert.deepEqual(d.events.map((e) => e.id).sort(), [live, low, missing].sort());
+  const by = new Map(d.events.map((e) => [e.id, e]));
+  assert.equal(by.get(live)!.status, "live");
+  assert.deepEqual([by.get(low)!.works, by.get(low)!.frame!.named], [[], false]);
+  assert.deepEqual(by.get(missing)!.missing, ["クネクネ"]);
+  assert.deepEqual(d.skipped, { noWorks: [] });
+});
+
+test("公開キー: 作品が分かれ直したあと、もう関係の無い作品へ古いキーを転送しない（キーの ID は今の作品の ID に置き換える）", () => {
+  const db = freshDb();
+  // 1回目: Annict 7 と Wikidata Q1 が1つの作品
+  let r = assignPublicKeys(db, [{ id: 1, annictId: 7, anilistId: null, wikidataId: "Q1" }], "t1");
+  assert.deepEqual(sorted(r.keys), [[1, "annict-7"]]);
+  // 2回目: 2つに分かれた。Annict 7 はそのキー、Q1 は新しいキー
+  r = assignPublicKeys(db, [{ id: 2, annictId: 7, anilistId: null, wikidataId: null }, { id: 3, annictId: null, anilistId: null, wikidataId: "Q1" }], "t2");
+  assert.deepEqual(sorted(r.keys), [[2, "annict-7"], [3, "wikidata-Q1"]]);
+  // 3回目: Annict 7 の作品が無くなった。annict-7 を Q1 の作品へ転送しない（前の ID を足し続けていると転送してしまう）
+  r = assignPublicKeys(db, [{ id: 4, annictId: null, anilistId: null, wikidataId: "Q1" }], "t3");
+  assert.deepEqual(sorted(r.keys), [[4, "wikidata-Q1"]]);
+  assert.deepEqual(r.redirects, []);
+});
+
+test("書き出しに失敗したら、前回のサイト用のデータを残さない（古いデータでビルドしてアップロードしない）", async () => {
+  const { exportSiteData } = await import("../src/publish/export.ts");
+  const { mkdtempSync, writeFileSync, existsSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const out = join(mkdtempSync(join(tmpdir(), "site-data-")), "site-data.json");
+  writeFileSync(out, "{}");
+  const db = freshDb();
+  // 設定が壊れていて書き出しの途中で失敗する
+  assert.throws(() => exportSiteData(db, { site: { upcoming_stale_hours: 6 }, crawl: {}, extract: {} } as never, out));
+  assert.equal(existsSync(out), false);
 });

@@ -68,13 +68,15 @@ export function assignPublicKeys(db: DB, works: KeyedWork[], now: string): { key
     taken.add(k);
   }
 
-  // 表を更新する。キーの ID は今の作品の ID で埋める（無い ID は前の値を残す）
+  // 表を更新する。今の作品に付けたキーの ID は、今の作品の ID に置き換える（前の ID を足し続けない。
+  // 足し続けると、作品が分かれ直したあとに、もう関係の無い作品が古い ID の重なりでこのキーを拾う。2026-10-22 のレビュー）。
+  // 今の作品に付かなかったキーの行は変えない（その ID で転送先を探す）
   const upsert = db.prepare(`INSERT INTO work_public_keys (public_key, annict_id, anilist_id, wikidata_id, first_published_at, last_published_at)
     VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(public_key) DO UPDATE SET
-      annict_id = COALESCE(excluded.annict_id, annict_id),
-      anilist_id = COALESCE(excluded.anilist_id, anilist_id),
-      wikidata_id = COALESCE(excluded.wikidata_id, wikidata_id),
+      annict_id = excluded.annict_id,
+      anilist_id = excluded.anilist_id,
+      wikidata_id = excluded.wikidata_id,
       last_published_at = excluded.last_published_at`);
   const byId = new Map(works.map((w) => [w.id, w]));
   for (const [id, k] of keys) {
