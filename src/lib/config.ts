@@ -73,7 +73,7 @@ export interface SiteConfig {
   site_url: string;
   site_name: string;
   upcoming_stale_hours: number;
-  top: { ranking_size: number; ranking_periods: number[]; recent_html: number; recent_json: number };
+  top: { ranking_top: number; ranking_page: number; ranking_periods: number[]; recent_html: number; recent_json: number };
   works_page_size: number;
 }
 

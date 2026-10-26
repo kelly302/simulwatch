@@ -2,14 +2,16 @@
 
 # サイトの URL（canonical・sitemap・og:url に入る）。**仮**。Pages か Workers か・独自ドメインは公開の前に決める（2026-10-19 の決定 D）
 site_url: "https://simulwatch.example"
-site_name: "同時視聴まとめ"
+# サイトの名前（2026-10-22 ユーザー決定）。title・ヘッダー・フッター・og:image はここから作る
+site_name: "VTuber 同時視聴まとめ"
 
 # 予定時刻（無ければ started_at）からこの時間を過ぎても upcoming の枠は「これから始まる枠」に出さない（決定 A。ビルドの時刻で判定する）
 upcoming_stale_hours: 6
 
 top:
-  # ランキングの枠数（期間ごと。7日・30日・全期間）
-  ranking_size: 8
+  # ランキングの枠数（期間ごと。7日・30日・全期間）。トップの順位表は5位まで、続きはランキングのページ（/ranking/）に30位まで（2026-10-21 ユーザー決定）
+  ranking_top: 5
+  ranking_page: 30
   ranking_periods: [7, 30, 0]   # 0 は全期間
   # 「同時視聴した枠」で HTML に入れる新しい順の枠数と、「さらに表示」で読む JSON の枠数
   recent_html: 24

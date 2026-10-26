@@ -2,7 +2,7 @@
 // フォントは Noto Sans JP（OFL。@expo-google-fonts/noto-sans-jp の TTF）。ビルドのときだけ動く（Node）
 
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
@@ -49,7 +49,16 @@ export async function ogPng(c: OgContent): Promise<Uint8Array> {
   // サイトの名前も鍵に入れる（設定の名前を変えたら描き直す）
   const hash = createHash("sha1").update(JSON.stringify([OG_VERSION, cfg.site_name, c])).digest("hex");
   const cached = join(CACHE_DIR, `${hash}.png`);
-  if (existsSync(cached)) return readFileSync(cached);
+  if (existsSync(cached)) {
+    // 使った印に更新日時を今にする（ビルドの終わりに、このビルドで使わなかった古い画像を消す。astro.config.mjs）
+    try {
+      const now = new Date();
+      utimesSync(cached, now, now);
+    } catch {
+      // 印を付けられなくてもビルドは続ける（次のビルドで描き直すだけ）
+    }
+    return readFileSync(cached);
+  }
   const png = await render(c);
   try {
     mkdirSync(CACHE_DIR, { recursive: true });

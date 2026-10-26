@@ -12,8 +12,8 @@ import { AFFILIATION_LABEL, BRANCH_LABEL } from "../../src/shared/types.ts";
 import type { Branch } from "../../src/shared/types.ts";
 import { SEASONS, SEASON_LABEL, formatDate, metaLine } from "../../src/shared/site.ts";
 
-// ランキング: 縦の順位表に RANKING_TOP 枠（どの幅でも1列。2026-10-21 ユーザー決定。設定の ranking_size は使わない）。続きはランキングのページ（30位まで。その場では開かない）
-const RANKING_TOP = 5;
+// ランキング: 縦の順位表に RANKING_TOP 枠（どの幅でも1列。2026-10-21 ユーザー決定。config/site.yaml の top.ranking_top）。続きはランキングのページ（top.ranking_page 位まで。その場では開かない）
+const RANKING_TOP = cfg.top.ranking_top;
 const { periods, first: firstPeriod } = rankingPeriods(RANKING_PAGE);
 const up = upcoming;
 const upDict = dictFor(up, streamerById, workById);

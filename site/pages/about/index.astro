@@ -3,7 +3,7 @@
 import Base from "../../layouts/Base.astro";
 import { cfg } from "../../lib/data.ts";
 ---
-<Base title={`このサイトについて | ${cfg.site_name}`} description="同時視聴まとめのデータの出どころと、枠と作品のまとめ方。" path="/about/">
+<Base title={`このサイトについて | ${cfg.site_name}`} description={`${cfg.site_name}のデータの出どころと、枠と作品のまとめ方。`} path="/about/">
 <main class="wrap prose">
   <h1>このサイトについて</h1>
   <p>{cfg.site_name}は、VTuber の同時視聴（ミラー配信）の枠を、観た作品ごとにまとめたサイトです。作品から「その作品を同時視聴した配信者」を、配信者から「これまでに同時視聴した作品」をたどれます。</p>

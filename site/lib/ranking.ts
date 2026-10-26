@@ -4,8 +4,8 @@ import { dictFor, encodeRow } from "./encode.ts";
 import { cardHtml } from "./views.ts";
 import { formatDate } from "../../src/shared/site.ts";
 
-/** ランキングのページに載せる枠数 */
-export const RANKING_PAGE = 30;
+/** ランキングのページに載せる枠数（config/site.yaml の top.ranking_page） */
+export const RANKING_PAGE = cfg.top.ranking_page;
 
 /** 期間ごとの枠（limit 位まで）。最初に出す期間は7日、7日に枠が無いときだけ30日、それも無ければ全期間（2026-10-20 ユーザー決定） */
 export function rankingPeriods(limit: number) {
