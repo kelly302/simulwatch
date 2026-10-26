@@ -37,11 +37,11 @@ export interface CardOptions {
 
 const workOf = (w: DictWork) => ({ kind: (w[2] || null) as WorkKind | null, media: (w[3] || null) as WorkMedia | null, year: w[4] || null, season: (w[5] || null) as Season | null });
 
-/** アイコン（無ければ名前の1文字目） */
-export function avatarHtml(name: string, icon: string | null, px: number, cls = "av"): string {
+/** アイコン（無ければ名前の1文字目）。lazy を false にするとすぐ読む（画面の上に出るヒーローのアイコン） */
+export function avatarHtml(name: string, icon: string | null, px: number, cls = "av", lazy = true): string {
   const src = iconAt(icon, px * 2);
   return src
-    ? `<img class="${cls}" src="${esc(src)}" alt="" width="${px}" height="${px}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
+    ? `<img class="${cls}" src="${esc(src)}" alt="" width="${px}" height="${px}"${lazy ? ' loading="lazy"' : ""} decoding="async" referrerpolicy="no-referrer">`
     : `<span class="${cls}" aria-hidden="true">${esc(name.slice(0, 1))}</span>`;
 }
 
@@ -107,18 +107,45 @@ ${whoHtml}
 export type WorkRowMetric = "streamers" | "views" | "latest";
 
 /** 作品一覧の行。右の上は並び順の値（配信者数・再生数）、下は最終視聴日 */
+/** 行の作品の画像（AniList の画像。無ければ種別形式を書いた桃色の札）。作品一覧の行と配信者ページの作品の行 */
+export function workThumbHtml(image: string | null, kind: WorkKind | null, media: WorkMedia | null): string {
+  return image
+    ? `<img class="wimg" src="${esc(image)}" alt="" width="44" height="62" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
+    : `<span class="wimg none" aria-hidden="true">${esc(formLabel(kind, media) || "作品")}</span>`;
+}
+
 export function workRowHtml(r: WorkListRow, metric: WorkRowMetric = "streamers", titleHtml?: string): string {
   const [key, title, kind, media, year, season, image, streamers, viewsMax, latest] = r;
-  const img = unpackImage(image);
-  const thumb = img
-    ? `<img class="wimg" src="${esc(img)}" alt="" width="44" height="62" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
-    : `<span class="wimg none" aria-hidden="true">${esc(title.slice(0, 1))}</span>`;
+  const thumb = workThumbHtml(unpackImage(image), (kind || null) as WorkKind | null, (media || null) as WorkMedia | null);
   const meta = metaLine({ kind: (kind || null) as WorkKind | null, media: (media || null) as WorkMedia | null, year: year || null, season: (season || null) as Season | null });
   const top = metric === "views"
     ? `<span class="num${viewsMax == null ? " none" : ""}">${esc(formatViews(viewsMax))}</span>`
     : `<span class="num">${streamers}<span class="unit">人</span></span>`;
   const bottom = metric === "views" ? `${streamers}人 · ${formatDate(new Date(latest * 1000).toISOString())}` : formatDate(new Date(latest * 1000).toISOString());
   return `<li><a class="wrow" href="${esc(workPath(key))}">${thumb}<span class="wbody"><span class="wttl">${titleHtml ?? esc(title)}</span>${meta ? `<span class="wmeta">${esc(meta)}</span>` : ""}</span><span class="wside">${top}<span class="sub">${esc(bottom)}</span></span></a></li>`;
+}
+
+// ---------------------------------------------------------------- 作品の画像のカード（トップのよく同時視聴される作品・作品ページの同じシリーズ。ビルド時だけ）
+
+export interface WorkCardItem {
+  key: string;
+  title: string;
+  image: string | null;
+  streamers: number;
+  events: number;
+  /** 種別形式・時期（「実写映画 · 2001年」）。画像の無い作品の文字のポスターに入れる */
+  meta: string;
+}
+
+/** 作品の画像と作品名と観た配信者数。画像が無ければ作品名を組んだ文字のポスター。current はいま開いている作品（リンクにしない） */
+export function workCardHtml(w: WorkCardItem, opt: { current?: boolean } = {}): string {
+  const img = w.image
+    ? `<img class="wimg" src="${esc(w.image)}" alt="" width="132" height="185" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
+    : `<span class="wimg none" aria-hidden="true"><span class="pt">${esc(w.title)}</span>${w.meta ? `<span class="pf">${esc(w.meta)}</span>` : ""}</span>`;
+  const body = `${img}<b>${esc(w.title)}</b>`;
+  return opt.current
+    ? `<div class="wcard" aria-current="page">${body}<span>この作品</span></div>`
+    : `<a class="wcard" href="${esc(workPath(w.key))}">${body}<span><strong>${w.streamers}人</strong>が観た · ${w.events}枠</span></a>`;
 }
 
 // ---------------------------------------------------------------- 展開行の中の枠（作品ページ・配信者ページ。ビルド時だけ）
@@ -135,9 +162,11 @@ export interface FrameItem {
 /** 展開行の中の枠（日付の昇順で並べる側が渡す）。サムネは開いたときに読む */
 export function frameItemHtml(f: FrameItem): string {
   const date = formatDate(f.startedAt);
-  return `<li><a class="fthumb" href="${esc(youtubeUrl(f.videoId))}" aria-label="YouTube で開く（${esc(date)} の枠）"><img src="${esc(thumbnailUrl(f.videoId))}" alt="" width="320" height="180" loading="lazy" decoding="async" referrerpolicy="no-referrer"></a><span class="finfo"><span class="fdate">${esc(date)}</span>${f.detail ? `<span class="ftitle">${esc(f.detail)}</span>` : ""}<span class="fviews">${f.members ? '<span class="badge mem">メン限</span>' : `<span>${esc(formatViews(f.views))}</span>`}</span></span></li>`;
+  // メン限の枠には data-mem（ページの「メン限を除く」で隠す。site/scripts/rows.ts）
+  return `<li${f.members ? ' data-mem="1"' : ""}><a class="fthumb" href="${esc(youtubeUrl(f.videoId))}" aria-label="YouTube で開く（${esc(date)} の枠）"><img src="${esc(thumbnailUrl(f.videoId))}" alt="" width="320" height="180" loading="lazy" decoding="async" referrerpolicy="no-referrer"></a><span class="finfo"><span class="fdate">${esc(date)}</span>${f.detail ? `<span class="ftitle">${esc(f.detail)}</span>` : ""}<span class="fviews">${f.members ? '<span class="badge mem">メン限</span>' : `<span>${esc(formatViews(f.views))}</span>`}</span></span></li>`;
 }
 
+export const CHECK_ICON = '<svg class="ck" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>';
 export const CHEVRON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>';
 export const EXT_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"></path></svg>';
 export const REV_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v16M4 17l3 3 3-3M17 20V4M14 7l3-3 3 3"></path></svg>';

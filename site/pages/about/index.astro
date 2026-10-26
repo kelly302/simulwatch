@@ -1,14 +1,12 @@
 ---
 // このサイトについて（データの出どころと作り方。YouTube API サービスの利用の表示）
 import Base from "../../layouts/Base.astro";
-import { cfg, completed, site } from "../../lib/data.ts";
-const works = site.works.filter((w) => w.hasPage).length;
-const streamers = site.streamers.filter((s) => s.hasPage).length;
+import { cfg } from "../../lib/data.ts";
 ---
 <Base title={`このサイトについて | ${cfg.site_name}`} description="同時視聴まとめのデータの出どころと、枠と作品のまとめ方。" path="/about/">
 <main class="wrap prose">
   <h1>このサイトについて</h1>
-  <p>{cfg.site_name}は、VTuber の同時視聴（ミラー配信）の枠を、観た作品ごとにまとめたサイトです。作品から「その作品を同時視聴した配信者」を、配信者から「これまでに同時視聴した作品」をたどれます。いまは {streamers.toLocaleString()}人・{works.toLocaleString()}作品・{completed.length.toLocaleString()}枠を載せています。</p>
+  <p>{cfg.site_name}は、VTuber の同時視聴（ミラー配信）の枠を、観た作品ごとにまとめたサイトです。作品から「その作品を同時視聴した配信者」を、配信者から「これまでに同時視聴した作品」をたどれます。</p>
   <h2>対象</h2>
   <p>にじさんじ（NIJISANJI EN・旧 NIJISANJI KR・旧 NIJISANJI ID を含む）・ホロライブ（hololive EN を含む）・ぶいすぽっ！の公式サイトに載っている配信者の YouTube チャンネルです。</p>
   <h2>枠と作品のまとめ方</h2>

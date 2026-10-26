@@ -9,7 +9,9 @@ import { esc, workRowHtml } from "../lib/views.ts";
 import { norm } from "../lib/text.ts";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-const cfg = JSON.parse($("works-config").textContent ?? "{}") as { tab: WorkTab; page: number; pages: number; total: number; size: number };
+const cfg = JSON.parse($("works-config").textContent ?? "{}") as { tab: WorkTab; tabLabel: string; page: number; pages: number; total: number; size: number };
+/** 種類のタブの一覧では、そのタブの種類の作品だけを探す（見出しが「アニメ」のまま実写が出ないように） */
+const TAB_KIND: Record<string, string> = { anime: "anime", tokusatsu: "tokusatsu", "live-action": "live_action" };
 
 const rowsEl = $("work-rows");
 const pager = $("pager");
@@ -148,12 +150,19 @@ function runSearch() {
   setSearching(true);
   if (!S.search) {
     status.textContent = "読み込み中…";
-    ensureSearch().then(() => { lastQuery = ""; runSearch(); }, () => toast("読み込みに失敗しました。時間をおいてもう一度お試しください。"));
+    ensureSearch().then(() => { lastQuery = ""; runSearch(); }, () => {
+      // 読み込みに失敗したら、検索の前の表示（タブ・並び順・ページ送り）に戻す。もう一度打てば読み直す
+      setSearching(false);
+      status.textContent = "";
+      lastQuery = "";
+      toast("読み込みに失敗しました。時間をおいてもう一度お試しください。");
+    });
     return;
   }
   const n = norm(raw);
-  const hits = S.search.filter((r) => keysOf(r).some((k) => k.includes(n)));
-  status.innerHTML = `「${esc(raw)}」を含む作品 <strong>${hits.length.toLocaleString()}件</strong>（配信者数の多い順）`;
+  const kind = TAB_KIND[cfg.tab];
+  const hits = S.search.filter((r) => (!kind || r[2] === kind) && keysOf(r).some((k) => k.includes(n)));
+  status.innerHTML = `${kind ? `${esc(cfg.tabLabel)}の中で` : ""}「${esc(raw)}」を含む作品 <strong>${hits.length.toLocaleString()}件</strong>（配信者数の多い順）`;
   rowsEl.innerHTML = hits.map((r) => workRowHtml(r.slice(0, 10) as unknown as Parameters<typeof workRowHtml>[0], "streamers", highlight(r[1], raw))).join("");
 }
 

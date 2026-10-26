@@ -31,7 +31,7 @@ export type WorkMedia = "tv" | "movie" | "ova" | "web";
  */
 export type Branch = "jp" | "kr" | "id" | "en";
 
-export const BRANCH_LABEL: Record<Branch, string> = { jp: "日本", kr: "KR", id: "ID", en: "EN" };
+export const BRANCH_LABEL: Record<Branch, string> = { jp: "JP", kr: "KR", id: "ID", en: "EN" };
 
 export const AFFILIATION_LABEL: Record<Affiliation, string> = {
   nijisanji: "にじさんじ",

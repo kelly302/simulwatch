@@ -73,13 +73,13 @@ const jsonLd = [{
     {list.map((s, i) => (
       <li data-i={String(i)} data-latest={s.latestEventAt ?? ""} data-events={String(s.eventsCount)} data-works={String(s.worksCount)} data-branch={s.branch} data-q={norm(`${s.name} ${s.nameEn ?? ""}`)}>
         <a class="srow" href={streamerPath(s.channelId)}>
-          <Fragment set:html={avatarHtml(s.name, s.iconUrl, 44, "sav")} />
+          <Fragment set:html={avatarHtml(s.name, s.iconUrl, 48, "sav")} />
           <span class="sbody">
             <span class="sname">{s.name}</span>
             {showsNameEn(s) && <span class="sen" lang="en">{s.nameEn}</span>}
             <span class="sfacts"><span>{affLabel(s.affiliation, s.branch)}</span><span>{s.eventsCount}枠</span><span>{s.worksCount}作品</span></span>
           </span>
-          <span class="wside"><span class="cap">最終視聴</span><span class="sub" style="font-size: 13px; font-weight: 700; color: var(--ink);">{formatDate(s.latestEventAt)}</span></span>
+          <span class="wside"><span class="cap">最終視聴</span><span class="date">{formatDate(s.latestEventAt)}</span></span>
         </a>
       </li>
     ))}

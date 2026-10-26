@@ -4,8 +4,8 @@ import { ogPng, pngResponse } from "../../lib/og.ts";
 
 export async function GET() {
   return pngResponse(await ogPng({
-    eyebrow: "にじさんじ・ホロライブ・ぶいすぽっ！",
-    title: "VTuber の同時視聴（ミラー配信）を作品から探す",
+    eyebrow: "VTuber の同時視聴（ミラー配信）",
+    title: "にじさんじ・ホロライブ・ぶいすぽっ！の同時視聴まとめ",
     stats: `${workPages.length.toLocaleString()}作品・${completed.length.toLocaleString()}枠`,
   }));
 }

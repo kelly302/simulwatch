@@ -1,8 +1,9 @@
 ---
 // 作品ページ。配信者単位に集約（1配信者＝1行、枠は展開）。本文はすべてビルド時の HTML に持たせる（ページごとの JSON は作らない）
 import Base from "../../../layouts/Base.astro";
+import RailButtons from "../../../components/RailButtons.astro";
 import { TAB_LABEL, cfg, kindTab, seriesOf, streamerRowsOf, tabPath, workPages } from "../../../lib/data.ts";
-import { CHEVRON, EXT_ICON, REV_ICON, affLabel, avatarHtml, frameItemHtml } from "../../../lib/views.ts";
+import { CHECK_ICON, CHEVRON, EXT_ICON, REV_ICON, affLabel, avatarHtml, frameItemHtml, workCardHtml } from "../../../lib/views.ts";
 import { WORK_KIND_LABEL } from "../../../../src/shared/types.ts";
 import type { SiteWork } from "../../../../src/shared/site.ts";
 import {
@@ -15,6 +16,13 @@ export function getStaticPaths() {
 
 const { work: w } = Astro.props as { work: SiteWork };
 const rows = streamerRowsOf(w);
+// 「メン限を除く」で出す値（公開の枠の数と、公開の枠で最後に観た日）。site/scripts/rows.ts が切り替える
+const pubOf = (evs: { membersOnly: boolean; startedAt: string }[]) => {
+  const pub = evs.filter((e) => !e.membersOnly);
+  return { n: pub.length, latest: pub.at(-1)?.startedAt ?? "" };
+};
+const pubStreamers = rows.filter((r) => pubOf(r.events).n > 0).length;
+const memToggle = w.membersCount > 0 && w.membersCount < w.eventsCount;
 const series = seriesOf(w);
 const tab = kindTab(w.kind);
 const MEDIA_LABEL = { tv: "TV", movie: "映画", ova: "OVA", web: "Web" } as const;
@@ -77,19 +85,18 @@ const jsonLd = [
       </ol>
     </nav>
     <div class="hero">
-      {w.imageUrl
-        ? <img class="himg" src={w.imageUrl} alt="" width="88" height="124" decoding="async" referrerpolicy="no-referrer" />
-        : <span class="himg none" aria-hidden="true">{w.title.slice(0, 1)}</span>}
+      {/* 画像の無い作品（実写・特撮・海外の作品）は作品名だけを大きく出す */}
+      {w.imageUrl && <img class="himg" src={w.imageUrl} alt="" width="168" height="236" decoding="async" referrerpolicy="no-referrer" />}
       <div class="hbody">
         <h1>{w.title}</h1>
         {chips.length > 0 && <div class="chips">{chips.map((c) => <span>{c}</span>)}</div>}
-        {series.length > 1 && <a class="series-link" href="#series">シリーズ「{seriesName}」の{series.length}作品</a>}
         {links.length > 0 && <div class="ext">{links.map((l) => <a href={l.href} rel="noopener">{l.label}<Fragment set:html={EXT_ICON} /></a>)}</div>}
+        {series.length > 1 && <a class="series-link" href="#series">シリーズ「{seriesName}」の{series.length}作品</a>}
       </div>
     </div>
     <dl class="stats">
       <div><dt>観た配信者</dt><dd>{w.streamersCount}<span class="u">人</span></dd></div>
-      <div><dt>枠</dt><dd>{w.eventsCount}<span class="u">枠</span></dd></div>
+      <div><dt>同時視聴</dt><dd>{w.eventsCount}<span class="u">枠</span></dd></div>
       <div><dt>うちメン限</dt><dd>{w.membersCount}<span class="u">枠</span></dd></div>
       <div><dt>最高再生数</dt><dd>{vmax.num}<span class="u">{vmax.unit}</span></dd></div>
       <div><dt>合計再生数</dt><dd>{vtotal.num}<span class="u">{vtotal.unit}</span></dd></div>
@@ -101,31 +108,37 @@ const jsonLd = [
 <main>
   <section class="pane" aria-labelledby="h-who">
     <div class="section-head">
-      <h2 id="h-who">観た配信者 <span class="count">{w.streamersCount}人</span></h2>
+      <h2 id="h-who">観た配信者 <span class="count" data-all={`${w.streamersCount}人`} data-pub={`${pubStreamers}人`}>{w.streamersCount}人</span></h2>
       {rows.length > 1 && (
         <div class="sortbar" data-sortbar>
           <div class="keys" role="group" aria-label="並び順">
             <button type="button" class="pill" data-sort="views" aria-pressed="true">再生数</button>
             <button type="button" class="pill" data-sort="latest" aria-pressed="false">最終視聴日</button>
           </div>
-          <button type="button" class="pill rev" data-rev aria-pressed="false" aria-label="逆順にする（今は多い順）"><Fragment set:html={REV_ICON} /><span data-rev-label>多い順</span></button>
+          <div class="end">
+            <button type="button" class="pill rev" data-rev aria-pressed="false" aria-label="逆順にする（今は多い順）"><Fragment set:html={REV_ICON} /><span data-rev-label>多い順</span></button>
+            {memToggle && <button type="button" class="fchip check" data-mem-toggle aria-pressed="false"><Fragment set:html={CHECK_ICON} />メン限を除く</button>}
+          </div>
         </div>
       )}
+      {rows.length <= 1 && memToggle && <div class="xtools"><button type="button" class="fchip check" data-mem-toggle aria-pressed="false"><Fragment set:html={CHECK_ICON} />メン限を除く</button></div>}
     </div>
     <ol class="rows" data-xrows>
-      {rows.map((r, i) => (
-        <li data-i={String(i)} data-views={r.viewsMax == null ? "" : String(r.viewsMax)} data-latest={r.latest}>
+      {rows.map((r, i) => {
+        const pub = pubOf(r.events);
+        return (
+        <li data-i={String(i)} data-views={r.viewsMax == null ? "" : String(r.viewsMax)} data-latest={r.latest} data-pub={String(pub.n)} data-latest-pub={pub.latest}>
           <div class="xrow">
             <a href={streamerPath(r.streamer.channelId)}>
-              <Fragment set:html={avatarHtml(r.streamer.name, r.streamer.iconUrl, 36, "xav")} />
+              <Fragment set:html={avatarHtml(r.streamer.name, r.streamer.iconUrl, 48, "xav")} />
               <span class="xbody">
                 <span class="xname">{r.streamer.name}</span>
                 {showsNameEn(r.streamer) && <span class="sen" lang="en">{r.streamer.nameEn}</span>}
-                <span class="xfacts"><span>{affLabel(r.streamer.affiliation, r.streamer.branch)}</span><span>{r.events.length}枠</span>{r.members > 0 && <span>メン限 {r.members}</span>}</span>
+                <span class="xfacts"><span>{affLabel(r.streamer.affiliation, r.streamer.branch)}</span><span data-all={`${r.events.length}枠`} data-pub={`${pub.n}枠`}>{r.events.length}枠</span>{r.members > 0 && <span data-memonly>メン限 {r.members}</span>}</span>
               </span>
             </a>
             <button type="button" class="xbtn" aria-expanded="false" aria-controls={`f-${i}`} aria-label={`${r.streamer.name} の枠を開く`}>
-              <span class="vals"><span class={`v1${r.viewsMax == null ? " none" : ""}`}>{formatViews(r.viewsMax)}</span><span class="v2">{formatDate(r.latest)}</span></span>
+              <span class="vals"><span class={`v1${r.viewsMax == null ? " none" : ""}`}>{formatViews(r.viewsMax)}</span><span class="v2" data-all={formatDate(r.latest)} data-pub={formatDate(pub.latest)}>{formatDate(r.latest)}</span></span>
               <Fragment set:html={CHEVRON} />
             </button>
           </div>
@@ -134,25 +147,24 @@ const jsonLd = [
             detail: e.works.find((x) => x.id === w.id)?.episodes ?? null,
           })).join("")} />
         </li>
-      ))}
+        );
+      })}
     </ol>
     <p class="foot-note">メン限の枠は再生数を取得できません（—）。再生数で並べたときは、メン限の枠だけの配信者を末尾に置いています。</p>
   </section>
 
   {series.length > 1 && (
     <section class="pane" id="series" aria-labelledby="h-series">
-      <div class="section-head">
+      <div class="section-head block-head">
         <h2 id="h-series">同じシリーズの作品 <span class="count">{seriesName}・{series.length}作品</span></h2>
+        <RailButtons label="同じシリーズの作品" />
       </div>
-      <ol class="rows">
-        {series.map((x) => x.id === w.id
-          ? <li><div class="wrow" aria-current="page"><span class="wbody"><span class="wttl">{x.title}</span><span class="wmeta">{metaLine(x)}</span></span><span class="cur-tag">この作品</span></div></li>
-          : <li><a class="wrow" href={workPath(x.key!)}><span class="wbody"><span class="wttl">{x.title}</span><span class="wmeta">{metaLine(x)}</span></span><span class="wside"><span class="num">{x.streamersCount}<span class="unit">人</span></span></span></a></li>)}
-      </ol>
+      <div class="rail covers" set:html={series.map((x) => workCardHtml({ key: x.key!, title: x.title, image: x.imageUrl, streamers: x.streamersCount, events: x.eventsCount, meta: metaLine(x) }, { current: x.id === w.id })).join("")} />
     </section>
   )}
 </main>
 <script>
   import "../../../scripts/rows.ts";
+  import "../../../scripts/rail.ts";
 </script>
 </Base>
