@@ -3,8 +3,8 @@
 CLAUDE.md から分けた（2026-10-09）。**今の決まりを書く場所**で、経緯の記録ではない。
 src/resolve/ と config/extract.yaml を変えるときは先に読み、**実装と同じコミットで直す**（CLAUDE.md と同じ扱い）。
 
-- 方針と骨子: CLAUDE.md の「名寄せ（extract / resolve）」
-- 同定の型と AI の判定: CLAUDE.md の「同定の型と AI の判定」
+- 方針と骨子: この文書の「骨子」（CLAUDE.md の「名寄せ（extract / resolve）」から移した）
+- 同定の型と AI の判定: docs/ai-judging.md の「同定の型と AI の判定」
 - 検証と、AI の判定の回ごとの記録: docs/ai-runs.md
 
 **方針: 取りこぼしより誤同定のほうが害が大きい。** ルールは `config/extract.yaml`。変えたら `resolve --all` で再処理する。

@@ -1,6 +1,6 @@
 # データモデル
 
-CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移した）。CLAUDE.md と同じく**実装と同じコミットで直す**。未実装の決定は CLAUDE.md の冒頭の「決定済み・まだ実装していない変更」が優先する。
+CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移した）。CLAUDE.md と同じく**実装と同じコミットで直す**。未実装の決定は docs/decisions.md が優先する（印「→ D-xx」の付いた文）。
 
 ## データモデル
 
@@ -18,7 +18,7 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
                started_at, status (upcoming / live / completed),
                is_members_only, view_count, view_count_fetched_at, detected_at,
                description_raw, scheduled_start_at, ended_at,
-               detect_source (title / description), detect_keyword,
+               detect_source (title / description。→ D-04 で ai_candidate を足す予定・未実装), detect_keyword,
                found_via (rss / playlist / members_playlist / backfill),
                started_at_source (actual_start / scheduled_start / published_at),
                archive_gone_at, excluded_at, excluded_reason, last_checked_at, updated_at

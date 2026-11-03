@@ -1,6 +1,6 @@
 # 開発（ファイル構成・実行方法）
 
-CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移した）。CLAUDE.md と同じく**実装と同じコミットで直す**。未実装の決定は CLAUDE.md の冒頭の「決定済み・まだ実装していない変更」が優先する。
+CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移した）。CLAUDE.md と同じく**実装と同じコミットで直す**。未実装の決定は docs/decisions.md が優先する（印「→ D-xx」の付いた文）。
 
 ## 開発
 
@@ -26,7 +26,7 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
       report/           ローカル確認用のレポート・同定の検証用の抽出・外部DBの照会（lookup）・AI の判定の道具（ai）・
                         型ごとの抽出と AI との突き合わせ（audit）・候補を見せない待ち行列（blind）・判定役に見せる手がかり（neighbors）・AI の答えの形式（answer）・裁定と採点の HTML（review）
       publish/          サイト用のデータの書き出し（出す枠・集計値（snapshot）・作品の公開キー（keys）・書き出し（export））
-    site/               Astro のサイト（srcDir）。pages/（5画面・一覧のタブとページ・JSON（pages/data/）・og:image・sitemap）・layouts/・components/・
+    site/               Astro のサイト（srcDir）。pages/（6画面・一覧のタブとページ・JSON（pages/data/）・og:image・sitemap）・layouts/・components/・
                         lib/（ビルド時のデータ（data）・カードと行の HTML（views）・JSON の形（encode）・og:image（og））・scripts/（ブラウザの動き）・styles/・public/
     astro.config.mjs    Astro の設定（_headers・_redirects も書く）。scripts/astro.mjs は telemetry を止めて Astro を動かす
     test/               node --test のテスト
@@ -47,7 +47,7 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
 
     npm install
     npm run cli -- roster          # Tier 1 の同期
-    npm run cli -- crawl:hourly    # 毎時の巡回
+    npm run cli -- crawl:hourly    # こまめな巡回（2時間ごと。名前は毎時のころのまま）（→ D-01 で流さない予定・未実装）
     npm run cli -- crawl:daily     # 日次の巡回と遡り
     npm run cli -- refresh         # 再生数・状態の取り直しとアーカイブ死活チェック
     npm run cli -- report:detect   # 判定結果、誤検出・取りこぼしの候補
@@ -61,7 +61,7 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- resolve:summary   # 件数・成功率・理由別
     npm run cli -- unresolved:stats  # 理由別の頻出パターン
     npm run cli -- unresolved:list --reason not_found
-    npm run cli -- unresolved:export # data/unresolved.json（R2 に置くファイル）
+    npm run cli -- unresolved:export # data/unresolved.json（R2 に置くファイル）（→ D-08 で R2 に置かない予定・未実装）
     npm run cli -- resolve:audit     # 誤同定の疑い
     npm run cli -- resolve:sample --n 60 --seed season-1   # 期の取り違えの検証用の抽出と確認表（data/review/）
     npm run cli -- unresolved:sample --reason not_found --n 100 --seed nf-1   # 未同定の抽出と分類用の確認表
@@ -69,7 +69,7 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- lookup "来る" "亜人"   # 外部作品DBの照会結果を並べる（判断の確認用）
     npm run cli -- ai:queue --seed ai-run-1 --n 300 --include-hold          # AI に回す型の枠の待ち行列（候補を見せない。data/ai/<batch>/。--video で動画を指定。判定済みの枠も入る）
     npm run cli -- ai:queue --reason not_found --n 100 --seed ai-trial-1   # 未同定の理由で選ぶ待ち行列（ai-trial-1 の形）
-    npm run cli -- ai:apply data/ai/ai-run-1/answers                     # 判定を入れる（確定。ファイルかフォルダ）
+    npm run cli -- ai:apply data/ai/ai-run-1/answers                     # 判定を入れる（確定。ファイルかフォルダ）（→ D-03・D-09 で、ジョブの ai:ingest も同じ中身を通り、古い答えは入れない形に変更予定・未実装）
     npm run cli -- ai:report ai-trial-1                                 # 判定の根拠の一覧（report.md）と採点用の report.html
     npm run cli -- ai:report ai-run-1 --exclude-scored data/ai/ai-run-1/scores-sample150.md   # 採点済みを除いた残り（保留・特定できない・外部DBに無いは全部）
     npm run cli -- ai:revoke --batch ai-trial-1                         # 判定の取り消しとルールでの名寄せし直し

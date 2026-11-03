@@ -262,10 +262,10 @@ Fable の指摘で決めたこと（2026-10-27。親セッションから）: �
 
 | 場所 | 直すこと |
 | --- | --- |
-| CLAUDE.md「同定の型と AI の判定」 | 「人が起動するコマンドでだけ入れる」→ 1章の読み替え。手順を ai:pull → ワークフロー → ai:push → ジョブの ai:ingest に。「予定枠・配信中の枠は、作品の同定を待たずに出す」と publishState の pending_ai の「予定枠・配信中の枠は frame として出す」を消す（10-27） |
-| CLAUDE.md「残る課題と未確定」 | 「AI の判定の公開後の運用」を未確定から外す（この文書へ）。「題名に同時視聴の語が無い続きの回」を候補の仕組みとして書き直す（例は書かない） |
-| CLAUDE.md「データモデル」「取得用の内部テーブル」 | `candidates` の表・`WatchEvent.detect_source` に `ai_candidate`・答えの区分 `not_watchalong` |
-| CLAUDE.md「実行方法」「ファイル構成」 | ai:pull・ai:push・ai:check・ai:ingest・`ai:queue --candidates`、`.claude/workflows/`・`.claude/agents/`・`.claude/hooks/`、`.env` の R2 の名前 |
+| docs/ai-judging.md「同定の型と AI の判定」（CLAUDE.md から移した） | 「人が起動するコマンドでだけ入れる」→ 1章の読み替え。手順を ai:pull → ワークフロー → ai:push → ジョブの ai:ingest に。「予定枠・配信中の枠は、作品の同定を待たずに出す」と publishState の pending_ai の「予定枠・配信中の枠は frame として出す」を消す（10-27） |
+| docs/backlog.md「残る課題と未確定」（CLAUDE.md から移した） | 「AI の判定の公開後の運用」を未確定から外す（この文書へ）。「題名に同時視聴の語が無い続きの回」を候補の仕組みとして書き直す（例は書かない） |
+| docs/data-model.md「データモデル」「取得用の内部テーブル」（CLAUDE.md から移した） | `candidates` の表・`WatchEvent.detect_source` に `ai_candidate`・答えの区分 `not_watchalong` |
+| docs/dev.md「実行方法」「ファイル構成」（CLAUDE.md から移した） | ai:pull・ai:push・ai:check・ai:ingest・`ai:queue --candidates`、`.claude/workflows/`・`.claude/agents/`・`.claude/hooks/`、`.env` の R2 の名前 |
 | CLAUDE.md「フェーズ」 | AI の判定の運用と候補を Phase 4 の公開の前に入れる |
 | src/resolve/ai.ts 6行 | 「定期実行のジョブからは入れない」→ 1章の読み替え |
 | src/report/ai.ts 32行 | 「ローカルの CLI。定期実行のジョブからは呼ばない」→ 同上（ai:ingest はジョブから呼ぶ） |

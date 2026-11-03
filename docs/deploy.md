@@ -12,7 +12,7 @@ CLAUDE.md の決定（Cloudflare Pages へ Actions から直接アップロー�
 | もの | 状態 |
 | --- | --- |
 | 取得・名寄せのジョブ（CLI） | ある（ローカルで実行している） |
-| サイトのビルド（集計・Astro。出力は `dist/`） | ある（2026-10-19。`npm run cli -- site:data` → `npm run site:build`。2026-10-26 21:40 のビルドで3,807ファイル・約97MB（og:image の PNG・HTML が大半。docs/workflows.md の 3,803 は 2026-10-22 の値）。og:image のキャッシュが無いと約3分） |
+| サイトのビルド（集計・Astro。出力は `dist/`） | ある（2026-10-19。`npm run cli -- site:data` → `npm run site:build`。2026-10-26 21:40 のビルドで3,807ファイル・約97MB（og:image の PNG・HTML が大半。docs/workflows.md 2-7 も 3,807）。og:image のキャッシュが無いと約3分） |
 | ワークフロー（`.github/workflows/`） | 無い（Phase 4） |
 | GitHub のリポジトリ | 無い（git の remote が未設定。予定は `kelly302/simulwatch`） |
 | Cloudflare（Workers・R2） | 未設定 |
@@ -55,7 +55,7 @@ CLAUDE.md の決定（Cloudflare Pages へ Actions から直接アップロー�
 3. バケットを1つ作る（例 `simulwatch-data`）。公開アクセス（r2.dev・独自ドメイン）は有効にしない。
    ライフサイクルのルールを2つ付ける（ダッシュボードか `npx wrangler r2 bucket lifecycle add`）:
    - `raw/` を30日で消す（6-4）。`raw/<日付>/` の日付は **UTC**（src/lib/rawlog.ts が run_id の先頭10文字＝ジョブを始めた時刻の UTC の日付を使う）。消える日はオブジェクトを置いた時刻から数えるので、日付のずれは消える日に関係しない
-   - `db/backup/` を14日で消す（docs/workflows.md の 11-4。日次の最初の書き戻しの前の DB。14日は workflows.md の推奨で、決まったら合わせる）
+   - `db/backup/` を14日で消す（docs/workflows.md の 11-4。日次の最初の書き戻しの前の DB。14日は 2026-10-30 に workflows.md 11-4 で決めた）
 4. R2 の API トークンを作る: R2 → API Tokens の Manage → 権限は **Object Read & Write**、対象は 3 のバケットだけ。
    **Access Key ID と Secret Access Key は作った直後の1回しか表示されない**
 5. workers.dev の**アカウントのサブドメイン**を決める（Workers & Pages → Your subdomain）。サイトの URL `<Worker名>.<サブドメイン>.workers.dev` の一部になるので、
@@ -83,7 +83,7 @@ Pages のプロジェクトを作る手順（`wrangler pages project create`）�
 | `SITE_URL` | Variable | 本番の URL `https://<Worker名>.<サブドメイン>.workers.dev`（B-5 で決める）。astro.config.mjs が config/site.yaml の仮の URL より優先して読む | ビルド |
 | `SCHEDULE_ENABLED` | Variable | `true` で schedule の回を動かす。最初の公開（6-8）が済むまで入れない | 日次 |
 
-上の2つは今の `.env` と同じ名前。Cloudflare の2つは公式の例の名前。docs/workflows.md 8章の `PAGES_PROJECT` は Workers に決めたので要らない（6-1）。
+上の2つは今の `.env` と同じ名前。Cloudflare の2つは公式の例の名前。前の下書きにあった `PAGES_PROJECT` は Workers に決めたので要らない（6-1。docs/workflows.md 8章からも外してある）。
 
 ### D. 最初の DB を R2 に置く
 
@@ -98,7 +98,7 @@ Pages のプロジェクトを作る手順（`wrangler pages project create`）�
 | --- | --- |
 | サイトのビルド | 集計 → 画面ごとの JSON と HTML → `dist/`。`_headers`（JSON に `X-Robots-Tag: noindex`）・`_redirects`（作品の URL が変わったときの 301）・404 ページ |
 | 日次のワークフロー | DB を取得 → `roster` → `crawl:daily` → `refresh` → 候補の選定と詳細 → AI の答えの取り込み（`ai:ingest`）→ `resolve` → `site:data` → DB を書き戻す → 取り込んだ答えを受け箱から移す → 生レスポンスを R2 へ → 中身が変わっていればビルド → アップロード（細部は docs/workflows.md の日次の節が正） |
-| 手動のワークフロー | ボタンで「ビルドとアップロードだけ」を実行する（`workflow_dispatch`）。入力 `resolve_all: true` で `resolve --all` も流す（ルールを直してコミット・push したあと、本番の DB で名寄せし直す。docs/workflows.md 11-5） |
+| 手動のワークフロー | ボタンで「ビルドとアップロードだけ」を実行する（`workflow_dispatch`）。入力 `resolve_all: true` で `resolve --all` も流す（ルールを直してコミット・push したあと、本番の DB で名寄せし直す。docs/workflows.md 3-2） |
 | keepalive のワークフロー | 月1回の軽いコミット（schedule が60日で止まるのを防ぐ） |
 
 2時間ごとのワークフローは 2026-10-27 にやめた（ユーザー決定。トップの「これから始まる枠」もやめた）。
@@ -109,11 +109,11 @@ Pages のプロジェクトを作る手順（`wrangler pages project create`）�
 - **R2 から DB を取れなかったら、そこで止める**。空の DB で始めて書き戻さない（既存データを消さない）
 - ジョブの途中のステップが失敗しても、DB の書き戻しは必ず行う
 - ビルドが失敗したらアップロードしない（前の版がそのまま公開され続ける）
-- アップロードの前に `dist/` のファイル数を数え、上限（20,000）に近づいたら止めて知らせる（2026-10-26 に3,807）
+- アップロードの前に `dist/` のファイル数を数え、上限（20,000）に近づいたら止めて知らせる（2026-10-26 に3,807。15,000 で警告・18,000 で止める。docs/workflows.md 2-7・11-5）
 - `site:data` は作品の公開キーと lastmod の表を DB に書くので、DB の書き戻しより前に動かす
 - `site:data` は最初に前回の `site-data.json` を消す。書き出しに失敗するとビルドがファイル無しで失敗し、アップロードしない（前の版が公開され続ける）。
   `data/site/` をキャッシュに入れても、古いデータを公開しない
-- og:image のキャッシュ（`data/site/og-cache/`）を残す（Actions のキャッシュか R2。無いと毎回約3分のびる）。ビルドが使わなかった画像は消すので、枚数は作品・配信者のページの数＋1
+- og:image のキャッシュ（`data/site/og-cache/`）を残す（Actions のキャッシュか R2。無いと毎回約3分のびる。docs/workflows.md 2-5 で Actions のキャッシュにした）。ビルドが使わなかった画像は消すので、枚数は作品・配信者のページの数＋1
 - schedule は正時（0分）を避ける（混雑で遅れる。公式の注意）
 
 ## 3. 毎回のアップロード（自動）
@@ -138,7 +138,7 @@ Pages のプロジェクトを作る手順（`wrangler pages project create`）�
   `wranglerVersion` で版を固定できる（README）。実装のときは `@v4` ではなく版（v4.1.3 など）かコミットで固定する
 - 20,000ファイルを使うには wrangler 4.34.0 以上（公式）。`_headers`・`_redirects` は `dist/` に置けばそのまま効く（公式）
 - `not_found_handling: "404-page"` で、いちばん近い `404.html` を 404 で返す（公式）
-- プレビュー（本番に出さずに確かめる URL）の出し方は、`wrangler versions upload` の版の URL を使う見込みだが、**2026-10-26 の時点で文書で確かめていない**
+- プレビュー（本番に出さずに確かめる URL）は、`wrangler versions upload --preview-alias preview` の版の URL を使う（2026-10-27 に Cloudflare の文書の Previews で確かめた。docs/workflows.md 2-8。Actions から動かしたときの出力は未確認）
 
 ## 4. 手でアップロードする（ローカルから）
 
@@ -146,7 +146,7 @@ Pages のプロジェクトを作る手順（`wrangler pages project create`）�
 
     npx wrangler login
     npm run cli -- site:data && npm run site:build                       # dist/ を作る
-    npx wrangler deploy                                                  # 本番へ（プレビューの手順は「3.」の未確認のとおり）
+    npx wrangler deploy                                                  # 本番へ（プレビューは npx wrangler versions upload --preview-alias preview。「3.」）
 
 プレビュー・版の URL も、URL を知っていれば誰でも見られる（Cloudflare Access で塞げる。公式）。
 
@@ -239,12 +239,12 @@ R2 の無料枠は保存 10GB-月（Standard のみ）。DB は gzip で約0.06G
   **消すかはユーザーに聞く**（まだ聞いていない・消していない）
 - 未確認: コミットのメッセージの本文などに Gmail のアドレスが書かれていないか（作者の欄以外）。書き換えるときに `git log --all` を検索して確かめる
 
-### 6-7. 公開後のローカルの作業（CLAUDE.md の未確定のまま）
+### 6-7. 公開後のローカルの作業（D-03 で決まった。正は docs/ai-ops.md・docs/workflows.md 6章）
 
 公開後は R2 の DB が正で、日次のジョブ（と手動のワークフロー）が書く。ローカルからは R2 の DB を書かない。
 - AI の判定: ローカルで作った答えを R2 の受け箱（`ai/inbox/`）に置き、日次のジョブが `ai:ingest` で取り込む（docs/ai-ops.md・docs/workflows.md 6章）
-- ルールを直したあとの `resolve --all`: コミットして push し、手動のワークフローを `resolve_all: true` で流す（docs/workflows.md 11-5）
-- CLAUDE.md の「未確定」の「AI の判定の公開後の運用」は、docs/ai-ops.md の決定で CLAUDE.md を直すときに一緒に直す
+- ルールを直したあとの `resolve --all`: コミットして push し、手動のワークフローを `resolve_all: true` で流す（docs/workflows.md 3-2）
+- CLAUDE.md の「未確定」（今は docs/backlog.md）の「AI の判定の公開後の運用」は、「決まった」に直してある（docs/decisions.md の D-03）
 
 ### 6-8. 最初の公開の段取り（提案）
 
@@ -264,14 +264,14 @@ GitHub の規約は、GitHub のランナーを「そのリポジトリのソフ
 
 ### 6-10. Workers に決めたことで CLAUDE.md・コード・設定で直す箇所（一覧。実装と同じコミットで直す）
 
-2026-10-27 に grep で探した（行番号はその時点）。このセッションでは直していない。
+2026-10-27 に grep で探した（行番号はその時点。2026-11-04 に CLAUDE.md の細部を docs/ に移したので、「どこ」を節の名前に直した）。このセッションでは直していない。
 
 | どこ | 今 | 直し方 |
 | --- | --- | --- |
-| CLAUDE.md 94行（技術スタック） | 「Cloudflare Pages。Actions からの直接アップロード」 | Cloudflare Workers の静的アセット。Actions から `wrangler deploy` |
-| CLAUDE.md 162行 | 「Cloudflare Pages の無料プランは1サイト20,000ファイルまで」 | Workers の無料プランも1版20,000ファイル（wrangler 4.34.0 以上）。中身はそのまま |
-| CLAUDE.md 163行・738行 | 「未決事項（Pages か Workers か・独自ドメイン・生レスポンスの保存期間など）は docs/deploy.md」 | 決定（Workers・workers.dev・30日）を書き、残りの未決だけを指す |
-| CLAUDE.md 771行（フェーズ） | 「Phase 4 公開と定期実行（Actions・R2・Pages）」 | Pages → Workers |
+| CLAUDE.md の技術スタック（もとの 94行） | 「Cloudflare Pages。Actions からの直接アップロード」 | Cloudflare Workers の静的アセット。Actions から `wrangler deploy` |
+| docs/ui.md の「Phase 3 の UI・SEO の決定」（もとの CLAUDE.md 162行） | 「Cloudflare Pages の無料プランは1サイト20,000ファイルまで」 | Workers の無料プランも1版20,000ファイル（wrangler 4.34.0 以上）。中身はそのまま |
+| docs/ui.md の「Phase 3 の UI・SEO の決定」・docs/backlog.md の未確定（もとの CLAUDE.md 163行・738行） | 「未決事項（Pages か Workers か・独自ドメイン・生レスポンスの保存期間など）は docs/deploy.md」 | 決定（Workers・workers.dev・30日）を書き、残りの未決だけを指す（docs/backlog.md の側は「決まった」に直してある） |
+| CLAUDE.md のフェーズ（もとの 771行） | 「Phase 4 公開と定期実行（Actions・R2・Pages）」 | Pages → Workers（直してある。今は「Actions・R2・Workers」） |
 | astro.config.mjs 56行のコメント | 「無くなったページには Pages のスラッシュの付け直しが効かないため」 | Workers の静的アセットの末尾スラッシュの扱い（`html_handling`）で同じことが起きるかを確かめてから直す（**未確認**。文書を読んでいない） |
 | config/site.yaml 3行 | 仮の URL と「Pages か Workers か・独自ドメインは公開の前に決める」 | 本番の URL（`https://<Worker名>.<サブドメイン>.workers.dev`）。Actions では Variable の `SITE_URL` が優先 |
 
@@ -280,7 +280,7 @@ GitHub の規約は、GitHub のランナーを「そのリポジトリのソフ
 - 404 は `wrangler.jsonc` の `not_found_handling: "404-page"`（3章）。Pages の「自動」に頼っていた所は無い（404.html はビルドが作っている）
 - 公開の URL は `<Worker名>.<アカウントのサブドメイン>.workers.dev`（6-2）
 - Search Console の所有権は HTML ファイルか meta タグ（6-8。DNS は使えない）
-- CLAUDE.md の 2時間ごと・「これから始まる枠」の記述（2026-10-27 の決定）は、このセッションの範囲外（docs/workflows.md・UI の側で一覧にする）
+- CLAUDE.md の 2時間ごと・「これから始まる枠」の記述（2026-10-27 の決定）は、このセッションの範囲外（docs/workflows.md・UI の側で一覧にする。一覧は docs/decisions.md の D-01・docs/phase4-plan.md の塊 A）
 
 ## 確かめた事実と出典（2026-10-07）
 
@@ -331,4 +331,4 @@ GitHub の規約は、GitHub のランナーを「そのリポジトリのソフ
 
 確かめられなかったこと（2026-10-23〜26）: AdSense の審査に workers.dev で通るか（文書に無い。申し込んでみるまで分からない）、
 R2 の登録に支払い方法が要るか（公式に無い）、R2 の使用量の通知の設定の場所、Workers へのデプロイのトークンに要る最小の権限、
-Workers のプレビュー（版の URL）の出し方、本番で日次のジョブを動かしたときの生レスポンスの量。
+Workers のプレビュー（版の URL）の出し方（2026-10-27 に文書で確かめた。docs/workflows.md 2-8）、本番で日次のジョブを動かしたときの生レスポンスの量。

@@ -25,7 +25,7 @@
 | 手動（publish） | `publish.yml` | `workflow_dispatch` | DB を取得 →（入力しだいで `resolve --all`）→ `site:data` → DB を書き戻す → ビルド → アップロード（本番かプレビュー） | 書く（下の注意） |
 | keepalive | `keepalive.yml` | schedule（月1回）＋ボタン | 軽いコミットを1つ push する | 書かない |
 
-- **手動も DB を書く**。`site:data` は作品の公開キーの表（work_public_keys）と lastmod の表（site_pages）を DB に書くので（CLAUDE.md「Phase 3 の実装」）、書き戻さないと R2 の DB とずれる。
+- **手動も DB を書く**。`site:data` は作品の公開キーの表（work_public_keys）と lastmod の表（site_pages）を DB に書くので（docs/ui.md「Phase 3 の実装」）、書き戻さないと R2 の DB とずれる。
   そのため日次と同じ concurrency の組に入れる（→ 5-1）
 
 ### R2 の置き場所（非公開のバケット1つ）
@@ -240,7 +240,7 @@ CLI のステップにはステップごとの `timeout-minutes` を付け、**�
 - GITHUB_TOKEN で push したコミットはワークフローを起動しない
 - 作者は `github-actions[bot]` の noreply のアドレス。個人のメールアドレスは出ない（docs/deploy.md 6-6 の noreply への書き換えとは別）
 - **ローカルの main が遅れる**。ローカルで push する前に `git pull --rebase` が要る。ファイル1つしか触らないので衝突はしない
-- それでも止まったら CLAUDE.md の次の手（Cloudflare Workers の Cron から workflow_dispatch で起動する）
+- それでも止まったら docs/crawl.md「schedule の60日自動停止への対策」の次の手（Cloudflare Workers の Cron から workflow_dispatch で起動する）
 
 ## 4. 失敗のときの動き（まとめ）
 
@@ -367,7 +367,7 @@ docs/ai-ops.md「2. 全体の流れ」の右の列（GitHub Actions）。ロー�
 | 遡り（新しいチャンネルが入ったとき） | 0〜3,000 | `backfill.max_units_per_run`。2026-09-23 の初回は3,549 |
 | **ふだんの合計** | **約 750〜800** | 2時間ごとの回（約 550〜650/日）が無くなった |
 | AI の判定の取り分（ローカルの `ai:queue`） | **600**（2026-10-26 ユーザー決定。docs/ai-ops.md の 5） | 2026-10-18 の report は 46 |
-| Tier 2 の取り分（Phase 5） | 約 1,500 | CLAUDE.md「crawl の分担」 |
+| Tier 2 の取り分（Phase 5） | 約 1,500 | docs/crawl.md「crawl の分担」 |
 
 - **AI の判定の取り分を除いた上限**: ジョブ側は `stop_at − ai_reserve` = 9,000 − 600 = **8,400** で止める。config/crawl.yaml の `quota` に `ai_reserve: 600` を足し、
   `Quota.remaining()`・`reserve()` でジョブ（job が hourly・daily）のときだけ引く（→ 9）。ローカルの `ai:queue` の「取り分を超えたら止める」は docs/ai-ops.md の 5 の側で作る
@@ -427,7 +427,7 @@ docs/ai-ops.md「2. 全体の流れ」の右の列（GitHub Actions）。ロー�
 
 - R2 の出し入れそのもの（落とす・置く・一覧・移す・メタデータ）は CLI にせず、ワークフローの中の AWS CLI の数行にする（2-2）。CLI にすると S3 の SDK を依存に足すことになる。
   ローカルの `ai:pull`・`ai:push` は CLI のコマンドで、中から `aws` を呼ぶ（2-2。2026-10-30 決定。作るのは ai-ops の側）。`.env.example` に R2 の4つの名前を足す
-- `db:check`・`db:pack` は**ワークフローを止めるための**コマンドなので、ほかのジョブと違って失敗で終了コード 1 を返す（CLAUDE.md の「ジョブの終了コードは 0」の例外として「実行方法」に書き足す）
+- `db:check`・`db:pack` は**ワークフローを止めるための**コマンドなので、ほかのジョブと違って失敗で終了コード 1 を返す（docs/dev.md の「ジョブの終了コードは 0」の例外として「実行方法」に書き足す）
 
 ### 直す
 
@@ -439,7 +439,7 @@ docs/ai-ops.md「2. 全体の流れ」の右の列（GitHub Actions）。ロー�
 | `src/resolve/ai.ts` の冒頭のコメント | 「定期実行のジョブからは入れない」→「判定は人が起動した回でだけ作り、ジョブは答えのファイルを取り込むだけ」（docs/ai-ops.md の 1。2026-10-26 決定） |
 | CLI のログ | 公開リポジトリの Actions のログに概要欄・判定の根拠を出していないか確かめる（2-9） |
 | `wrangler.jsonc`（新しく置く） | `name`・`compatibility_date`・`assets`（directory・`not_found_handling: "404-page"`）（docs/deploy.md 3） |
-| CLAUDE.md | 「確定している前提」の取得方式（2時間ごと → 日次）、「これは何か」の3つめ、「crawl の分担」、「技術スタック」（Pages → Workers・R2 の置き場所と concurrency の組）、「実行方法」に新しいコマンド、「フェーズ」。実装と同じコミットで |
+| CLAUDE.md | 「確定している前提」の取得方式（2時間ごと → 日次）、「これは何か」の3つめ、「crawl の分担」（今は docs/crawl.md）、「技術スタック」（Pages → Workers・R2 の置き場所と concurrency の組）、「実行方法」（今は docs/dev.md）に新しいコマンド、「フェーズ」。実装と同じコミットで |
 
 ## 10. 所要時間の見積もり
 
