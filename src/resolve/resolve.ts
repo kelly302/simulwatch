@@ -384,7 +384,7 @@ class Resolver {
   }
 }
 
-function loadTargets(ctx: Ctx, opts: ResolveOptions): Target[] {
+export function loadTargets(ctx: Pick<Ctx, "db" | "crawlCfg">, opts: ResolveOptions): Target[] {
   const cutoff = farFutureCutoff(ctx.crawlCfg.upcoming.max_days_ahead);
   const base = `SELECT e.id, e.video_id, e.title_raw, e.description_raw, e.started_at FROM watch_events e
     LEFT JOIN event_resolution er ON er.watch_event_id = e.id
@@ -411,7 +411,9 @@ function loadTargets(ctx: Ctx, opts: ResolveOptions): Target[] {
       break;
     }
   }
-  sql += " ORDER BY e.id";
+  // 未処理の枠を先、照会エラーの枠を後に（--limit が照会エラーの古い枠で埋まり、新しい枠が進まなくならないように）。
+  // u.reason が NULL（未処理・同定済み）は先頭、エラー以外の未同定は 0、照会エラーは 1
+  sql += " ORDER BY (u.reason = 'error'), e.id";
   if (opts.limit) sql += ` LIMIT ${Math.floor(opts.limit)}`;
   return ctx.db.prepare(sql).all(...params) as unknown as Target[];
 }

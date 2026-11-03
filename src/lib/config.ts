@@ -42,7 +42,7 @@ export interface RosterConfig {
 }
 
 export interface CrawlConfig {
-  quota: { daily_limit: number; stop_at: number; per_run: Record<string, number> };
+  quota: { daily_limit: number; stop_at: number; ai_reserve?: number; per_run: Record<string, number> };
   rss: { url: string };
   hourly: { run_interval_hours?: number; playlist_scan_interval_hours: number; playlist_scan_page_size: number };
   upcoming: { max_days_ahead: number };

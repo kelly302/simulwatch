@@ -7,6 +7,9 @@ quota:
   daily_limit: 10000
   # 1日の使用量がこれを超えたら、以降のAPI呼び出しをすべて止める（使い切らないための余白）
   stop_at: 9000
+  # AI の判定（ローカルの ai:queue。コメント・概要欄のリンク先）の1日の取り分。定期実行のジョブ（hourly・daily）は stop_at からこれを引いた値で止める
+  # （9000 - 600 = 8400。docs/workflows.md の 7・docs/ai-ops.md の 5）
+  ai_reserve: 600
   # ジョブ1回あたりの上限
   per_run:
     hourly: 300
