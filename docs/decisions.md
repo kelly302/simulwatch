@@ -22,6 +22,7 @@
 ### D-02 公開先は Cloudflare Workers・workers.dev・生レスポンスは R2 に30日・コミットの作者は noreply（2026-10-26）
 
 - 置き換えるもの: 技術スタックの「Cloudflare Pages」／決定 D（2026-10-19。「公開の前に決める」→ 決まった）
+- 進み具合: コミットの作者を noreply にするところは済（2026-11-04。履歴の書き換えと user.email）。Workers・R2 は塊 F・段6
 - 正の文書: docs/deploy.md の6章（直す箇所の一覧は 6-10）
 - 印を付けた本文: CLAUDE.md の技術スタック、docs/ui.md（Pages の20,000ファイル・決定 D）
 

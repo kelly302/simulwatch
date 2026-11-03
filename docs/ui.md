@@ -100,7 +100,7 @@ UI の会話が出した4つの推奨を、Phase 3 の会話でユーザーが�
   _redirects は末尾スラッシュの無い形も書く（2026-10-22。Fable のレビュー）
 - 作品が0の種類のタブ（/works/tokusatsu/ など）は作らない（固定のページなので、ビルドの終わりに astro.config.mjs が消す。タブのリンクと sitemap からは外してある。2026-10-26）。
   ランキングの枠数は config/site.yaml の top.ranking_top（トップ。5）と top.ranking_page（ランキングのページ。30）
-- ブラウザが操作のあとに読む JSON のページは site/pages/data/。**`.gitignore` は直下の `/data/` だけを無視する**（`data/` と書くと site/pages/data/ まで無視され、1de245b に入っていなかった。2026-10-20 に直した）
+- ブラウザが操作のあとに読む JSON のページは site/pages/data/。**`.gitignore` は直下の `/data/` だけを無視する**（`data/` と書くと site/pages/data/ まで無視され、a41fc60 に入っていなかった。2026-10-20 に直した）
 
 ### UI の作り直し（2026-10-20）
 
