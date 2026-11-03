@@ -47,6 +47,8 @@ export interface ExtractConfig {
       members_days?: number;
       /** チャンネルの動画のこの割合を超える動画（10本以上）に出る区間は、決まり文句として使わない */
       boilerplate_ratio?: number;
+      /** チャンネルのメン限の動画の ratio を超える動画（min 本以上）に出る区間は、メン限の見出しとして使わない（無ければ見ない） */
+      members_heading?: { ratio: number; min: number };
       /** 作品名でない区間の照合キー（正規表現） */
       ignore_keys?: string[];
     };
