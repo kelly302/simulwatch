@@ -214,14 +214,6 @@ export function formatMonth(iso: string | null): string {
   return `${d.getUTCFullYear()}/${pad(d.getUTCMonth() + 1)}`;
 }
 
-const WEEKDAY = "日月火水木金土";
-
-/** 予定枠の開始時刻「10/03(土) 21:00」（日本時間） */
-export function formatWhen(iso: string): string {
-  const d = jst(iso);
-  return `${d.getUTCMonth() + 1}/${pad(d.getUTCDate())}(${WEEKDAY[d.getUTCDay()]}) ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
-}
-
 /** 「2026-10-19」（日本時間。sitemap の lastmod） */
 export function isoDateJst(iso: string): string {
   return formatDate(iso).replaceAll("/", "-");

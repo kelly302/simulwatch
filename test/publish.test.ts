@@ -52,9 +52,9 @@ function work(db: DB, id: number, o: { annict?: number; anilist?: number; wikida
       o.series ?? null, o.series ? "シリーズ" : null, o.kind ?? "anime");
 }
 
-const build = (db: DB, now = NOW) => buildSiteData(db, { now, aiRoutes: AI_ROUTES, maxDaysAhead: 30, upcomingStaleHours: 6 });
+const build = (db: DB, now = NOW, publishUpcoming = false) => buildSiteData(db, { now, aiRoutes: AI_ROUTES, maxDaysAhead: 30, publishUpcoming, upcomingStaleHours: 6 });
 
-test("出す枠は publishState の work・frame だけ。予定枠は予定時刻から6時間で出さない（決定 A）", () => {
+test("出す枠は publishState の work・frame の終わった枠だけ。予定枠は出さない（D-01）。publish_upcoming なら予定時刻から6時間まで出す", () => {
   const db = freshDb();
   work(db, 1, { annict: 1 });
   const shown = ev(db, { streamer: 1, at: "2026-10-01T10:00:00Z", works: [[1]] });
@@ -65,9 +65,11 @@ test("出す枠は publishState の work・frame だけ。予定枠は予定時�
   ev(db, { streamer: 1, at: "2026-10-19T05:00:00Z", scheduled: "2026-10-19T05:00:00Z", status: "upcoming", views: null, works: [[1]] }); // 7時間前
   const pendingUp = ev(db, { streamer: 1, at: "2026-10-20T10:00:00Z", scheduled: "2026-10-20T10:00:00Z", status: "upcoming", views: null, route: "unresolved", reason: "not_found" });
   const d = build(db);
-  assert.deepEqual(d.events.map((e) => e.id).sort(), [shown, fresh, pendingUp].sort());
-  // 判定待ちの予定枠は作品を付けずに枠として出す（枠のタイトル）
-  assert.deepEqual(d.events.find((e) => e.id === pendingUp)!.frame, { named: false, title: `【同時視聴】枠${pendingUp}`, kind: null, movie: null });
+  assert.deepEqual(d.events.map((e) => e.id), [shown]);
+  // 切り替えで戻すと、決まった予定枠は6時間まで出る。判定待ちの予定枠は出さない（publishState は枠の状態を見ない）
+  const up = build(db, NOW, true);
+  assert.deepEqual(up.events.map((e) => e.id).sort(), [shown, fresh].sort());
+  assert.equal(up.events.some((e) => e.id === pendingUp), false);
 });
 
 test("集計: 終わった枠だけ。再生数は取れた枠だけで、取れた枠が無ければ NULL（0 と区別する）", () => {
@@ -89,10 +91,10 @@ test("集計: 終わった枠だけ。再生数は取れた枠だけで、取れ
   assert.equal(d.events.find((e) => e.membersOnly && e.works[0]!.id === 1)!.views, null);
   // 話数の表記
   assert.equal(d.events.find((e) => e.views === 500)!.works[0]!.episodes, "第1話〜第2話");
-  // 配信者の集計。予定枠しか無い配信者はページを作らない
+  // 配信者の集計。予定枠しか無い配信者は出さない（usedStreamers に数えない）
   const s = new Map(d.streamers.map((x) => [x.id, x]));
   assert.deepEqual([s.get(1)!.eventsCount, s.get(1)!.worksCount, s.get(1)!.hasPage], [2, 2, true]);
-  assert.equal(s.get(3)!.hasPage, false);
+  assert.equal(s.has(3), false);
 });
 
 test("作品を付けない枠の見せ方: 外部DBに無い作品・作品名だけの特定できない枠・確度 low", () => {
@@ -154,13 +156,13 @@ test("メン限の印があっても、終わった枠で再生数が取れて�
   const by = new Map(d.events.map((e) => [e.id, e]));
   assert.deepEqual([by.get(madePublic)!.membersOnly, by.get(madePublic)!.views], [false, 15790]);
   assert.deepEqual([by.get(members)!.membersOnly, by.get(members)!.views], [true, null]);
-  // 予定枠は再生数が無いので、印のまま
-  assert.deepEqual([by.get(upcoming)!.membersOnly, by.get(upcoming)!.views], [true, null]);
+  // 予定枠は出さない
+  assert.equal(by.has(upcoming), false);
   const w = d.works.find((x) => x.id === 1)!;
   assert.deepEqual([w.membersCount, w.viewsMax], [1, 15790]);
 });
 
-test("出す枠の境目: 配信中は出す・予定時刻が無ければ started_at で6時間・判定から外した枠・保留・確度 low・外部DBに無い作品の名前", () => {
+test("出す枠の境目: 配信中は出さない・予定時刻が無ければ started_at で6時間・判定から外した枠・保留・確度 low・外部DBに無い作品の名前", () => {
   const db = freshDb();
   work(db, 1, { annict: 1 });
   const live = ev(db, { streamer: 1, at: "2026-10-19T11:00:00Z", status: "live", views: null, works: [[1]] });
@@ -176,9 +178,9 @@ test("出す枠の境目: 配信中は出す・予定時刻が無ければ start
   // 外部DBに無い作品の名前は、付いた作品と一緒に並べる
   const missing = ev(db, { streamer: 2, at: "2026-10-04T10:00:00Z", route: "ai_identified", ai: { status: "identified", confidence: "high", extra: { missing: ["クネクネ"] } }, works: [[1]] });
   const d = build(db);
-  assert.deepEqual(d.events.map((e) => e.id).sort(), [live, low, missing].sort());
+  assert.deepEqual(d.events.map((e) => e.id).sort(), [low, missing].sort());
   const by = new Map(d.events.map((e) => [e.id, e]));
-  assert.equal(by.get(live)!.status, "live");
+  assert.equal(build(db, NOW, true).events.find((e) => e.id === live)!.status, "live");
   assert.deepEqual([by.get(low)!.works, by.get(low)!.frame!.named], [[], false]);
   assert.deepEqual(by.get(missing)!.missing, ["クネクネ"]);
   assert.deepEqual(d.skipped, { noWorks: [] });

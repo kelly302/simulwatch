@@ -55,10 +55,6 @@ export function ranking(days: number, limit: number): SiteEvent[] {
     .slice(0, limit);
 }
 
-/** これから始まる枠（配信中を先頭に、そのあと開始の早い順） */
-export const upcoming = site.events.filter((e) => e.status === "upcoming" || e.status === "live")
-  .sort((a, b) => (a.status === "live" ? 0 : 1) - (b.status === "live" ? 0 : 1) || a.startedAt.localeCompare(b.startedAt));
-
 // ---------------------------------------------------------------- 作品一覧
 
 export const TAB_LABEL: Record<WorkTab, string> = { all: "すべて", anime: "アニメ", tokusatsu: "特撮", "live-action": "実写" };

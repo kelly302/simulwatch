@@ -169,24 +169,6 @@ test("サイトでの出し方: AI に回す型の枠は AI が確かめるま�
   assert.equal(needsAi({ type: "not_a_work_rule", sub: "スポーツ" }, routes), true);
 });
 
-test("サイトでの出し方: 予定枠・配信中の枠は、AI の判定待ちでも枠として出す（作品ではない語に当たった枠・型なしは出さない）", () => {
-  const routes = ["redirect", "unresolved", "not_a_work_conflict", "not_a_work_rule:スポーツ"];
-  const base = { sub: null, ai: null, hasWorks: false, unresolvedReason: null };
-  // 判定待ちの予定枠・配信中の枠は枠として出す。終わったら判定するまで出さない
-  assert.equal(publishState({ ...base, type: "unresolved", unresolvedReason: "not_found", eventStatus: "upcoming" }, routes), "frame");
-  assert.equal(publishState({ ...base, type: "redirect", hasWorks: true, eventStatus: "live" }, routes), "frame");
-  assert.equal(publishState({ ...base, type: "redirect", hasWorks: true, eventStatus: "completed" }, routes), "pending_ai");
-  assert.equal(publishState({ ...base, type: "redirect", hasWorks: true, ai: { status: "hold", confidence: "low" }, eventStatus: "upcoming" }, routes), "frame");
-  // 決まっている枠は予定枠でも同じ
-  assert.equal(publishState({ ...base, type: "unique_exact", hasWorks: true, eventStatus: "upcoming" }, routes), "work");
-  assert.equal(publishState({ ...base, type: "unresolved", ai: { status: "not_a_work", confidence: "high" }, eventStatus: "upcoming" }, routes), "hidden");
-  assert.equal(publishState({ ...base, type: "not_a_work_rule", sub: "eスポーツ・大会", unresolvedReason: "not_a_work", eventStatus: "upcoming" }, routes), "hidden");
-  // ルールが作品ではない語に当てた枠と、まだ名寄せしていない枠は、予定枠でも判定を待つ
-  assert.equal(publishState({ ...base, type: "not_a_work_conflict", unresolvedReason: "not_a_work", eventStatus: "upcoming" }, routes), "pending_ai");
-  assert.equal(publishState({ ...base, type: "not_a_work_rule", sub: "スポーツ", unresolvedReason: "not_a_work", eventStatus: "live" }, routes), "pending_ai");
-  assert.equal(publishState({ ...base, type: null, eventStatus: "upcoming" }, routes), "pending_ai");
-});
-
 test("判定役に見せる手がかり: 同じ作品名の枠（日付順・この枠の位置）と前後の枠、リンク先の題名", async () => {
   const { frameContext, pageTitle, pickLinks } = await import("../src/report/neighbors.ts");
   const { loadExtractConfig } = await import("../src/resolve/config.ts");

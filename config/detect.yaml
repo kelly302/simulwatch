@@ -28,7 +28,8 @@ title:
     # 文中の watching（「BIG ROCO IS WATCHING YOU」「while watching the MAP」）は拾わない。「watch party」は eスポーツの観戦が大半なので入れない
     - 're:(^|[】\])|｜>(\[【「『])watching'
     # 2026-10-19。続きの回の計測（docs/ai-runs.md）で、題名に同時視聴の語が無く miss に残っていた同時視聴枠から、見た限り全部が同時視聴だった語だけを足した
-    # （let's watch・一緒に観る・視聴会は同時視聴でない動画が混ざるので入れない。予定枠は AI の判定を待たずに出るため）
+    # （let's watch・一緒に観る・視聴会は同時視聴でない動画が混ざるので入れない。2026-10-19 の時点では予定枠が AI の判定を待たずに出ていたため。
+    #   D-01 で予定枠は出さなくなった。弱い語を足すかは続きの回の候補（D-04）の側で決める）
     - 're:watchalon(?!e)'  # 誤字の「WATCHALON」（空白を落とすので「watch alone」は除く）。watchalong もここに当たるが、上の watchalong が先に当たる
     - watchlong            # 誤字の「WATCHLONG」
     - 're:nobar(?!a)'      # インドネシア語の「nonton bareng」（一緒に観る）。NIJISANJI ID の「NOBAR STREAM」。「Nobara」（釘崎野薔薇）は除く

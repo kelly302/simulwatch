@@ -32,7 +32,7 @@ import type { UnresolvedReason } from "./resolve/types.ts";
 const HELP = `
 コマンド（取得）:
   roster          Tier 1 の一覧を公式サイトと同期する（日次）
-  crawl:hourly    RSS の差分 + playlistItems の一部 + 予定枠・配信中の状態更新（毎時）
+  crawl:hourly    RSS の差分 + playlistItems の一部 + 予定枠・配信中の状態更新（定期実行では流さない。D-01 で日次だけにした。戻すときのために残す）
   crawl:daily     全チャンネルの uploads 先頭 + メン限プレイリスト + 過去分の遡り（日次）
                   [--backfill-units N] で遡りの予算をその回だけ変える
   refresh         全枠の再生数・状態の取り直しとアーカイブ死活チェック（日次）
@@ -294,11 +294,12 @@ async function main(): Promise<number> {
     case "ai:status": {
       const s = publishSummary({ db: openDb(), crawlCfg: loadCrawlConfig() } as unknown as Ctx, loadExtractConfig());
       const label: Record<string, string> = { work: "作品を付けて出す", frame: "枠として出す", hidden: "出さない（作品ではない）", pending_ai: "AI の判定待ち（出さない）" };
-      console.log("サイトでの出し方（一覧に出る枠）");
+      console.log("サイトでの出し方（一覧に出る終わった枠）");
       for (const [k, v] of Object.entries(s.states)) console.log(`  ${label[k] ?? k}	${v}`);
       console.log("AI の判定待ちの内訳（型）");
       for (const [k, v] of Object.entries(s.pendingByRoute).sort((a, b) => b[1] - a[1])) console.log(`  ${k}	${v}`);
       if (s.noRoute) console.log(`型が記録されていない枠 ${s.noRoute}（resolve を流すと記録される）`);
+      if (s.notEnded) console.log(`終わっていない枠（予定枠・配信中）${s.notEnded}（サイトに出さず、終わってから判定する）`);
       return 0;
     }
     case "site:data": {

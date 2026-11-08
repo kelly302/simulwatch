@@ -5,7 +5,7 @@ import type { Affiliation, Branch, WorkKind, WorkMedia } from "../../src/shared/
 import { AFFILIATION_LABEL, BRANCH_LABEL } from "../../src/shared/types.ts";
 import type { Season } from "../../src/shared/site.ts";
 import {
-  formLabel, formatDate, formatViews, formatWhen, iconAt, metaLine, multiMetaLine, thumbnailUrl, youtubeUrl, workPath,
+  formLabel, formatDate, formatViews, iconAt, metaLine, multiMetaLine, thumbnailUrl, youtubeUrl, workPath,
 } from "../../src/shared/site.ts";
 import type { DictWork, TopDict, TopRow, WorkListRow } from "./encode.ts";
 import { unpackImage } from "./encode.ts";
@@ -47,7 +47,7 @@ export function avatarHtml(name: string, icon: string | null, px: number, cls = 
 
 /** 枠の行（TopRow）と辞書から枠カードを作る */
 export function cardHtml(row: TopRow, dict: TopDict, opt: CardOptions = {}): string {
-  const [videoId, t, views, members, sid, ws, frame, missing, status] = row;
+  const [videoId, t, views, members, sid, ws, frame, missing] = row;
   const st = dict.s[sid];
   const s: CardStreamer = st ? { href: st[0], name: st[1], aff: st[2], branch: st[3], icon: st[4] } : { href: "", name: "", aff: "other", branch: "jp", icon: "" };
   const works = ws.map((x) => {
@@ -83,14 +83,7 @@ export function cardHtml(row: TopRow, dict: TopDict, opt: CardOptions = {}): str
   const who = `${avatarHtml(s.name, s.icon || null, 22)}<span class="nm">${esc(s.name)}</span>${brTag}`;
   const whoHtml = s.href ? `<a class="who" href="${esc(s.href)}">${who}</a>` : `<span class="who">${who}</span>`;
 
-  let foot: string;
-  if (status === "live") {
-    foot = `<span class="badge live">LIVE</span><span class="when now">配信中</span>${members ? '<span class="badge mem">メン限</span>' : ""}`;
-  } else if (status === "upcoming") {
-    foot = `<span class="when">${esc(formatWhen(iso))}</span>${members ? '<span class="badge mem">メン限</span>' : ""}`;
-  } else {
-    foot = `<span>${esc(formatDate(iso))}</span>${members ? '<span class="badge mem">メン限</span>' : `<span class="views">${esc(formatViews(views))}</span>`}`;
-  }
+  const foot = `<span>${esc(formatDate(iso))}</span>${members ? '<span class="badge mem">メン限</span>' : `<span class="views">${esc(formatViews(views))}</span>`}`;
 
   const lazy = opt.lazy === false ? "" : ' loading="lazy"';
   return `<article class="card">

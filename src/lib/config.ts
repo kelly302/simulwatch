@@ -72,6 +72,8 @@ export function loadDetectConfig(): DetectConfig {
 export interface SiteConfig {
   site_url: string;
   site_name: string;
+  /** 予定枠・配信中の枠をサイト用のデータに入れるか（D-01 で false） */
+  publish_upcoming: boolean;
   upcoming_stale_hours: number;
   top: { ranking_top: number; ranking_page: number; ranking_periods: number[]; recent_html: number; recent_json: number };
   works_page_size: number;

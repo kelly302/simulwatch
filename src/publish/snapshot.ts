@@ -10,7 +10,8 @@ import { splitMembers } from "../resolve/splitcour.ts";
 
 // サイト用のデータ（SiteData）を DB から書き出す（Phase 3）。Astro のビルドはこのデータだけを読む。
 //
-//   - 出す枠は publishState（src/resolve/route.ts）が work・frame の枠。予定枠は予定時刻から upcoming_stale_hours を過ぎたら出さない（決定 A）
+//   - 出す枠は publishState（src/resolve/route.ts）が work・frame の終わった枠。予定枠・配信中の枠は出さない（2026-10-27 の決定 D-01。終わってから判定されて出る）。
+//     config/site.yaml の publish_upcoming を true にすると、予定枠・配信中の枠も出す（予定時刻から upcoming_stale_hours を過ぎた予定枠は出さない）
 //   - 集計値（views_max など）は書き出しのたびに作り直す（終わった枠だけ。再生数は公開枠だけ）
 //   - 作品の公開キーを付け直し（keys.ts）、ページの中身の指紋から中身が変わった日（lastmod）を決める。この2つは DB に書く
 //     （トランザクションは呼ぶ側で張る。export.ts）
@@ -19,6 +20,8 @@ export interface SnapshotOptions {
   now: Date;
   aiRoutes: string[];
   maxDaysAhead: number;
+  /** 予定枠・配信中の枠も出すか（config/site.yaml の publish_upcoming。D-01 で false） */
+  publishUpcoming: boolean;
   upcomingStaleHours: number;
 }
 
@@ -148,9 +151,10 @@ export function buildSiteData(db: DB, opts: SnapshotOptions): SiteData {
     const state = publishState({
       type: r.route, sub: r.route_sub,
       ai: r.ai_status ? { status: r.ai_status, confidence: r.ai_conf ?? "" } : null,
-      hasWorks: !!r.has_works, unresolvedReason: r.reason, eventStatus: r.status,
+      hasWorks: !!r.has_works, unresolvedReason: r.reason,
     }, opts.aiRoutes);
     if (state !== "work" && state !== "frame") continue;
+    if (r.status !== "completed" && !opts.publishUpcoming) continue;
     if (r.status === "upcoming" && (r.scheduled_start_at ?? r.started_at) < staleBefore) continue;
     const extra = parseJson<AiExtra>(r.ai_extra);
     const ws = state === "work" ? [...(worksOfEvent.get(r.id) ?? new Map()).entries()] : [];

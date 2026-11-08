@@ -183,9 +183,8 @@ export function needsAi(r: { type: string; sub?: string | null }, aiRoutes: stri
  *   hidden     出さない（作品ではない）
  *   pending_ai AI の判定待ち（出さない。AI が保留にした枠もここ）
  *
- * 予定枠・配信中の枠（2026-10-11 決定）: 作品の同定を待たずに出す。AI の判定待ちでも枠として出す（作品は付けない）。
- * 予定枠は開始までの数日しか無く、判定を待つと「これから始まる枠」に間に合わないため。終わった枠は今までどおり、判定するまで出さない。
- * ルールが作品ではない語に当てた枠（not_a_work_rule は hidden。not_a_work_conflict は判定待ちのまま）と、まだ名寄せしていない枠（型なし）は、予定枠でも出さない
+ * 枠の状態（予定枠・配信中・終わった枠）は見ない。予定枠・配信中の枠をサイトに出さないのは書き出しの側（src/publish/snapshot.ts。2026-10-27 の決定 D-01）。
+ * D-01 の前は、予定枠・配信中の枠を AI の判定待ちでも枠として出していた（2026-10-11 決定。「これから始まる枠」に間に合わせるため）
  */
 export type PublishState = "work" | "frame" | "hidden" | "pending_ai";
 
@@ -197,21 +196,7 @@ export function publishState(
     ai: { status: string; confidence: string } | null;
     hasWorks: boolean;
     unresolvedReason: string | null;
-    /** 枠の状態（upcoming / live / completed）。省くと終わった枠と同じ扱い */
-    eventStatus?: string | null;
   },
-  aiRoutes: string[],
-): PublishState {
-  const s = settledState(p, aiRoutes);
-  const upcomingOrLive = p.eventStatus === "upcoming" || p.eventStatus === "live";
-  // ルールが作品ではない語に当てた枠（区間が作品にも当たって AI に回したもの・AI に回す語の種類）は、予定枠でも判定を待つ
-  if (s === "pending_ai" && upcomingOrLive && p.type && p.unresolvedReason !== "not_a_work") return "frame";
-  return s;
-}
-
-/** 枠の状態を見ない出し方（終わった枠の出し方） */
-function settledState(
-  p: { type: string | null; sub: string | null; ai: { status: string; confidence: string } | null; hasWorks: boolean; unresolvedReason: string | null },
   aiRoutes: string[],
 ): PublishState {
   // AI が保留にした枠は、型に関係なく出さない（ルールのまま出す型の枠を ai:queue --video で回して保留になったときも。2026-10-22 ユーザー決定）
