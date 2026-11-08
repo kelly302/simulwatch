@@ -40,6 +40,8 @@
 - 中身: 公開の前に作る。最初の候補は3層（弱い語は判定役の試しのあとに決める）。候補の表 candidates・答えの区分 not_watchalong・`detect_source = ai_candidate`
 - 正の文書: docs/ai-ops.md の3章
 - 印を付けた本文: docs/backlog.md（題名に同時視聴の語が無い続きの回）、docs/crawl.md（detect の弱い語）、docs/data-model.md（detect_source）
+- 進み具合（2026-11-08）: 塊 D2（判定役の試し）を済ませた。110本で正解が「同時視聴でない」49本に yes は0（95%上限 5.9%）、取りこぼし0。結果と手順は docs/ai-runs.md の 2026-11-08 の節。
+  層を絞るか・弱い語を入れるかはまだ決めていない（塊 D3b でユーザーが決める）
 
 ### D-05 Phase 4 の進め方（2026-10-30）
 
