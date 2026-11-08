@@ -1,9 +1,9 @@
 /*
  * サイト全体のスタイル（2026-10-20。ユーザーが雰囲気の3案から「ポップ」を選んだ）。
  *   薄い桃色の地（--page）に白い角丸のカード（--card）。罫は使わず、面と余白で区切る。
- *   桃色（--uv）は選択中・主なボタン・リンク・順位の数字、水色（--sky）は「これから始まる枠」の面。
+ *   桃色（--uv）は選択中・主なボタン・リンク・順位の数字。（水色の「これから始まる枠」の面は 2026-10-27 の決定 D-01 で外した）
  *   見出しは 800、本文の太字は 700。字間は詰めない（日本語が窮屈になるため）。角は札が丸、カードは 22px、サムネは 14px。
- *   構成は「棚」: トップのランキング・これから始まる枠・よく同時視聴される作品は横に流す。スマホは画面の下にタブ。
+ *   構成は「棚」: トップのよく同時視聴される作品は横に流す（ランキングは縦の順位表）。スマホは画面の下にタブ。
  * スマホ前提の1カラム。幅が広がるとカードの列を 2→3→4 に増やす。最大 1160px。
  * Web フォントは使わない（端末の日本語フォント。2026-10-03 決定）。サムネには何も重ねない。
  */
@@ -11,8 +11,7 @@
   --page: #FFF5FA; --card: #FFFFFF; --soft: #FCEEF5; --ink: #2A2233; --sub: #5E5568; --faint: #6E6578;
   --hair: #F3E2EB; --ctl: #8E7E8B;
   --uv: #C81E66; --on-uv: #FFFFFF; --link: #B3175A;
-  --sky: #E2F2FF; --on-sky: #1E2A3A; --mint: #8FD3FF; --mark: #FFD3E6;
-  --live: #D9002B; --on-live: #FFFFFF; --live-text: #C40027;
+  --mint: #8FD3FF; --mark: #FFD3E6;
   --ph: #F6E7EF; --shadow: 0 2px 10px rgba(200, 30, 102, 0.06);
   --font: system-ui, -apple-system, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Yu Gothic UI', 'Meiryo', sans-serif;
   --tabbar: 57px;
@@ -23,8 +22,7 @@
     --page: #17111D; --card: #221A29; --soft: #2E2436; --ink: #FBEFF6; --sub: #C9B9C6; --faint: #A898A6;
     --hair: #3A2E42; --ctl: #7E6E86;
     --uv: #FF6FA8; --on-uv: #1A1420; --link: #FF8CBA;
-    --sky: #1C2A3A; --on-sky: #E6F3FF; --mint: #4FA9E0; --mark: #6A2A4C;
-    --live-text: #FF6F86;
+    --mint: #4FA9E0; --mark: #6A2A4C;
     --ph: #2E2436; --shadow: none;
     color-scheme: dark;
   }
@@ -81,10 +79,6 @@ h2 .count { display: block; margin: 2px 0 0 18px; font-size: 13px; font-weight: 
 .note { margin: 0; font-size: 12px; color: var(--sub); line-height: 1.6; }
 .see-all { min-height: 44px; display: inline-flex; align-items: center; font-weight: 700; color: var(--link); }
 
-/* これから始まる枠（水色のカード）。中の色はこの面の上だけ変える */
-section.block.band { background: var(--sky); box-shadow: none; color: var(--on-sky);
-  --ink: var(--on-sky); --sub: var(--on-sky); --faint: var(--on-sky); --card: var(--sky); }
-
 /* ボタン・札・切り替え・選択は、見た目の高さを 40px にそろえる（2026-10-21）。切り替えは札が外枠いっぱいで、選んだ札も 40px。押せる高さは 44px（::before・::after で上下に広げる） */
 /* 丸い札の切り替え（期間・並び順）。札が外枠いっぱい（選んだ札もほかの札・ボタンと同じ 40px） */
 .utabs, .keys { display: inline-flex; flex-wrap: wrap; border-radius: 20px; background: var(--soft); }
@@ -135,7 +129,6 @@ section.block.band { background: var(--sky); box-shadow: none; color: var(--on-s
 .rail-btns { display: none; gap: 6px; }
 @media (hover: hover) and (pointer: fine) { .rail-btns { display: flex; } }
 .rail-btns button { width: 40px; height: 40px; border: 0; border-radius: 50%; background: var(--soft); color: var(--uv); cursor: pointer; display: flex; align-items: center; justify-content: center; }
-section.band .rail-btns button { background: rgba(255, 255, 255, 0.6); color: var(--on-sky); }
 .rail-btns button:disabled { color: var(--faint); opacity: 0.5; cursor: default; }
 
 /* ---------------------------------------------------------------- 枠カード（site/lib/views.ts の cardHtml） */
@@ -167,9 +160,6 @@ a.who:hover .nm { text-decoration: underline; }
 .badge { padding: 0 8px; border-radius: 10px; font-size: 11px; font-weight: 700; white-space: nowrap; line-height: 1.6; }
 .badge.mem { background: #E6F3FF; color: #1D4F7A; }
 .foot .badge.mem { margin-left: auto; }
-.badge.live { background: var(--live); color: var(--on-live); letter-spacing: 0.04em; font-weight: 800; }
-.when { font-weight: 800; color: var(--ink); font-size: 13px; }
-.when.now { color: var(--live-text); }
 .skel .thumb, .skel .bar { background: var(--ph); }
 .skel .bar { height: 12px; border-radius: 6px; }
 @media (prefers-reduced-motion: no-preference) { .skel { animation: pulse 1.2s ease-in-out infinite; } }
