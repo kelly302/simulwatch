@@ -40,6 +40,9 @@
 - 中身: 公開の前に作る。最初の候補は3層（弱い語は判定役の試しのあとに決める）。候補の表 candidates・答えの区分 not_watchalong・`detect_source = ai_candidate`
 - 正の文書: docs/ai-ops.md の3章
 - 印を付けた本文: docs/backlog.md（題名に同時視聴の語が無い続きの回）、docs/crawl.md（detect の弱い語）、docs/data-model.md（detect_source）
+- 進み具合: 2026-11-08 に塊 D1（候補の選定と件数）を作った。3層の選び方（src/candidates/select.ts・config/candidates.yaml）・メン限の見出しの区間を除く決まり（neighbors.ts と共有）・
+  `candidates:select --dry-run`（件数と一覧だけ）。巡回の前の DB で 201本・今の DB でも 201本（docs/ai-runs.md の 2026-11-08 の節）。
+  残り: D2（判定役の試し）・D3a（表と保存・fetch・反映）・D3b（層と語の設定・GUIDE）
 
 ### D-05 Phase 4 の進め方（2026-10-30）
 

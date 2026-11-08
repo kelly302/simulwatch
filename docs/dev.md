@@ -74,6 +74,7 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- ai:report ai-run-1 --exclude-scored data/ai/ai-run-1/scores-sample150.md   # 採点済みを除いた残り（保留・特定できない・外部DBに無いは全部）
     npm run cli -- ai:revoke --batch ai-trial-1                         # 判定の取り消しとルールでの名寄せし直し
     npm run cli -- ai:status                                            # サイトでの出し方ごとの件数と、AI の判定待ちの型の内訳
+    npm run cli -- candidates:select --dry-run                          # 続きの回の候補（docs/ai-ops.md 3-1）の層ごとの件数と一覧（data/review/candidates-select.{json,md}。DB は読むだけ。表への保存は D3a）
     npm run cli -- works:enrich [--all]                                 # 作品の属性（映像の種類・制作国・シリーズの名前）を外部DBから埋める
     npm run cli -- audit:types                     # 同定の型ごとの件数と目印の重なり（data/audit/types.md。DB は変えない）
     npm run cli -- audit:sample --seed audit-1     # 型ごとの抽出。AI に見せる待ち行列と封をしたルールの答え（data/audit/<batch>/）

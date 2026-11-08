@@ -176,7 +176,7 @@ function countKey(videos: Video[], k: string): { all: number; members: number; m
  *   - 作品名でない区間（ai_context.other_videos.ignore_keys）
  *   - チャンネルの動画の boilerplate_ratio を超える動画（10本以上）に出る区間（「APEX」「MEMBERSHIP STREAM」）
  *   - メン限の見出しの区間: チャンネルのメン限の動画の members_heading.ratio を超える動画（members_heading.min 本以上）に出る区間
- *     （「メンゲン」「メンゲンノチカラ」「konbinicrew」。メン限の見出しはチャンネルの全動画の3%に届かず、boilerplate_ratio では落ちない。2026-11-04）
+ *     （「メンゲン」「メンゲンノチカラ」「konbinicrew」。メン限の見出しはチャンネルの全動画の3%に届かず、boilerplate_ratio では落ちない。2026-11-08）
  * を除く。判定役に見せる同じ作品名の動画（otherVideos）と、続きの回の候補（src/candidates/select.ts）が同じ決まりを使う。
  * frames は配信者の同時視聴枠（決まり文句の判定に使う）
  */

@@ -26,6 +26,9 @@ import { lookup } from "./report/lookup.ts";
 import { exportSiteData, SITE_DATA_PATH } from "./publish/export.ts";
 import { loadSiteConfig } from "./lib/config.ts";
 import type { UnresolvedReason } from "./resolve/types.ts";
+import { DatabaseSync } from "node:sqlite";
+import { DB_PATH } from "./lib/paths.ts";
+import { candidatesDryRun } from "./candidates/select.ts";
 
 // 使い方: npm run cli -- <command> [options]
 
@@ -72,6 +75,8 @@ const HELP = `
   ai:revoke       判定を取り消して、ルールで名寄せし直す [--batch B] [--video ID,...]
   works:enrich    作品の属性（映像の種類・制作国・シリーズの名前）を外部DBから埋める [--all（全部埋め直す）]
   ai:status       サイトでの出し方（作品を付けて出す・枠として出す・出さない・AI の判定待ち）ごとの件数と、判定待ちの型の内訳
+  candidates:select --dry-run  題名に同時視聴の語が無い続きの回の候補（docs/ai-ops.md 3-1。config/candidates.yaml）を選び、
+                  層ごとの件数を表示して一覧を data/review/candidates-select.{json,md} に書く（DB は読むだけ。表への保存はまだ無い）
 
 コマンド（公開。Phase 3）:
   site:data       サイト用のデータ（集計・作品の公開キー・ページの更新日）を data/site/site-data.json に書き出す。
@@ -113,6 +118,7 @@ async function main(): Promise<number> {
       "exclude-scored": { type: "string" },
       "include-high": { type: "boolean" },
       "include-hold": { type: "boolean" },
+      "dry-run": { type: "boolean" },
     },
   });
   const cmd = positionals[0];
@@ -299,6 +305,15 @@ async function main(): Promise<number> {
       console.log("AI の判定待ちの内訳（型）");
       for (const [k, v] of Object.entries(s.pendingByRoute).sort((a, b) => b[1] - a[1])) console.log(`  ${k}	${v}`);
       if (s.noRoute) console.log(`型が記録されていない枠 ${s.noRoute}（resolve を流すと記録される）`);
+      return 0;
+    }
+    case "candidates:select": {
+      if (!values["dry-run"]) {
+        console.log("候補の表への保存はまだ無い（docs/phase4-plan.md の D3a）。--dry-run を付けて件数と一覧だけを出す");
+        return 1;
+      }
+      const r = candidatesDryRun(new DatabaseSync(DB_PATH, { readOnly: true }), loadExtractConfig(), loadCrawlConfig().upcoming.max_days_ahead);
+      console.log(r);
       return 0;
     }
     case "site:data": {
