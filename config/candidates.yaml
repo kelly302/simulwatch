@@ -1,0 +1,40 @@
+# 続きの回の候補（題名に同時視聴の語が無い続きの回。docs/ai-ops.md 3-1・決定 D-04）。src/candidates/select.ts が読む。
+# 候補は同時視聴枠にならなかった動画（videos_seen）から選び、人が起動した AI の判定役が「同時視聴か・どの作品か」を答える。
+# 種の枠 = 一覧に出る同時視聴枠のうち、サイトで出さない（作品ではない）もの以外。
+# 作品名の区間は判定役に見せる「同じ作品名の動画」と同じ決まり（src/report/neighbors.ts の videoKeys。
+# config/extract.yaml の ai_context.other_videos の ignore_keys・boilerplate_ratio・members_heading）。
+
+# 使う層（2026-10-23 の計測で当たりの多かった3層）。弱い語（weak_word）は判定役の試し（docs/ai-ops.md 6-2）のあとに入れるかを決める（決定 4）
+#   same_work_members: 種の枠の作品名の区間を題名に含むメン限の動画
+#   continuation_word: メン限で、(種の枠の作品名の区間を含む か 同じ配信者のメン限の種の枠の前後 members_days 日) で、続きの語に当たる
+#   same_title_body:   同じチャンネルの種の枠と、題名の本体（NFKC・小文字。【】の中身・感嘆符・空白を除く）が同じ（本体 title_body_min_chars 文字以上）
+layers:
+  - same_work_members
+  - continuation_word
+  - same_title_body
+
+members_days: 30
+title_body_min_chars: 4
+
+# 続きの語（正規表現。題名を NFKC にして、大文字と小文字を区別せずに見る）。
+# 2026-10-18 の R3 の式に、レビューで足した「第の無い N話」と「観ようよ」を足したもの（docs/ai-runs.md の 2026-10-23 の節）
+continuation_words:
+  - 'season'
+  - 'シーズン'
+  - 'episode'
+  - '\bep\.?\s*\d'
+  - '\beps?\d'
+  - 'part\s*\d'
+  - '第\s*[0-9一二三四五六七八九十]+\s*(話|期|章|部)'
+  - '最終(回|話)'
+  - 'finale'
+  - 'finish'
+  - 'final\b'
+  - '続き'
+  - 'つづき'
+  - '後編'
+  - '前編'
+  - '[0-9一二三四五六七八九十]+\s*話'
+  - '観ようよ'
+  - '見ようよ'
+  - 'みようよ'

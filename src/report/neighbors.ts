@@ -93,6 +93,7 @@ export function frameContext(frames: Frame[], eventId: number, title: string, cf
 
 /** 同時視聴枠にならなかった動画（videos_seen の題名だけ） */
 export interface Video {
+  id: string;
   /** 公開日（日本時間）。ライブ配信は枠を作った日で、配信日と数日ずれることがある */
   date: string;
   /** 公開日時（ミリ秒）。この枠に近い順に選ぶのに使う */
@@ -115,15 +116,15 @@ export interface OtherVideos {
 /** 配信者ごとの、同時視聴枠にならなかった動画（日付順）。判定から外した枠（excluded_at）はこちらに入る */
 export function streamerVideos(ctx: Pick<Ctx, "db">, cfg: ExtractConfig): (streamerId: number) => Video[] {
   const memo = new Map<number, Video[]>();
-  const q = ctx.db.prepare(`SELECT v.published_at, v.title, v.is_members_hint FROM videos_seen v JOIN streamers s ON s.channel_id = v.channel_id
+  const q = ctx.db.prepare(`SELECT v.video_id, v.published_at, v.title, v.is_members_hint FROM videos_seen v JOIN streamers s ON s.channel_id = v.channel_id
     WHERE s.id = ? AND v.published_at IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM watch_events e WHERE e.video_id = v.video_id AND e.excluded_at IS NULL)
     ORDER BY v.published_at, v.video_id`);
   return (sid) => {
     let v = memo.get(sid);
     if (!v) {
-      v = (q.all(sid) as { published_at: string; title: string; is_members_hint: number }[]).map((r) => ({
-        date: JST(r.published_at), at: Date.parse(r.published_at), title: r.title, members: r.is_members_hint === 1,
+      v = (q.all(sid) as { video_id: string; published_at: string; title: string; is_members_hint: number }[]).map((r) => ({
+        id: r.video_id, date: JST(r.published_at), at: Date.parse(r.published_at), title: r.title, members: r.is_members_hint === 1,
         key: matchKey(r.title, cfg), norm: r.title.normalize("NFKC").toLowerCase(),
       }));
       memo.set(sid, v);
@@ -138,7 +139,7 @@ const wordRes = new Map<string, RegExp>();
  * 照合キーが動画の題名に出るか。英数字だけのキーは単語の切れ目で照合する（「air」を「SisterCleaire」に、「sing」を「Missing」に当てない）。
  * キーの文字のあいだの空白・記号は飛ばす（「deathnote」は「DEATH NOTE」に当たる）
  */
-function inTitle(k: string, v: Video): boolean {
+export function inTitle(k: string, v: Video): boolean {
   if (!/^[a-z0-9]+$/.test(k)) return v.key.includes(k);
   let re = wordRes.get(k);
   if (!re) {
@@ -148,10 +149,54 @@ function inTitle(k: string, v: Video): boolean {
   return re.test(v.norm);
 }
 
+// 区間ごとの、チャンネルの動画のうち題名に出る本数（全部・メン限）。同じ配信者の動画の配列ごとに覚える
+const keyCounts = new WeakMap<Video[], { members: number; byKey: Map<string, { all: number; members: number }> }>();
+
+function countKey(videos: Video[], k: string): { all: number; members: number; membersTotal: number } {
+  let c = keyCounts.get(videos);
+  if (!c) {
+    c = { members: videos.filter((v) => v.members).length, byKey: new Map() };
+    keyCounts.set(videos, c);
+  }
+  let n = c.byKey.get(k);
+  if (!n) {
+    n = { all: 0, members: 0 };
+    for (const v of videos) {
+      if (!inTitle(k, v)) continue;
+      n.all++;
+      if (v.members) n.members++;
+    }
+    c.byKey.set(k, n);
+  }
+  return { ...n, membersTotal: c.members };
+}
+
+/**
+ * 枠の題名から、同じ配信者の動画（同時視聴枠にならなかったもの）に照合する作品名の区間の照合キー。同時視聴枠の「同じ作品名の枠」と同じキーから、
+ *   - 作品名でない区間（ai_context.other_videos.ignore_keys）
+ *   - チャンネルの動画の boilerplate_ratio を超える動画（10本以上）に出る区間（「APEX」「MEMBERSHIP STREAM」）
+ *   - メン限の見出しの区間: チャンネルのメン限の動画の members_heading.ratio を超える動画（members_heading.min 本以上）に出る区間
+ *     （「メンゲン」「メンゲンノチカラ」「konbinicrew」。メン限の見出しはチャンネルの全動画の3%に届かず、boilerplate_ratio では落ちない。2026-11-08）
+ * を除く。判定役に見せる同じ作品名の動画（otherVideos）と、続きの回の候補（src/candidates/select.ts）が同じ決まりを使う。
+ * frames は配信者の同時視聴枠（決まり文句の判定に使う）
+ */
+export function videoKeys(videos: Video[], frames: Frame[], title: string, cfg: ExtractConfig, streamer = ""): string[] {
+  const oc = cfg.ai_context?.other_videos ?? {};
+  const ratio = oc.boilerplate_ratio ?? 0.03;
+  const heading = oc.members_heading;
+  const ignore = (oc.ignore_keys ?? []).map((p) => new RegExp(p));
+  return workKeys(title, cfg, streamer, frames.map((f) => matchKey(f.title, cfg)))
+    .filter((k) => !ignore.some((re) => re.test(k)))
+    .filter((k) => {
+      const n = countKey(videos, k);
+      if (n.all >= 10 && n.all > videos.length * ratio) return false;
+      return !(heading && n.members >= heading.min && n.members > n.membersTotal * heading.ratio);
+    });
+}
+
 /**
  * この枠の、同時視聴枠にならなかった同じ配信者の動画（2026-10-18 決定）。
- *   - 同じ作品名の動画: この枠の作品名の区間を題名に含む動画（期間を限らない）。同時視聴枠の「同じ作品名の枠」と同じキーから、
- *     作品名でない区間（ai_context.other_videos.ignore_keys）と、チャンネルの動画の boilerplate_ratio を超える動画（10本以上）に出る区間（「APEX」「MEMBERSHIP STREAM」）を除く
+ *   - 同じ作品名の動画: この枠の作品名の区間（videoKeys）を題名に含む動画（期間を限らない）
  *   - 前後のメン限の動画: この枠がメン限のとき、前後 members_days 日のメン限の動画（同時視聴の枠はメン限が多く、続きの回もメン限で配信されやすい）
  * frames は配信者の同時視聴枠（決まり文句の判定に使う）
  */
@@ -162,18 +207,11 @@ export function otherVideos(
   const nSame = oc.same_name ?? 5;
   const nMembers = oc.members ?? 8;
   const days = oc.members_days ?? 30;
-  const ratio = oc.boilerplate_ratio ?? 0.03;
-  const ignore = (oc.ignore_keys ?? []).map((p) => new RegExp(p));
   const t0 = frame.startedAt ? Date.parse(frame.startedAt) : NaN;
   if (!videos.length || Number.isNaN(t0)) return { sameName: [], members: [] };
   const near = (xs: Video[], n: number) =>
     xs.sort((a, b) => Math.abs(a.at - t0) - Math.abs(b.at - t0) || a.at - b.at).slice(0, n).sort((a, b) => a.at - b.at);
-  const keys = workKeys(frame.title, cfg, streamer, frames.map((f) => matchKey(f.title, cfg)))
-    .filter((k) => !ignore.some((re) => re.test(k)))
-    .filter((k) => {
-      const n = videos.filter((v) => inTitle(k, v)).length;
-      return !(n >= 10 && n > videos.length * ratio);
-    });
+  const keys = videoKeys(videos, frames, frame.title, cfg, streamer);
   const sameName = keys.length && nSame > 0 ? near(videos.filter((v) => keys.some((k) => inTitle(k, v))), nSame) : [];
   const picked = new Set(sameName);
   const members = frame.membersOnly && nMembers > 0

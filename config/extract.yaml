@@ -517,11 +517,17 @@ ai_context:
     members: 8            # この枠がメン限のとき、前後 members_days 日のメン限の動画。この枠に近いものから
     members_days: 30      # ARCANE の PART 1（2024-12-21）から STARTING SEASON 2（2025-01-17）までは27日
     boilerplate_ratio: 0.03   # チャンネルの動画のこの割合を超える動画（10本以上）に出る区間は決まり文句として使わない（「APEX」「MEMBERSHIP STREAM」）
+    # メン限の見出しの区間（「メンゲンノチカラ」「メンゲン」「Membership Strim」「konbinicrew」）。メン限の見出しは全動画の3%に届かず boilerplate_ratio では落ちないので、
+    # チャンネルのメン限の動画のこの割合を超える動画（min 本以上）に出る区間は使わない（2026-11-08。続きの回の候補と共有。docs/ai-ops.md 3-1）。
+    # 2026-10-30 の巡回の前の DB で、見出しの区間はメン限の動画の 29〜37%（18本以上）、作品名の区間は 20% 以下（でびーしょーが 22%）だったので、あいだの 25% にした（docs/ai-runs.md の 2026-11-08 の節）
+    members_heading: { ratio: 0.25, min: 10 }
     # 作品名でない区間（照合キー。2026-10-18 の DB で、同じ作品名の動画に多く当たっていたもの）。期・部・日の番号はゲームの連続配信に当たる
     ignore_keys:
       - '^(part|ep|eps|episode|season|day|vol|no)\d+$'
       - '^(members?|membersstream|membership|stream|letswatch|anime|movie|movienight|concert|collab)$'
       - '^(予告番組|切リ抜キ|ミラー|振リ返リ|ラジオ)$'
+      # メン限の見出しのうち members_heading の割合で落ちないもの（2026-10-23 の続きの回の候補の計測の NOISE。2026-11-08）
+      - '^(メンゲン.*|member限定|メンバー限定|strimd?|teaparty|chillstream|konbinicrew|桜sp(サン)?限定|yay|ミヨウ)$'
   # 題名を取りに行くリンク（正規表現）。ページの題名が取れないサイト（Disney+・U-NEXT・FOD）は入れない
   link_patterns:
     - '^https?://(www\.)?amazon\.co\.jp/(gp/video|dp|-/[a-z]+/dp)/'
