@@ -19,9 +19,11 @@ import { persistRoutes, publishSummary } from "./resolve/routing.ts";
 import { enrichWorks } from "./resolve/enrich.ts";
 import { ResolveCache } from "./resolve/cache.ts";
 import { AnnictClient } from "./resolve/sources/annict.ts";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, existsSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
-import { DATA_DIR } from "./lib/paths.ts";
+import { DATA_DIR, DB_PATH } from "./lib/paths.ts";
+import { dbCheck, dbPack, openExisting, readMeta } from "./lib/dbfile.ts";
+import { siteFingerprint, jobDue, runsSummary } from "./lib/jobtools.ts";
 import { lookup } from "./report/lookup.ts";
 import { exportSiteData, SITE_DATA_PATH } from "./publish/export.ts";
 import { loadSiteConfig } from "./lib/config.ts";
@@ -85,6 +87,16 @@ const HELP = `
                   [--exclude B,...（前の抽出で使った枠を除く）] [--n N（1層の件数を指定）]
   audit:compare B AI の答え（data/audit/<batch>/answers/*.json）とルールの答えを突き合わせ、不一致の一覧と型ごとの集計を書く
 
+コマンド（日次のワークフローの道具。docs/workflows.md 2-3・2-4・2-6・2-9・5-2。db:check・db:pack は外れたら終了コード 1）:
+  db:check        取得した DB の検査。--gz F（落とした gzip）--expect M（R2 のメタデータ。head-object の出力）
+                  [--db F（既定 data/db.sqlite）] [--observed O（開いた DB の行数などを書く。db:pack の --against に渡す）]
+                  [--accept（手動の accept_db。sha256・行数の照合を飛ばす）]。DB が無ければ作らずに失敗する
+  db:pack         書き戻す前の後始末。--out D（db.sqlite.gz と meta.json を書く）--against O（取得したときの値）か --initial（R2 に初めて置くとき）
+                  [--run-id R] [--writer daily|publish|manual] [--db F]。行を消さない表の行が減っていたら何も書かずに失敗する
+  site:fingerprint  site-data.json から generatedAt を除いた指紋を fingerprint=… の1行で出す [--commit SHA（コミットと日本時間の日付も混ぜる）] [--date YYYY-MM-DD] [--file F]
+  job:due         保険の cron で日次を流すかを due=true|false の1行で出す。--meta M（head-object の出力。無ければ流す）か --written-at T --writer W [--hours 20]
+  runs:summary    この回の実行記録の要約（Markdown）。--since ISO [--out F（追記。$GITHUB_STEP_SUMMARY）]。partial などは ::warning:: を出す
+
 環境変数:
   YOUTUBE_API_KEY  YouTube Data API のキー（.env に書けば自動で読む）
   ANNICT_TOKEN     Annict の個人用アクセストークン（無ければ AniList と Wikipedia だけで名寄せする）
@@ -113,6 +125,24 @@ async function main(): Promise<number> {
       "exclude-scored": { type: "string" },
       "include-high": { type: "boolean" },
       "include-hold": { type: "boolean" },
+      db: { type: "string" },
+      gz: { type: "string" },
+      expect: { type: "string" },
+      accept: { type: "boolean" },
+      observed: { type: "string" },
+      against: { type: "string" },
+      initial: { type: "boolean" },
+      out: { type: "string" },
+      "run-id": { type: "string" },
+      writer: { type: "string" },
+      file: { type: "string" },
+      commit: { type: "string" },
+      date: { type: "string" },
+      meta: { type: "string" },
+      "written-at": { type: "string" },
+      hours: { type: "string" },
+      now: { type: "string" },
+      since: { type: "string" },
     },
   });
   const cmd = positionals[0];
@@ -315,6 +345,62 @@ async function main(): Promise<number> {
       }
       return 0;
     }
+    // ワークフローを止めるための道具。外れたら終了コード 1（docs/dev.md の「ジョブの終了コードは 0」の例外）
+    case "db:check": {
+      const r = await dbCheck({ db: values.db ?? DB_PATH, gz: values.gz, expect: values.expect, accept: !!values.accept, observed: values.observed });
+      printCheck("db:check", r);
+      return r.ok ? 0 : 1;
+    }
+    case "db:pack": {
+      if (!values.out) {
+        console.error("--out を指定してください");
+        return 1;
+      }
+      const r = await dbPack({
+        db: values.db ?? DB_PATH, against: values.against, initial: !!values.initial, out: values.out,
+        runId: values["run-id"] ?? process.env.GITHUB_RUN_ID ?? "local", writer: values.writer ?? "manual",
+      });
+      printCheck("db:pack", r);
+      return r.ok ? 0 : 1;
+    }
+    case "site:fingerprint": {
+      // site:data が失敗して site-data.json が無ければ失敗にする（docs/workflows.md 3-1 の 13。ビルドとアップロードをしない）
+      const file = values.file ?? SITE_DATA_PATH;
+      if (!existsSync(file)) {
+        console.error(`${file} が無い（site:data が失敗した）`);
+        return 1;
+      }
+      const r = siteFingerprint(readFileSync(file, "utf8"), { ...(values.commit ? { commit: values.commit } : {}), ...(values.date ? { date: values.date } : {}) });
+      console.error(`data=${r.data}`);
+      console.log(`fingerprint=${r.fingerprint}`);
+      return 0;
+    }
+    case "job:due": {
+      let m: { writtenAt?: string; writer?: string } = { writtenAt: values["written-at"], writer: values.writer };
+      if (values.meta) {
+        try {
+          const meta = readMeta(values.meta);
+          m = { writtenAt: meta["written-at"], writer: meta.writer };
+        } catch {
+          m = {};
+        }
+      }
+      const r = jobDue(m, { hours: Number(values.hours ?? 20), ...(values.now ? { now: new Date(values.now) } : {}) });
+      console.error(r.reason);
+      console.log(`due=${r.due}`);
+      return 0;
+    }
+    case "runs:summary": {
+      const dbPath = values.db ?? DB_PATH;
+      const since = new Date(values.since ?? Date.now() - 86_400_000);
+      const db = openExisting(dbPath);
+      const r = db ? runsSummary(db, since, { dbPath }) : { markdown: `## 実行記録\n\nDB が無い（${dbPath}）\n`, warnings: [`::warning::DB が無い（${dbPath}）`] };
+      db?.close();
+      if (values.out) appendFileSync(values.out, r.markdown + "\n", "utf8");
+      else console.log(r.markdown);
+      for (const w of r.warnings) console.log(w);
+      return 0;
+    }
     case "works:enrich": {
       const ctx = createCtx("report");
       try {
@@ -347,6 +433,15 @@ async function main(): Promise<number> {
       console.log(HELP);
       return cmd ? 1 : 0;
   }
+}
+
+/** 検査の結果をログに出す。Actions では外れた行を ::error:: にする */
+function printCheck(name: string, r: { ok: boolean; lines: string[] }): void {
+  for (const l of r.lines) {
+    if (l.startsWith("FAIL") && process.env.GITHUB_ACTIONS === "true") console.log(`::error title=${name}::${l.slice(5)}`);
+    else console.log(`${name} ${l}`);
+  }
+  console.log(`${name} ${r.ok ? "通った" : "外れた（終了コード 1）"}`);
 }
 
 process.exitCode = await main();

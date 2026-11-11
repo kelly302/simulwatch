@@ -283,6 +283,11 @@ export function openDb(path: string = DB_PATH): DB {
   return db;
 }
 
+/** コードが知っているマイグレーションの数（DB の user_version の上限。db:check がこれより新しい DB を止める） */
+export function schemaVersion(): number {
+  return MIGRATIONS.length;
+}
+
 function migrate(db: DB): void {
   const row = db.prepare("PRAGMA user_version").get() as { user_version: number };
   for (let v = row.user_version; v < MIGRATIONS.length; v++) {

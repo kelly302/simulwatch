@@ -95,6 +95,23 @@ S3 互換の PUT は1回で中身とメタデータを一緒に置き換える�
 **R2 に DB が無い・落とせない・検査に通らない**ときは止める。空の DB を作って始めない。1回目（R2 に置く前）だけは docs/deploy.md の 1-D の手で置く。
 1-D で手で置くときも、同じメタデータを付ける（`db:pack` を手で動かして作る）。
 
+**メタデータの形**（2026-11-08 実装。`src/lib/dbfile.ts`）: 名前は小文字とハイフン、値は ASCII の文字列だけ（S3 のメタデータにそのまま載せる）。
+`db:pack` が `out/meta.json` に書き、`db:check --expect` は `aws s3api head-object` の出力（`{"Metadata": {...}}`）でも中身だけでも読む。
+
+| 名前 | 中身 |
+| --- | --- |
+| `format` | `1` |
+| `sha256` | gzip したファイルの sha256（16進） |
+| `user-version` | DB の user_version |
+| `rows` | 行を消さない表の行数。`streamers:282;watch_events:7727;…`（カンマと = を使わない。`--metadata` の短い書き方でも崩れない）。DB に無い表（candidates ができる前）は入れない |
+| `run-id` | 書いた回（`--run-id`。無ければ `GITHUB_RUN_ID`） |
+| `writer` | 書いたワークフロー（daily / publish / manual）。`job:due` は daily だけを数える |
+| `written-at` | 書いた時刻（UTC の ISO 8601） |
+
+2026-11-04 の DB の写し（320MB）で 333 バイト。`db:check --observed observed.json` は、開いた DB の実際の行数と user_version を同じ形で書く。
+これを `db:pack --against` に渡すと、`accept_db` で通した回（メタデータが合わない回）でも取得したときの実際の行数と比べられる。
+`db:check` は `integrity_check`（写しで約1秒）を使う。`db:pack` は checkpoint のあと `quick_check`、gzip を展開した中身の sha256 を元の DB と比べてから書く。外れたら `out/` に何も残さない（前の回の出力も消す）
+
 **直す手段**（検査で止まり続けたとき）: 手動のワークフローに入力 `accept_db: true` を置く。sha256 と行数の照合を飛ばし、
 ファイルがあること・`integrity_check`・user_version だけを見て通し、書き戻すときに新しいメタデータを付け直す。
 それでもだめなら `db/backup/` の前の日の DB を `db/db.sqlite.gz` に写す（手順は実装のときにこの文書に書く）。
@@ -210,8 +227,8 @@ CLI のステップにはステップごとの `timeout-minutes` を付け、**�
   `refresh` が予定枠・配信中を含む全枠の状態を取り直すので、予定枠のデータも今までどおり DB に入る（終わってから名寄せ・判定されて出る）
 - `resolve --limit 400`: 2026-10-11 の実績は 43枠で 198秒（固定の後処理約30秒を除くと1枠約4秒）。400枠で約27分＋後処理で、45分に収まる。
   roster で新しい配信者が入った直後・巡回が長く止まったあとに枠がたまったら、数日に分けて進む（`mode: new` は未処理の枠を拾うので、次の日が続きをやる）。急ぐときは手動の `resolve_all` ではなく日次を手で流し直す
-- **`resolve` の対象の並びを直す**（Fable の中-6）: 今は `ORDER BY e.id` で、照会エラーの枠（古い枠ほど id が小さい）が先頭に固まる。照会先が落ち続けると、`--limit` の枠がエラーの枠で埋まって新しい枠が進まない。
-  未処理の枠を先・照会エラーの枠を後にする（`ORDER BY (u.reason = 'error'), e.id`。→ 9「直す」）
+- **`resolve` の対象の並び**（Fable の中-6。2026-11-08 実装）: 前は `ORDER BY e.id` で、照会エラーの枠（古い枠ほど id が小さい）が先頭に固まり、照会先が落ち続けると `--limit` の枠がエラーの枠で埋まって新しい枠が進まなかった。
+  未処理の枠を先・照会エラーの枠を後にした（`ORDER BY (u.reason = 'error'), e.id`。すべての mode で同じ並び）
 - 6 の候補は docs/ai-ops.md の 3-1（選び方。API なし）と 3-2（videos.list）。終わった動画だけを判定に回すので、配信中の候補は次の日にもう一度見る
 
 ### 3-2. 手動（ビルドとアップロード）
@@ -421,21 +438,23 @@ docs/ai-ops.md「2. 全体の流れ」の右の列（GitHub Actions）。ロー�
 | `db:pack --against <meta.json> --out <dir>` | 2-4 の後始末（checkpoint・quick_check・行を消さない表の行数の比較・gzip・新しいメタデータの JSON） | 外れたら 1 |
 | `ai:ingest <dir> --result <file> [--max-batches 5]` | 6 の取り込み。batch ごと・ファイル名の順に `aiApply` を呼び、6-2 の時刻の決まりで飛ばし、6-3 の結果（入れた / やり直し / failed・件数・飛ばした動画・問題）を JSON に書く | 0（結果は JSON で返す） |
 | `candidates:select`・`candidates:fetch` | docs/ai-ops.md 3-1・3-2 の候補の選定（API なし）と詳細（videos.list）。中身は ai-ops の側で設計する | 0 |
-| `site:fingerprint` | 2-6 の指紋（generatedAt を除いた site-data.json の sha256。コミットと日付はワークフローの側で足す） | 0 |
-| `job:due` | 5-2 の保険の cron。メタデータの `written_at` を引数で受けて、20時間以内に日次が書いていれば false を出す（DB を落とす前に判断するので、R2 は読まずに値だけ受ける。ワークフローの数行で済ませてもよい） | 0 |
-| `runs:summary --since <ISO>` | 2-9 の結果（runs の行の要約を Markdown で。概要欄・判定の根拠は出さない）。partial なら `::warning::` の行も出す | 0 |
+| `site:fingerprint [--commit <sha>] [--date YYYY-MM-DD]` | 2-6 の指紋（generatedAt を除いた site-data.json の sha256）。`--commit` を渡すとコミットと日本時間の日付（既定は今日）も混ぜる。標準出力は `fingerprint=…` の1行（`$GITHUB_OUTPUT` に足せる） | 0。**site-data.json が無ければ 1**（3-1 の 13 が失敗する前提。2026-11-08 実装で決めた） |
+| `job:due --meta <head.json>`（か `--written-at`・`--writer`）`[--hours 20]` | 5-2 の保険の cron。メタデータの `written-at` と `writer` だけで決め、日次が20時間以内に書いていれば `due=false`、値が無い・読めない・日次でない・未来なら `due=true` | 0 |
+| `runs:summary --since <ISO> [--out <file>]` | 2-9 の結果。runs の行ごとに状態・秒・エラー数・クォータ、ステップの結果は**数だけ**（文字列は出さない。配列は件数）、エラーの文は300字まで、DB の大きさ。`--out` に追記し、partial・aborted・running（殺された回）は標準出力に `::warning::` | 0 |
 
 - R2 の出し入れそのもの（落とす・置く・一覧・移す・メタデータ）は CLI にせず、ワークフローの中の AWS CLI の数行にする（2-2）。CLI にすると S3 の SDK を依存に足すことになる。
   ローカルの `ai:pull`・`ai:push` は CLI のコマンドで、中から `aws` を呼ぶ（2-2。2026-10-30 決定。作るのは ai-ops の側）。`.env.example` に R2 の4つの名前を足す
-- `db:check`・`db:pack` は**ワークフローを止めるための**コマンドなので、ほかのジョブと違って失敗で終了コード 1 を返す（docs/dev.md の「ジョブの終了コードは 0」の例外として「実行方法」に書き足す）
+- `db:check`・`db:pack`・`site:fingerprint`・`job:due`・`runs:summary` は 2026-11-08 に実装した（塊 B。`src/lib/dbfile.ts`・`src/lib/jobtools.ts`）。どれも `createCtx` を通さない（runs に行を足さない・DB が無くても作らない）
+- `db:check`・`db:pack` は**ワークフローを止めるための**コマンドなので、ほかのジョブと違って失敗で終了コード 1 を返す（docs/dev.md の「実行方法」に例外として書いた）
 
 ### 直す
 
 | どこ | 何を |
 | --- | --- |
-| `src/resolve/resolve.ts` の対象の選び方（`ORDER BY e.id`） | 未処理の枠を先・照会エラーの枠を後に（`ORDER BY (u.reason = 'error'), e.id`）。`--limit` がエラーの枠で埋まらないように（Fable の中-6） |
+| `src/resolve/resolve.ts` の対象の選び方（`ORDER BY e.id`） | 済（2026-11-08）。未処理の枠を先・照会エラーの枠を後に（`ORDER BY (u.reason = 'error'), e.id`）。`--limit` がエラーの枠で埋まらないように（Fable の中-6） |
 | `src/report/ai.ts` の `aiApply` | (1) `problems` を「枠が無い」「形が不正」「外部DBで引けない」「属性」「ファイル単位（読めない・batch・model・finished_at が無い）」に分けて返す（6-3。Fable の中-7）。<br>(2) 6-2 の時刻の決まり（取り消されていない判定の `decided_at` が答えの `finished_at` 以上なら飛ばす）。`ai:apply`（ローカルの直し）でも同じ決まりにするかは ai-ops の側と決める。<br>(3) ファイルを名前の順に入れる（今も sort している。`fix-` の決まりを関数の説明に書く） |
-| `src/lib/quota.ts`・`src/lib/config.ts`・`config/crawl.yaml` | `quota.ai_reserve: 600`（7）。job が hourly・daily のときは `stop_at − ai_reserve` で止める |
+| `src/lib/quota.ts`・`src/lib/config.ts`・`config/crawl.yaml` | 済（2026-11-08）。`quota.ai_reserve: 600`（7）。job が hourly・daily のときは `stop_at − ai_reserve` で止める |
+| `src/lib/http.ts` の HttpError | 済（2026-11-08）。URL のクエリの値とフラグメントを伏せ、名前だけ残す（runStep が runs とログに出すため）。パスは伏せない（日次で呼ぶ照会先のパスに照会の語は入らない。Wikipedia・Wikidata は POST の本文） |
 | `src/resolve/ai.ts` の冒頭のコメント | 「定期実行のジョブからは入れない」→「判定は人が起動した回でだけ作り、ジョブは答えのファイルを取り込むだけ」（docs/ai-ops.md の 1。2026-10-26 決定） |
 | CLI のログ | 公開リポジトリの Actions のログに概要欄・判定の根拠を出していないか確かめる（2-9） |
 | `wrangler.jsonc`（新しく置く） | `name`・`compatibility_date`・`assets`（directory・`not_found_handling: "404-page"`）（docs/deploy.md 3） |

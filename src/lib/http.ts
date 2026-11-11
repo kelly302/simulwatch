@@ -7,11 +7,28 @@ import type { RawLog } from "./rawlog.ts";
 // - 5xx・429・ネットワークエラーは再試行する。429 で Retry-After があればその秒数だけ待つ
 // - 生レスポンスを RawLog に残す
 
+/**
+ * ログ・実行記録（runs）に出す URL。クエリの値とフラグメントを伏せ、パラメータの名前だけ残す。
+ * 公開リポジトリの Actions のログは誰でも見られる。クエリには API キーや、照会の語（メン限の枠の概要欄の断片がありうる）が入る。
+ * 生レスポンス（RawLog。非公開の置き場）は伏せない
+ */
+export function redactUrl(url: string): string {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return url.replace(/[?#].*$/s, "?REDACTED");
+  }
+  // 名前も「?語」の形で値が入りうるので、識別子の形の名前だけ残す
+  const names = [...new Set(u.searchParams.keys())].map((k) => (/^[A-Za-z0-9_.-]{1,40}$/.test(k) ? `${k}=…` : "…"));
+  return `${u.origin}${u.pathname}${names.length ? `?${names.join("&")}` : ""}`;
+}
+
 export class HttpError extends Error {
   readonly status: number;
   readonly body: string;
   constructor(status: number, url: string, body: string) {
-    super(`HTTP ${status} ${url.replace(/key=[^&]+/, "key=REDACTED")}`);
+    super(`HTTP ${status} ${redactUrl(url)}`);
     this.name = "HttpError";
     this.status = status;
     this.body = body;

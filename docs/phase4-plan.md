@@ -41,6 +41,7 @@ og-cache は写して使う（本体の OG_CACHE を共有しない。ビルド�
 - **ログの URL のクエリを伏せる**（src/lib/http.ts の HttpError は URL を丸ごと持ち、runStep が runs と log に出す。Wikipedia の検索の語にメン限の概要欄の断片が入りうる）
 - 済んだの基準: db:check・db:pack を小さな DB で（ファイル無し・壊れ・sha の不一致・user_version が上・行の減少で、どれも終了コード 1）、写しで pack → 展開 → check の往復（-wal が空）、
   同じ DB で site:data を2回流して指紋が同じ、ログのクエリが伏せてある
+- 状態: 実装済み（2026-11-08。ブランチ claude/p4-b-jobbase-1e1cdc。メタデータの形は docs/workflows.md 2-3）
 
 ### C AI の答えの取り込み（D-03・D-09）
 

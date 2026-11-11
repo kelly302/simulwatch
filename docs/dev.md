@@ -54,7 +54,7 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- report:quota    # クォータ使用量
     npm run cli -- detect:rerun    # 語彙を変えたあとの再判定（API なし）
     npm run cli -- detect:fetch    # 再判定で新たにヒットした動画の詳細取得
-    npm run cli -- resolve         # 名寄せ（未処理と照会エラーの枠）
+    npm run cli -- resolve         # 名寄せ（未処理と照会エラーの枠。未処理の枠を先・照会エラーの枠を後に処理する）
     npm run cli -- resolve --all   # ルールを直したあとの再処理（照会はキャッシュを使う）
     npm run cli -- resolve --reason not_found   # 理由を絞って再処理
     npm run cli -- extract:test "【同時視聴】…"  # 切り出しの確認（照会しない）
@@ -82,10 +82,19 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- site:data       # サイト用のデータを data/site/site-data.json に書き出す（公開キー・lastmod の表も更新する）
     npm run site:build             # サイトのビルド（dist/）。先に site:data
     npm run site:preview           # dist/ を http://localhost:4321 で見る（site:dev は開発用のサーバー）
+    npm run cli -- db:check --gz pulled.sqlite.gz --expect head.json --observed observed.json   # 取得した DB の検査（日次の 2-3。外れたら終了コード 1）
+    npm run cli -- db:pack --against observed.json --out out/ --run-id R --writer daily      # 書き戻す前の後始末と gzip・メタデータ（日次の 2-4。外れたら終了コード 1）
+    npm run -s cli -- site:fingerprint --commit <sha>   # サイトの中身の指紋（fingerprint=…。site-data.json が無ければ終了コード 1）
+    npm run -s cli -- job:due --meta head.json          # 保険の cron で日次を流すか（due=true|false）
+    npm run cli -- runs:summary --since <ISO> --out "$GITHUB_STEP_SUMMARY"   # この回の実行記録の要約（数・状態・エラーだけ）
     npm test                       # テスト
     npm run typecheck              # 型チェック（src・test と site）
 
-- 各ジョブはステップ単位で失敗を記録して次へ進む。ジョブの終了コードは 0（後続のジョブを止めない）
+- 各ジョブはステップ単位で失敗を記録して次へ進む。ジョブの終了コードは 0（後続のジョブを止めない）。
+  **例外**: `db:check`・`db:pack` はワークフローを止めるための道具なので、外れたら終了コード 1 を返す（取得した DB が壊れている・行を消さない表の行が減ったときに、巡回・書き戻しをさせない。docs/workflows.md 2-3・2-4）。
+  `site:fingerprint` も site-data.json が無ければ 1（site:data が失敗した回にビルドとアップロードをさせない。docs/workflows.md 3-1 の 13）
+- YouTube のクォータ: 定期実行のジョブ（hourly・daily）は `stop_at` から AI の判定の取り分 `ai_reserve` を引いた値（9,000 − 600 = 8,400）で止める（config/crawl.yaml）
+- ログと実行記録（runs）に出す URL は、クエリの値を伏せてパラメータの名前だけ残す（`src/lib/http.ts` の redactUrl。公開リポジトリの Actions のログは誰でも見られる）。生レスポンスは伏せない
 - 生レスポンスは `data/raw/<日付>/<run_id>.jsonl.gz` に1ジョブ1ファイルで保存する（APIキーは伏せる）。
   日次ジョブは数百MBになるため、16MB ごとに gzip して追記する（メモリに溜めない）。
   生レスポンスの保存に失敗しても DB の書き戻しは必ず行う
