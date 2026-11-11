@@ -1,9 +1,9 @@
 ---
-// トップ。ランキング（3期間・5位まで。続きはランキングのページ）・これから始まる枠・よく同時視聴される作品・すべての同時視聴（新しい順24枠）をビルド時の HTML に入れる。
-// ランキングは縦の順位表、これから始まる枠とよく同時視聴される作品は横に流す棚（2026-10-21）。「さらに表示」で新しい順300枠の JSON、絞り込み・並べ替え・300枠より先で全件の索引と辞書を読む（site/scripts/top.ts）
+// トップ。ランキング（3期間・5位まで。続きはランキングのページ）・よく同時視聴される作品・すべての同時視聴（新しい順24枠）をビルド時の HTML に入れる。
+// ランキングは縦の順位表、よく同時視聴される作品は横に流す棚（2026-10-21）。「これから始まる枠」は 2026-10-27 の決定 D-01 で外した（予定枠・配信中の枠はサイトに出さない）。「さらに表示」で新しい順300枠の JSON、絞り込み・並べ替え・300枠より先で全件の索引と辞書を読む（site/scripts/top.ts）
 import Base from "../layouts/Base.astro";
 import RailButtons from "../components/RailButtons.astro";
-import { cfg, completed, site, sortWorks, streamerById, upcoming, workById, worksOfTab } from "../lib/data.ts";
+import { cfg, completed, site, sortWorks, streamerById, workById, worksOfTab } from "../lib/data.ts";
 import { dictFor, encodeRow } from "../lib/encode.ts";
 import { cardHtml, workCardHtml } from "../lib/views.ts";
 import { RANKING_PAGE, rankRowsHtml, rankingNote, rankingPeriods } from "../lib/ranking.ts";
@@ -15,8 +15,6 @@ import { SEASONS, SEASON_LABEL, formatDate, metaLine } from "../../src/shared/si
 // ランキング: 縦の順位表に RANKING_TOP 枠（どの幅でも1列。2026-10-21 ユーザー決定。config/site.yaml の top.ranking_top）。続きはランキングのページ（top.ranking_page 位まで。その場では開かない）
 const RANKING_TOP = cfg.top.ranking_top;
 const { periods, first: firstPeriod } = rankingPeriods(RANKING_PAGE);
-const up = upcoming;
-const upDict = dictFor(up, streamerById, workById);
 const recent = completed.slice(0, cfg.top.recent_html);
 const recentDict = dictFor(recent, streamerById, workById);
 // よく同時視聴される作品（作品一覧の既定の並び＝観た配信者の多い順の先頭）
@@ -75,19 +73,6 @@ const topConfig = { generatedAt: site.generatedAt, recentHtml: cfg.top.recent_ht
   </section>
 
   <aside class="ad" aria-label="広告"></aside>
-
-  {up.length
-    ? <section class="block band" aria-labelledby="h-up">
-        <div class="block-head">
-          <h2 id="h-up">これから始まる枠 <span class="count">{up.length}枠・配信中を先頭に</span></h2>
-          <RailButtons label="これから始まる枠" />
-        </div>
-        <div class="rail" set:html={up.map((e, j) => cardHtml(encodeRow(e), upDict, { lazy: j >= 2 })).join("")} />
-      </section>
-    : <section class="block" aria-labelledby="h-up">
-        <h2 id="h-up">これから始まる枠</h2>
-        <p class="note">予定されている枠はありません。</p>
-      </section>}
 
   {topWorks.length > 0 && (
     <section class="block" aria-labelledby="h-works">

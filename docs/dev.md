@@ -11,7 +11,7 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
       roster.yaml       Tier 1 の取得元（公式サイトのURL・日本の所属グループ・卒業の印・所属の中の区分の印）
       crawl.yaml        巡回頻度・クォータ上限・遡りの予算・HTTP（User-Agent と照会先ごとの間隔）
       extract.yaml      名寄せのルール（作品ではない語・ノイズ語・前後の語・Wikidata の作品クラス）
-      site.yaml         サイトの設定（仮のサイトの URL・予定枠を出さなくなる時間・ランキングの枠数・ページの件数）
+      site.yaml         サイトの設定（仮のサイトの URL・予定枠を出すかの切り替えと出すときの時間・ランキングの枠数・ページの件数）
     src/
       cli.ts            コマンドの入口
       shared/types.ts   ジョブとフロントで共有する型
@@ -47,7 +47,7 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
 
     npm install
     npm run cli -- roster          # Tier 1 の同期
-    npm run cli -- crawl:hourly    # こまめな巡回（2時間ごと。名前は毎時のころのまま）（→ D-01 で流さない予定・未実装）
+    npm run cli -- crawl:hourly    # こまめな巡回（定期実行では流さない。D-01。戻すときのために残す。名前は毎時のころのまま）
     npm run cli -- crawl:daily     # 日次の巡回と遡り
     npm run cli -- refresh         # 再生数・状態の取り直しとアーカイブ死活チェック
     npm run cli -- report:detect   # 判定結果、誤検出・取りこぼしの候補

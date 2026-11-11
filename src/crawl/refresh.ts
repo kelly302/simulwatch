@@ -27,7 +27,7 @@ export async function refreshEvents(ctx: Ctx, scope: RefreshScope): Promise<Refr
   if (!ctx.yt) return stats;
   const { db, crawlCfg } = ctx;
 
-  // active: 毎時。予定枠と配信中の枠だけ
+  // active: こまめな巡回（crawl:hourly。今は流さない）。予定枠と配信中の枠だけ
   // all:    日次。消失済みも含めて全件（一時的に非公開だった枠の復活を拾う）
   const where =
     scope === "active"

@@ -7,8 +7,9 @@ import { collectRss, collectPlaylistHeads, collectMembersPlaylists, collectBackf
 import { refreshEvents } from "./refresh.ts";
 
 // 巡回ジョブ。各ステップは独立して失敗できる（1ステップが落ちても次へ進む）。
+// 定期実行は日次だけ（2026-10-27 の決定 D-01。crawl:daily → refresh）。crawl:hourly は流さないが、2時間ごとに戻すときのために残す（docs/workflows.md の付録）
 //
-// 毎時 crawl:hourly
+// こまめな巡回 crawl:hourly（今は流さない）
 //   1. RSS で投稿済み動画の差分（クォータ0）
 //   2. playlistItems を一部のチャンネルずつ（予定枠の検知を API で担保する）
 //   3. 判定 → ヒットだけ videos.list で詳細 → WatchEvent

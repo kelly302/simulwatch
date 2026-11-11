@@ -89,7 +89,7 @@ function isPlaceholder(it: PlaylistItem): boolean {
 
 /**
  * uploads プレイリストの先頭ページ。
- * mode=rotate: 毎時。最後に見てから interval 時間以上たったチャンネルを、1時間あたり 1/interval ずつ見る
+ * mode=rotate: こまめな巡回（crawl:hourly。今は流さない）。最後に見てから interval 時間以上たったチャンネルを、1時間あたり 1/interval ずつ見る
  * mode=all:    日次。全チャンネル
  */
 export async function collectPlaylistHeads(

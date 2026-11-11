@@ -21,10 +21,7 @@ export interface TopDict {
 /** 作品を付けない枠: [枠のタイトルか作品名, 作品名なら 1, 種類, 映画なら 1・映画でなければ 0・不明は -1] */
 export type RowFrame = [title: string, named: 0 | 1, kind: WorkKind | "", movie: 1 | 0 | -1];
 
-/**
- * 枠の行: [動画 ID, 開始（UNIX 秒）, 再生数, メン限なら 1, 配信者の id, 作品（id か [id, 話数]）, 作品を付けない枠（無ければ 0）, 外部DBに無い作品の名前]
- * 予定枠・配信中の枠は 8 番目に状態（"upcoming" / "live"）を持つ
- */
+/** 枠の行: [動画 ID, 開始（UNIX 秒）, 再生数, メン限なら 1, 配信者の id, 作品（id か [id, 話数]）, 作品を付けない枠（無ければ 0）, 外部DBに無い作品の名前]（終わった枠だけ） */
 export type TopRow = [
   videoId: string,
   t: number,
@@ -34,7 +31,6 @@ export type TopRow = [
   works: (number | [number, string])[],
   frame: RowFrame | 0,
   missing: string[],
-  status?: "upcoming" | "live",
 ];
 
 export interface TopRecent {
@@ -45,7 +41,7 @@ export interface TopRecent {
 export const toSec = (iso: string) => Math.floor(Date.parse(iso) / 1000);
 
 export function encodeRow(e: SiteEvent): TopRow {
-  const row: TopRow = [
+  return [
     e.videoId,
     toSec(e.startedAt),
     e.views,
@@ -55,8 +51,6 @@ export function encodeRow(e: SiteEvent): TopRow {
     e.frame ? [e.frame.title, e.frame.named ? 1 : 0, e.frame.kind ?? "", e.frame.movie == null ? -1 : e.frame.movie ? 1 : 0] : 0,
     e.missing,
   ];
-  if (e.status !== "completed") row.push(e.status);
-  return row;
 }
 
 export function encodeStreamer(s: SiteStreamer): DictStreamer {

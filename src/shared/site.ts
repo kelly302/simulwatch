@@ -38,7 +38,7 @@ export interface SiteStreamer {
 
 export interface SiteWork {
   id: number;
-  /** URL の公開キー（annict-1234 / anilist-5678 / wikidata-Q123）。一度出したら変えない。作品ページの無い作品（予定枠だけ）は null */
+  /** URL の公開キー（annict-1234 / anilist-5678 / wikidata-Q123）。一度出したら変えない。作品ページの無い作品（publish_upcoming で予定枠だけに付いた作品）は null */
   key: string | null;
   title: string;
   titleKana: string | null;
@@ -99,13 +99,13 @@ export interface SiteEvent {
 }
 
 export interface SiteData {
-  /** 書き出した時刻（ビルドの時刻。ランキングの期間・予定枠の判定の基準） */
+  /** 書き出した時刻（ビルドの時刻。ランキングの期間の基準） */
   generatedAt: string;
   /** 再生数を最後に取った時刻 */
   viewsFetchedAt: string | null;
   streamers: SiteStreamer[];
   works: SiteWork[];
-  /** サイトに出る枠（終わった枠・予定枠・配信中の枠） */
+  /** サイトに出る枠（終わった枠だけ。config/site.yaml の publish_upcoming が true なら予定枠・配信中の枠も） */
   events: SiteEvent[];
   /** 公開キーが変わった作品の 301（古い URL → 新しい URL） */
   redirects: { from: string; to: string }[];
@@ -212,14 +212,6 @@ export function formatMonth(iso: string | null): string {
   if (!iso) return "";
   const d = jst(iso);
   return `${d.getUTCFullYear()}/${pad(d.getUTCMonth() + 1)}`;
-}
-
-const WEEKDAY = "日月火水木金土";
-
-/** 予定枠の開始時刻「10/03(土) 21:00」（日本時間） */
-export function formatWhen(iso: string): string {
-  const d = jst(iso);
-  return `${d.getUTCMonth() + 1}/${pad(d.getUTCDate())}(${WEEKDAY[d.getUTCDay()]}) ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 }
 
 /** 「2026-10-19」（日本時間。sitemap の lastmod） */

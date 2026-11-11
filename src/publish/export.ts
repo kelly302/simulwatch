@@ -21,6 +21,7 @@ export function exportSiteData(db: DB, cfg: { site: SiteConfig; crawl: CrawlConf
     now,
     aiRoutes: cfg.extract.ai_routes ?? [],
     maxDaysAhead: cfg.crawl.upcoming.max_days_ahead,
+    publishUpcoming: cfg.site.publish_upcoming ?? false,
     upcomingStaleHours: cfg.site.upcoming_stale_hours,
   }));
   mkdirSync(dirname(out), { recursive: true });

@@ -78,7 +78,7 @@ function batchDir(batch: string): string {
 
 /** 判定する枠を選んで書き出す。AI の判定がすでにある枠（hold を含む）は選ばない */
 /**
- * 本番の待ち行列（2026-10-01）。AI に回す型（config/extract.yaml の ai_routes）の枠のうち、AI の判定がまだ無いもの
+ * 本番の待ち行列（2026-10-01）。AI に回す型（config/extract.yaml の ai_routes）の終わった枠のうち、AI の判定がまだ無いもの
  * （includeHold なら保留も）から、sha256(シード:video_id) の昇順で先頭 n 件。候補を見せない形で書き出す（src/report/blind.ts）。
  * ルールの答えは sealed/ に残し、採点の表（ai:report）で並べる
  */
@@ -93,10 +93,13 @@ export async function aiQueueRoutes(
   const { routed } = await collectRoutes(ctx, cfg);
   const decided = new Map((ctx.db.prepare("SELECT watch_event_id, status FROM ai_decisions WHERE revoked_at IS NULL").all() as
     { watch_event_id: number; status: string }[]).map((r) => [r.watch_event_id, r.status]));
+  // 終わった枠だけ（2026-10-27 の決定 D-01。予定枠・配信中の枠はサイトに出さず、終わってから判定する。動画を指定しても入れない）
+  const ended = new Set((ctx.db.prepare("SELECT id FROM watch_events WHERE status = 'completed'").all() as { id: number }[]).map((r) => r.id));
   // 動画を指定したときは、判定の有無と型に関係なく入れる（判定し直し用。判定済みの枠を入れ直すと、ai:apply で前の判定は取り消しになる）
-  const pool = opts.videos
+  const pool = (opts.videos
     ? routed.filter((r) => opts.videos!.includes(r.ev.video_id))
-    : routed.filter((r) => needsAi(r.rule, routes) && (!decided.has(r.ev.id) || (opts.includeHold && decided.get(r.ev.id) === "hold")));
+    : routed.filter((r) => needsAi(r.rule, routes) && (!decided.has(r.ev.id) || (opts.includeHold && decided.get(r.ev.id) === "hold"))))
+    .filter((r) => ended.has(r.ev.id));
   const byVid = new Map(pool.map((r) => [r.ev.video_id, r]));
   const rows = sampleOrder(opts.seed, [...byVid.keys()]).slice(0, opts.n).map((v) => byVid.get(v)!);
   const perRoute: Record<string, number> = {};
@@ -111,8 +114,8 @@ export async function aiQueueRoutes(
   const plan = [
     `# AI の判定の待ち行列（${opts.batch}）`, "",
     opts.videos
-      ? `- 母集団: 一覧に出る枠のうち、指定した動画（${opts.videos.join("・")}。判定の有無と型に関係なく入れる）。${pool.length} 枠`
-      : `- 母集団: 一覧に出る枠のうち、AI に回す型（${routes.join("・")}）で、AI の判定がまだ無いもの${opts.includeHold ? "（保留の枠を含む）" : ""}。${pool.length} 枠`,
+      ? `- 母集団: 一覧に出る終わった枠のうち、指定した動画（${opts.videos.join("・")}。判定の有無と型に関係なく入れる）。${pool.length} 枠`
+      : `- 母集団: 一覧に出る終わった枠のうち、AI に回す型（${routes.join("・")}）で、AI の判定がまだ無いもの${opts.includeHold ? "（保留の枠を含む）" : ""}。${pool.length} 枠`,
     `- 抽出: sha256(シード + ":" + video_id) の昇順で先頭 ${rows.length} 件。シード「${opts.seed}」。待ち行列の並びは sha256(シード + ":queue:" + video_id) の昇順`,
     "- AI に見せるもの: 配信者・日時・タイトル・概要欄（定型文と URL で始まる行を除き（題名を見せるリンクの行は残す）、その枠を指す行を先に12行まで）・サムネイル・概要欄のリンク先の題名・YouTube のリンク先（題名・チャンネル名・公開日）・公開の枠のコメント欄・" +
       "同じ配信者の同じ作品名の枠と前後の枠・同時視聴枠にならなかった同じ配信者の動画（同じ作品名の動画と、メン限の枠では前後のメン限の動画。タイトルと日付だけ）。型・区間・候補・ルールの答えは見せない（GUIDE.md）",
@@ -131,7 +134,7 @@ export async function aiQueue(ctx: Ctx, cfg: ExtractConfig, opts: { reason: stri
   const rows = db.prepare(`SELECT e.id, e.video_id, e.title_raw, e.description_raw, e.thumbnail_url, e.started_at, e.streamer_id, s.name AS streamer,
       u.reason, u.detail
     FROM unresolved u JOIN watch_events e ON e.id = u.watch_event_id JOIN streamers s ON s.id = e.streamer_id
-    WHERE u.resolved_at IS NULL AND u.reason = ? AND ${activeEventSql("e")}
+    WHERE u.resolved_at IS NULL AND u.reason = ? AND ${activeEventSql("e")} AND e.status = 'completed'
       AND e.id NOT IN (SELECT watch_event_id FROM ai_decisions WHERE revoked_at IS NULL)`).all(opts.reason, cutoff) as Record<string, string | number | null>[];
   const byVideo = new Map(rows.map((r) => [String(r.video_id), r]));
   const picked = sampleOrder(opts.seed, [...byVideo.keys()]).slice(0, opts.n);
@@ -156,7 +159,7 @@ export async function aiQueue(ctx: Ctx, cfg: ExtractConfig, opts: { reason: stri
   const md = [
     `# AI 判定の待ち行列（${opts.batch}）`,
     "",
-    `- 母集団: 一覧に出る枠のうち未同定の理由が ${opts.reason} で、AI の判定がまだ無いもの（${rows.length} 枠）`,
+    `- 母集団: 一覧に出る終わった枠のうち未同定の理由が ${opts.reason} で、AI の判定がまだ無いもの（${rows.length} 枠）`,
     `- 抽出: sha256(シード + ":" + video_id) の昇順で先頭 ${picked.length} 件。シード「${opts.seed}」`,
     `- 概要欄は定型文（同じ配信者の枠に ${ctx.detectCfg.description.template_min_repeats} 本以上出る行）と URL の行を除き、その枠を指す行を先に12行まで。メン限枠の本文を含むのでローカルだけで使う`,
     "",

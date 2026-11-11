@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  episodeLabel, formLabel, formatDate, formatViews, formatWhen, iconAt, metaLine, multiMetaLine, periodLabel, publicKeyOf, showsNameEn, sortByViews,
+  episodeLabel, formLabel, formatDate, formatViews, iconAt, metaLine, multiMetaLine, periodLabel, publicKeyOf, showsNameEn, sortByViews,
 } from "../src/shared/site.ts";
 import { cardHtml, workCardHtml, workRowHtml } from "../site/lib/views.ts";
 import type { TopDict, TopRow } from "../site/lib/encode.ts";
@@ -41,7 +41,6 @@ test("再生数の表記。NULL は「—」で 0 と区別する", () => {
 
 test("日付は日本時間", () => {
   assert.equal(formatDate("2026-10-02T15:30:00Z"), "2026/10/03");
-  assert.equal(formatWhen("2026-10-03T12:00:00Z"), "10/03(土) 21:00");
 });
 
 test("話数の表記: 続いた番号は「〜」、飛んだ番号は「・」。番号の表記はそのまま", () => {
@@ -82,7 +81,7 @@ test("英語の名前は日本以外の区分で、名前と違うときだけ�
   assert.equal(iconAt("https://yt3.ggpht.com/abc=s240-c-k-c0x00ffffff-no-rj", 88), "https://yt3.ggpht.com/abc=s88-c-k-c0x00ffffff-no-rj");
 });
 
-test("枠カード: 作品・複数作品・作品ページの無い枠・予定枠。値は esc する", () => {
+test("枠カード: 作品・複数作品・作品ページの無い枠。値は esc する", () => {
   const dict: TopDict = {
     s: { 1: ["/streamers/UCx/", "配信<者>", "nijisanji", "en", ""] },
     w: {
@@ -107,9 +106,8 @@ test("枠カード: 作品・複数作品・作品ページの無い枠・予定
   // 作品ページの無い枠
   assert.match(cardHtml(row({ 5: [], 6: ["ミュージカル『X』", 1, "live_action", 0] }), dict), /作品ページなし/);
   assert.match(cardHtml(row({ 5: [], 6: ["【メン限】映画同時視聴！", 0, "", -1] }), dict), /枠のタイトル/);
-  // 予定枠・配信中
-  assert.match(cardHtml(row({ 2: null, 8: "upcoming" }), dict), /class="when"/);
-  assert.match(cardHtml(row({ 2: null, 8: "live" }), dict), /LIVE/);
+  // LIVE バッジは出さない（D-01）
+  assert.doesNotMatch(one, /LIVE|配信中/);
 });
 
 test("作品一覧の行と画像の URL の短縮", () => {

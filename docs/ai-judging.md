@@ -20,14 +20,14 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
   series・tiebreak・sub_desc_tag・disambiguation・prefix_sibling・redirect・live_action_tv・not_a_work_conflict・unidentifiable_rule・unresolved。
   ルールのまま出す型は multi・season_variant・search・label・suffix・unique_exact・not_a_work_rule
 - **AI に回す型の枠は、AI が確かめるまでサイトに出さない**（2026-10-01 の決定 (a)）。AI が保留にした枠も出さない（保留のままでよい。2026-10-11 ユーザー）。**保留は型に関係なく出さない**（ルールのまま出す型の枠を `ai:queue --video` で回して保留になったときも。2026-10-22 ユーザー決定）
-- **予定枠・配信中の枠は、作品の同定を待たずに出す**（2026-10-11 決定）（→ D-01 で出さない形に変更予定・未実装）。AI の判定待ちでも枠として出し（作品は付けない）、作品が決まっていれば作品を付ける。
-  終わった枠は今までどおり、判定するまで出さない。ルールが作品ではない語に当てた枠と、まだ名寄せしていない枠は、予定枠でも出さない（`publishState` の eventStatus）
-- サイトでの出し方は `publishState`（src/resolve/route.ts）。Phase 3 の publish はこれに従う。件数は `ai:status`
+- **予定枠・配信中の枠はサイトに出さない**（2026-10-27 の決定 D-01。src/publish/snapshot.ts。config/site.yaml の `publish_upcoming` で戻せる）。終わってから名寄せ・判定されて出る。
+  AI の待ち行列（`ai:queue`）にも終わった枠だけを入れる。`publishState` は枠の状態を見ない（2026-10-11 から D-01 までは、予定枠・配信中の枠を判定待ちでも枠として出していた）
+- サイトでの出し方は `publishState`（src/resolve/route.ts）。Phase 3 の publish はこれに従う。件数は `ai:status`（終わった枠だけ。終わっていない枠は別の行に数える）
 
       work        作品を付けて出す
       frame       枠として出す（作品だが外部DBに無い・作品を特定できない・確度 low の同定）。作品ページは作らない
       hidden      出さない（作品ではない）
-      pending_ai  AI の判定待ち（出さない。予定枠・配信中の枠は frame として出す）（→ D-01 で予定枠も出さない予定・未実装）
+      pending_ai  AI の判定待ち（出さない）
 
 - 取りこぼし（ルールの答えが AI の答えの一部。サイトに出ないだけ）は型の「誤り」に数えない。件数は記録して改善の材料にする
 - 公開後も、型ごとの AI との一致率で確定・AI 行きを上げ下げする（足切りを手で足し続けない。`ai_routes` を変える）

@@ -5,7 +5,11 @@ site_url: "https://simulwatch.example"
 # サイトの名前（2026-10-22 ユーザー決定）。title・ヘッダー・フッター・og:image はここから作る
 site_name: "VTuber 同時視聴まとめ"
 
-# 予定時刻（無ければ started_at）からこの時間を過ぎても upcoming の枠は「これから始まる枠」に出さない（決定 A。ビルドの時刻で判定する）
+# 予定枠・配信中の枠をサイト用のデータに入れるか（2026-10-27 の決定 D-01 で false。定期実行は日次だけで、トップの「これから始まる枠」は無い。
+# 終わった枠だけを出し、予定枠・配信中の枠は終わってから判定されて出る）。true にすると予定枠・配信中の枠も events に入る
+# （表示する UI と、判定待ちの予定枠を枠として出す publishState の分岐は消したので、戻すときは別に作る。docs/workflows.md の付録）
+publish_upcoming: false
+# publish_upcoming が true のとき、予定時刻（無ければ started_at）からこの時間を過ぎた upcoming の枠は出さない（ビルドの時刻で判定する）
 upcoming_stale_hours: 6
 
 top:

@@ -268,8 +268,11 @@ export async function persistRoutes(ctx: Ctx, cfg: ExtractConfig): Promise<Recor
   return counts;
 }
 
-/** サイトでの出し方ごとの件数（publishState。AI の判定待ちの内訳は型ごと） */
-export function publishSummary(ctx: Ctx, cfg: ExtractConfig): { states: Record<string, number>; pendingByRoute: Record<string, number>; noRoute: number } {
+/**
+ * サイトでの出し方ごとの件数（publishState。AI の判定待ちの内訳は型ごと）。終わった枠だけを数え、
+ * 予定枠・配信中の枠（サイトに出さず、AI の待ち行列にも入れない。2026-10-27 の決定 D-01）は notEnded に別に数える
+ */
+export function publishSummary(ctx: Ctx, cfg: ExtractConfig): { states: Record<string, number>; pendingByRoute: Record<string, number>; noRoute: number; notEnded: number } {
   const cutoff = farFutureCutoff(ctx.crawlCfg.upcoming.max_days_ahead);
   const rows = ctx.db.prepare(`SELECT e.id, e.status AS event_status, er.route, er.route_sub,
       (SELECT a.status FROM ai_decisions a WHERE a.watch_event_id = e.id AND a.revoked_at IS NULL) AS ai_status,
@@ -280,12 +283,17 @@ export function publishSummary(ctx: Ctx, cfg: ExtractConfig): { states: Record<s
   const states: Record<string, number> = {};
   const pendingByRoute: Record<string, number> = {};
   let noRoute = 0;
+  let notEnded = 0;
   for (const r of rows) {
+    if (r.event_status !== "completed") {
+      notEnded++;
+      continue;
+    }
     if (!r.route) noRoute++;
     const s = publishState({
       type: r.route as string | null, sub: r.route_sub as string | null,
       ai: r.ai_status ? { status: String(r.ai_status), confidence: String(r.ai_conf) } : null,
-      hasWorks: !!r.has_works, unresolvedReason: r.reason as string | null, eventStatus: r.event_status as string | null,
+      hasWorks: !!r.has_works, unresolvedReason: r.reason as string | null,
     }, cfg.ai_routes ?? []);
     states[s] = (states[s] ?? 0) + 1;
     if (s === "pending_ai") {
@@ -293,5 +301,5 @@ export function publishSummary(ctx: Ctx, cfg: ExtractConfig): { states: Record<s
       pendingByRoute[k] = (pendingByRoute[k] ?? 0) + 1;
     }
   }
-  return { states, pendingByRoute, noRoute };
+  return { states, pendingByRoute, noRoute, notEnded };
 }
