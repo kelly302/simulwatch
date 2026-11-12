@@ -14,7 +14,7 @@ import { nowIso } from "./time.ts";
 
 /**
  * 行を消さない表（設計で行を消さないと決めている表）。書き戻すときに取得したときより減っていたら止める。
- * candidates は docs/ai-ops.md 3-1 で作る表。DB に無いあいだは数えない
+ * candidates はマイグレーション 12（docs/ai-ops.md 3章）で作る表。DB に無いあいだ（古い DB）は数えない
  */
 export const KEEP_TABLES = ["streamers", "watch_events", "videos_seen", "ai_decisions", "unresolved", "work_public_keys", "candidates"];
 

@@ -30,6 +30,7 @@ import { loadSiteConfig } from "./lib/config.ts";
 import type { UnresolvedReason } from "./resolve/types.ts";
 import { DatabaseSync } from "node:sqlite";
 import { candidatesDryRun } from "./candidates/select.ts";
+import { candidatesSelect, fetchCandidates } from "./candidates/store.ts";
 
 // 使い方: npm run cli -- <command> [options]
 
@@ -76,8 +77,9 @@ const HELP = `
   ai:revoke       判定を取り消して、ルールで名寄せし直す [--batch B] [--video ID,...]
   works:enrich    作品の属性（映像の種類・制作国・シリーズの名前）を外部DBから埋める [--all（全部埋め直す）]
   ai:status       サイトでの出し方（作品を付けて出す・枠として出す・出さない・AI の判定待ち）ごとの件数と、判定待ちの型の内訳
-  candidates:select --dry-run  題名に同時視聴の語が無い続きの回の候補（docs/ai-ops.md 3-1。config/candidates.yaml）を選び、
-                  層ごとの件数を表示して一覧を data/review/candidates-select.{json,md} に書く（DB は読むだけ。表への保存はまだ無い）
+  candidates:select  題名に同時視聴の語が無い続きの回の候補（docs/ai-ops.md 3-1。config/candidates.yaml）を選び、候補の表（candidates）に入れる（日次。API なし）
+                  [--dry-run（表に入れず、層ごとの件数と一覧を data/review/candidates-select.{json,md} に書く。DB は読むだけ）]
+  candidates:fetch  詳細がまだの候補と予定・配信中だった候補の videos.list を引いて表に入れる（日次。50本で1ユニット。終わった動画だけを判定に回す）
 
 コマンド（公開。Phase 3）:
   site:data       サイト用のデータ（集計・作品の公開キー・ページの更新日）を data/site/site-data.json に書き出す。
@@ -176,6 +178,26 @@ async function main(): Promise<number> {
     "crawl:daily": { job: "daily", run: crawlDaily },
     "refresh": { job: "daily", run: refreshAll },
     "detect:fetch": { job: "daily", run: fetchOrphans },
+    "candidates:select": {
+      job: "daily",
+      run: async (ctx) => {
+        const r = await runStep(ctx, "candidates:select", async () => candidatesSelect(ctx.db, loadExtractConfig(), ctx.crawlCfg.upcoming.max_days_ahead));
+        if (r) {
+          ctx.summary.candidates_select = r.stats;
+          console.log(r.text);
+        }
+      },
+    },
+    "candidates:fetch": {
+      job: "daily",
+      run: async (ctx) => {
+        const r = await runStep(ctx, "candidates:fetch", () => fetchCandidates(ctx));
+        if (r) {
+          ctx.summary.candidates_fetch = r;
+          console.log(`候補の詳細: 対象 ${r.targets}・引いた ${r.requested}・終わった（判定に回す）${r.ready}・予定と配信中 ${r.waiting}・非公開など ${r.unavailable}・返らなかった ${r.missing}`);
+        }
+      },
+    },
     "resolve": { job: "resolve", run: resolveJob },
     "lookup": {
       job: "report",
@@ -298,6 +320,12 @@ async function main(): Promise<number> {
     },
   };
 
+  // --dry-run は DB を読むだけ（実行記録も書かない）
+  if (cmd === "candidates:select" && values["dry-run"]) {
+    console.log(candidatesDryRun(new DatabaseSync(DB_PATH, { readOnly: true }), loadExtractConfig(), loadCrawlConfig().upcoming.max_days_ahead));
+    return 0;
+  }
+
   if (cmd && JOBS[cmd]) {
     const { job, run } = JOBS[cmd];
     const ctx = createCtx(job);
@@ -335,15 +363,6 @@ async function main(): Promise<number> {
       for (const [k, v] of Object.entries(s.pendingByRoute).sort((a, b) => b[1] - a[1])) console.log(`  ${k}	${v}`);
       if (s.noRoute) console.log(`型が記録されていない枠 ${s.noRoute}（resolve を流すと記録される）`);
       if (s.notEnded) console.log(`終わっていない枠（予定枠・配信中）${s.notEnded}（サイトに出さず、終わってから判定する）`);
-      return 0;
-    }
-    case "candidates:select": {
-      if (!values["dry-run"]) {
-        console.log("候補の表への保存はまだ無い（docs/phase4-plan.md の D3a）。--dry-run を付けて件数と一覧だけを出す");
-        return 1;
-      }
-      const r = candidatesDryRun(new DatabaseSync(DB_PATH, { readOnly: true }), loadExtractConfig(), loadCrawlConfig().upcoming.max_days_ahead);
-      console.log(r);
       return 0;
     }
     case "site:data": {
