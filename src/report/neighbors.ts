@@ -273,7 +273,8 @@ export function pickLinks(lines: string[], cfg: ExtractConfig): string[] {
  */
 export async function videoComments(ctx: Ctx, cfg: ExtractConfig, videoId: string): Promise<string[]> {
   const n = cfg.ai_context?.comments ?? 0;
-  if (!ctx.yt || n <= 0) return [];
+  // クォータの上限で一度止まったら、以降の枠は呼ばない（枠ごとに警告を出さない）
+  if (!ctx.yt || n <= 0 || ctx.quota.exhausted) return [];
   const chars = cfg.ai_context?.comment_chars ?? 200;
   try {
     const list = await ctx.yt.commentThreads(videoId, n);

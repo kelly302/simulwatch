@@ -230,6 +230,8 @@ export interface BlindItem {
   youtube: YouTubeLink[];
   /** 公開の枠の YouTube のコメント（上位。メン限の枠は空） */
   comments: string[];
+  /** YouTube のクォータ（ローカルの AI の判定の取り分。docs/ai-ops.md の 5）を使い切って取らなかったもの */
+  skipped?: ("comments" | "youtube")[];
 }
 
 
@@ -285,6 +287,10 @@ export async function writeBlindQueue(
     const youtube = ytInfo ? youtubeLinks(ytRefs.get(vid) ?? [], ytInfo, channelId, cfg, ctx.detectCfg) : [];
     const lines = desc(r.ev.streamer_id, r.ev.description_raw, [...urls, ...youtube.map((y) => y.url)]);
     const comments = r.ev.is_members_only ? [] : await videoComments(ctx, cfg, vid);
+    // クォータを使い切って取らなかったものは「取らなかった」と書く（無いのか取らなかったのかを判定役が分けられるように）
+    const skipped: ("comments" | "youtube")[] = [];
+    if (!r.ev.is_members_only && !comments.length && ctx.quota.exhausted && (cfg.ai_context?.comments ?? 0) > 0 && ctx.yt) skipped.push("comments");
+    if (!ytInfo && (ytRefs.get(vid) ?? []).length && ctx.quota.exhausted) skipped.push("youtube");
     items.push({
       no: ++i, video_id: vid, streamer: r.ev.streamer, started_at: jst(r.ev.started_at), title: r.ev.title_raw,
       description_lines: lines, thumbnail: thumb ? relative(dir, thumb).replaceAll("\\", "/") : null,
@@ -295,6 +301,7 @@ export async function writeBlindQueue(
       links: urls.map((url) => ({ url, title: null, year: null, summary: null, ...titles.get(url) })),
       youtube,
       comments,
+      ...(skipped.length ? { skipped } : {}),
     });
     if (i % 100 === 0) log.info(`  待ち行列 ${i}/${order.length}`);
   }
@@ -335,6 +342,8 @@ export async function writeBlindQueue(
         ...(x.other_same_name.length ? [`- 同じ作品名の動画（同時視聴枠でないもの）: ${x.other_same_name.map((f) => `${f.date}${f.members ? "（メン限）" : ""} ${f.title}`).join(" ／ ")}`] : []),
         ...(x.other_members.length ? [`- 前後${daysLabel}日のメン限の動画（同時視聴枠でないもの）: ${x.other_members.map((f) => `${f.date} ${f.title}`).join(" ／ ")}`] : []),
         ...(x.comments.length ? [`- コメント欄（視聴者の上位${x.comments.length}件）: ${x.comments.join(" ／ ")}`] : []),
+        ...(x.skipped?.includes("youtube") ? ["- YouTube のリンク先: 取らなかった（YouTube のクォータの都合。リンク先が無いという意味ではない）"] : []),
+        ...(x.skipped?.includes("comments") ? ["- コメント欄: 取らなかった（YouTube のクォータの都合。コメントが無いという意味ではない）"] : []),
         "",
       ]),
     ];

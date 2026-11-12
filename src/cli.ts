@@ -12,7 +12,8 @@ import { loadExtractConfig } from "./resolve/config.ts";
 import { extract } from "./resolve/extract.ts";
 import { resolveSummary, unresolvedStats, unresolvedList, exportUnresolved, resolveAudit } from "./report/resolve.ts";
 import { seasonSample, unresolvedSample } from "./report/sample.ts";
-import { aiQueue, aiQueueRoutes, aiApply, aiReport, aiRevoke } from "./report/ai.ts";
+import { aiQueue, aiQueueRoutes, aiApply, aiReport, aiRevoke, aiCheck } from "./report/ai.ts";
+import { aiIngest, aiIngestSettle, aiPull, aiPush, openRemote } from "./report/inbox.ts";
 import { auditTypes, auditSample, auditCompare } from "./report/audit.ts";
 import { assignSeasons } from "./resolve/series.ts";
 import { persistRoutes, publishSummary } from "./resolve/routing.ts";
@@ -65,11 +66,21 @@ const HELP = `
   lookup "語" ...  外部作品DB（Annict・AniList・Wikipedia・Wikidata）の照会結果を並べる（判断の確認用）
   resolve:series  視聴系列による期の割り当ての一覧を data/review/series-assign.md に書き出す（DB は変えない。確認用）
 
-コマンド（AI の判定。人が起動する。定期実行のジョブからは呼ばない）:
+コマンド（AI の判定。答えは人が起動した回でだけ作る。日次のジョブは ai:ingest で取り込むだけ。docs/ai-ops.md・docs/workflows.md 6）:
   ai:queue        AI に回す型（extract.yaml の ai_routes）の枠のうち AI の判定が無いものを選び、候補を見せない待ち行列を data/ai/<batch>/ に書く
-                  [--n 300] [--seed S] [--batch B（既定はシード）] [--type 型,...（ai_routes の代わり）] [--include-hold（保留の枠も入れる）] [--video ID,...（動画を指定する。判定の有無と型に関係なく入れる。判定し直し用）]
+                  [--n 300] [--max-files N（1〜10。N×50 件）] [--seed S] [--batch B（既定はシード）] [--type 型,...（ai_routes の代わり）] [--include-hold（保留の枠も入れる）] [--video ID,...（動画を指定する。判定の有無と型に関係なく入れる。判定し直し用）]
+                  同じ batch の2回目は前の待ち行列を使い、答えのそろったファイルを飛ばす。YouTube はローカルの取り分（1日 quota.ai_reserve。data/ai/quota.json）で止める。
+                  最後の行に {"batch","files","remaining","quotaStopped","units","reused"} の JSON を出す
                   --reason R を付けると未同定の理由で選ぶ（ai-trial-1 の形。区間と注記を見せる）
-  ai:apply PATH   判定のファイル（answers/*.json か decisions.json。フォルダならその中のすべて）を DB に入れる。resolve は上書きしない（確定）
+  ai:check PATH   答えのファイル（ファイル・フォルダ・batch の名前）の形・finished_at・待ち行列を全部答えたかを確かめる。通らなければ終了コード 1
+  ai:apply PATH   判定のファイル（answers/*.json か decisions.json。フォルダならその中のすべてを名前の順に）を DB に入れる。resolve は上書きしない（確定）。
+                  すでにある判定より古い答え（ファイルの finished_at）は入れない。batch・model・finished_at の無いファイルは入れない（ai:ingest と同じ決まり。D-09）
+  ai:pull         R2 の DB（db/db.sqlite.gz）を落として検査し、ローカルの写しにする [--remote r2|フォルダ（既定 r2）] [--db F（既定 data/db.sqlite）]。
+                  ai:pull で落としたのでない DB（<db>.pulled.json が無い）は上書きしない。外れたら終了コード 1
+  ai:push B       batch の答え（answers/*.json と直下の fix-*.json）を ai:check に通し、受け箱 ai/inbox/<B>/ に置く [--remote r2|フォルダ] [--skip-failed]
+  ai:ingest       （日次のジョブ）受け箱の batch を古い順に5つまで取り込み、batch ごとの結果（入れた・やり直し・failed）と移す先を JSON に書く
+                  [--remote r2|フォルダ] [--work D（既定 data/ai-inbox）] [--result F（既定 <work>/result.json）] [--max-batches 5] [--run-id R]
+  ai:ingest --settle F  DB の書き戻しが成功したあとに、F（ai:ingest の結果）のとおり受け箱から ai/applied/・ai/failed/ へ移し、ai/results/ の印を結果で上書きする
   ai:report B     判定の根拠の一覧（report.md）と採点用の report.html を書く。採点の表は確度 high 以外・保留・特定できないを全部。
                   B をカンマでつなぐと複数の回を1つの表にまとめる（出力は data/ai/<回を _ でつないだ名前>/）
                   [--sample N --seed S（確度 high からシードで N 件を抜き取り）] [--include-high（確度 high も全部）]
@@ -150,6 +161,13 @@ async function main(): Promise<number> {
       now: { type: "string" },
       since: { type: "string" },
       "dry-run": { type: "boolean" },
+      "max-files": { type: "string" },
+      "max-batches": { type: "string" },
+      remote: { type: "string" },
+      work: { type: "string" },
+      result: { type: "string" },
+      settle: { type: "string" },
+      "skip-failed": { type: "boolean" },
     },
   });
   const cmd = positionals[0];
@@ -236,13 +254,23 @@ async function main(): Promise<number> {
         const seed = values.seed ?? "ai-1";
         const batch = values.batch ?? seed;
         // --reason を付けたときは未同定の理由で選ぶ（ai-trial-1 の形）。付けなければ AI に回す型の枠から候補を見せない形で選ぶ
-        const r = await runStep(ctx, "ai:queue", () => values.reason
-          ? aiQueue(ctx, loadExtractConfig(), { reason: values.reason, n: Number(values.n ?? 100), seed, batch })
-          : aiQueueRoutes(ctx, loadExtractConfig(), {
-            batch, seed, n: Number(values.n ?? 300), routes: values.type?.split(","), includeHold: !!values["include-hold"],
-            ...(values.video ? { videos: values.video.split(",") } : {}),
-          }));
-        if (r) console.log(r);
+        if (values.reason) {
+          const r = await runStep(ctx, "ai:queue", () => aiQueue(ctx, loadExtractConfig(), { reason: values.reason!, n: Number(values.n ?? 100), seed, batch }));
+          if (r) console.log(r);
+          return;
+        }
+        const r = await runStep(ctx, "ai:queue", () => aiQueueRoutes(ctx, loadExtractConfig(), {
+          batch, seed, routes: values.type?.split(","), includeHold: !!values["include-hold"],
+          ...(values.n !== undefined ? { n: Number(values.n) } : {}),
+          ...(values["max-files"] !== undefined ? { maxFiles: Number(values["max-files"]) } : {}),
+          ...(values.video ? { videos: values.video.split(",") } : {}),
+        }));
+        if (r) {
+          console.log(r.text);
+          // ワークフロー（docs/ai-ops.md 4-2 の Prepare）が読む返り値。最後の1行
+          const { text: _t, ...out } = r;
+          console.log(JSON.stringify(out));
+        }
       },
     },
     "ai:apply": {
@@ -256,6 +284,28 @@ async function main(): Promise<number> {
           await runStep(ctx, "resolve (videos)", () => resolveEvents(ctx, { mode: "videos", videoIds: r.reresolve }));
           await recordRoutes(ctx);
         }
+      },
+    },
+    "ai:ingest": {
+      job: "ai",
+      run: async (ctx) => {
+        const work = values.work ?? join(DATA_DIR, "ai-inbox");
+        const cfg = loadExtractConfig();
+        const runId = values["run-id"] ?? (process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT ?? "1"}` : ctx.runId);
+        const r = await runStep(ctx, "ai:ingest", () => aiIngest({
+          remote: openRemote(values.remote), work, result: values.result ?? join(work, "result.json"), runId,
+          ...(values["max-batches"] !== undefined ? { maxBatches: Number(values["max-batches"]) } : {}),
+          // ログには件数と動画の ID だけを出す（公開リポジトリの Actions のログ。答えの根拠・概要欄は出さない）
+          apply: async (dir) => {
+            const a = await aiApply(ctx, cfg, dir);
+            if (a.reresolve.length) {
+              await runStep(ctx, "resolve (videos)", () => resolveEvents(ctx, { mode: "videos", videoIds: a.reresolve }));
+              await recordRoutes(ctx);
+            }
+            return a;
+          },
+        }));
+        if (r) ctx.summary.ai_ingest = Object.fromEntries(r.batches.map((b) => [b.batch, { outcome: b.outcome, attempt: b.attempt, ...b.counts }]));
       },
     },
     "ai:report": {
@@ -326,6 +376,15 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  // 受け箱から移すのは DB の書き戻しのあと（docs/workflows.md 3-1 の 11）。DB は開かない
+  if (cmd === "ai:ingest" && values.settle) {
+    const remote = remoteOrExit(values.remote);
+    if (!remote) return 1;
+    const r = await aiIngestSettle(remote, values.settle);
+    for (const e of r.errors) if (process.env.GITHUB_ACTIONS === "true") console.log(`::warning title=ai:ingest --settle::${e}`);
+    return 0;
+  }
+
   if (cmd && JOBS[cmd]) {
     const { job, run } = JOBS[cmd];
     const ctx = createCtx(job);
@@ -364,6 +423,35 @@ async function main(): Promise<number> {
       if (s.noRoute) console.log(`型が記録されていない枠 ${s.noRoute}（resolve を流すと記録される）`);
       if (s.notEnded) console.log(`終わっていない枠（予定枠・配信中）${s.notEnded}（サイトに出さず、終わってから判定する）`);
       return 0;
+    }
+    case "ai:check": {
+      const path = positionals[1];
+      if (!path) {
+        console.error("答えのファイル・フォルダ・batch の名前を指定してください");
+        return 1;
+      }
+      const r = aiCheck(path);
+      console.log(r.text);
+      return r.ok ? 0 : 1;
+    }
+    case "ai:pull": {
+      const remote = remoteOrExit(values.remote);
+      if (!remote) return 1;
+      const r = await aiPull(remote, values.db ?? DB_PATH);
+      if (!r.ok) for (const l of r.lines) console.log(`ai:pull ${l}`);
+      return r.ok ? 0 : 1;
+    }
+    case "ai:push": {
+      const batch = positionals[1] ?? values.batch;
+      if (!batch) {
+        console.error("batch を指定してください");
+        return 1;
+      }
+      const remote = remoteOrExit(values.remote);
+      if (!remote) return 1;
+      const r = await aiPush(remote, batch, { skipFailed: !!values["skip-failed"] });
+      console.log(r.text);
+      return r.pushed.length && (r.ok || values["skip-failed"]) ? 0 : 1;
     }
     case "site:data": {
       const ctx = createCtx("site");
@@ -465,6 +553,16 @@ async function main(): Promise<number> {
     default:
       console.log(HELP);
       return cmd ? 1 : 0;
+  }
+}
+
+/** --remote の層を開く。設定が無ければ理由を出して null */
+function remoteOrExit(spec: string | undefined): ReturnType<typeof openRemote> | null {
+  try {
+    return openRemote(spec);
+  } catch (e) {
+    console.error((e as Error).message);
+    return null;
   }
 }
 
