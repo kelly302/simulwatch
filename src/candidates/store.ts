@@ -10,6 +10,7 @@ import { nowIso } from "../lib/time.ts";
 import { log } from "../lib/log.ts";
 import { selectCandidates, loadSelectInput, loadCandidatesConfig, summarize } from "./select.ts";
 import type { Candidate } from "./select.ts";
+import type { EventRow } from "../resolve/routing.ts";
 
 // 続きの回の候補の表（candidates。マイグレーション 12）への保存と詳細の取得。docs/ai-ops.md 3-1・3-2、決定 D-04。
 //   candidates:select  候補を選んで表に入れる（日次のジョブの手順 6。API を使わない）
@@ -153,4 +154,58 @@ export async function fetchCandidates(ctx: FetchCtx, opts: { limit?: number } = 
     });
   }
   return s;
+}
+
+/** 待ち行列に入れる候補（判定役には候補であることと種の枠を見せ、層は見せない。docs/ai-ops.md 3-3） */
+export interface CandidateQueueRow {
+  /** watch_events の行の形（枠はまだ無いので id は負の数 = -candidates.id） */
+  ev: EventRow;
+  rule: null;
+  candidate: {
+    /** 候補の理由（層）。sealed/ にだけ残し、判定役には見せない */
+    reasons: string[];
+    /** 候補にした同時視聴の枠（この動画に近い順に最大 5枠を日付順に。日本時間の日付と題名） */
+    seeds: { date: string; title: string }[];
+  };
+}
+
+const SEEDS_SHOWN = 5;
+const jstDate = (t: string | null) => (t ? new Date(Date.parse(t) + 9 * 3_600_000).toISOString().slice(0, 10) : "?");
+
+/**
+ * 待ち行列の候補。ready（includeHold なら hold も）の候補のうち、一覧に出る枠の無いもの。
+ * videos を渡すと、状態に関係なくその動画の候補（終わった動画で、一覧に出る枠の無いもの）を入れる（判定し直し用）
+ */
+export function candidateQueueRows(db: DB, opts: { includeHold?: boolean; videos?: string[] } = {}): CandidateQueueRow[] {
+  const states = opts.includeHold ? ["ready", "hold"] : ["ready"];
+  const rows = db.prepare(`SELECT c.id, c.video_id, c.streamer_id, s.name AS streamer, c.state, c.reasons, c.seeds, c.title_raw, c.description_raw,
+      c.thumbnail_url, c.started_at, c.is_members_only, vs.is_members_hint
+    FROM candidates c JOIN streamers s ON s.id = c.streamer_id LEFT JOIN videos_seen vs ON vs.video_id = c.video_id
+    WHERE c.status = 'completed' AND c.title_raw IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM watch_events e WHERE e.video_id = c.video_id AND e.excluded_at IS NULL)
+    ORDER BY c.id`).all() as Record<string, string | number | null>[];
+  const seedOf = db.prepare("SELECT started_at, title_raw FROM watch_events WHERE id = ?");
+  const out: CandidateQueueRow[] = [];
+  for (const r of rows) {
+    const vid = String(r.video_id);
+    if (opts.videos ? !opts.videos.includes(vid) : !states.includes(String(r.state))) continue;
+    const t0 = r.started_at ? Date.parse(String(r.started_at)) : NaN;
+    const ids = [...new Set((JSON.parse(String(r.seeds)) as { seed: number }[]).map((h) => h.seed))];
+    const seeds = ids.flatMap((id) => {
+      const s = seedOf.get(id) as { started_at: string | null; title_raw: string } | undefined;
+      return s ? [{ at: s.started_at ? Date.parse(s.started_at) : NaN, date: jstDate(s.started_at), title: s.title_raw }] : [];
+    });
+    const dist = (x: { at: number }) => (Number.isNaN(x.at) || Number.isNaN(t0) ? Infinity : Math.abs(x.at - t0));
+    const near = seeds.sort((a, b) => dist(a) - dist(b) || a.at - b.at).slice(0, SEEDS_SHOWN).sort((a, b) => a.at - b.at);
+    out.push({
+      ev: {
+        id: -Number(r.id), video_id: vid, title_raw: String(r.title_raw), description_raw: r.description_raw as string | null,
+        started_at: r.started_at as string | null, streamer_id: Number(r.streamer_id), thumbnail_url: r.thumbnail_url as string | null,
+        streamer: String(r.streamer), is_members_only: Number(r.is_members_only) === 1 || Number(r.is_members_hint) === 1 ? 1 : 0,
+      },
+      rule: null,
+      candidate: { reasons: JSON.parse(String(r.reasons)) as string[], seeds: near.map(({ date, title }) => ({ date, title })) },
+    });
+  }
+  return out;
 }

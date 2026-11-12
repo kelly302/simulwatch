@@ -21,6 +21,9 @@ import type { AiStatus, AiConfidence, AiWork } from "../resolve/ai.ts";
 import type { WorkCandidate } from "../resolve/types.ts";
 import { sampleOrder } from "./sample.ts";
 import { CHUNK, descriptionReader, downloadThumb, writeBlindQueue } from "./blind.ts";
+import type { QueueRow } from "./blind.ts";
+import { candidateQueueRows } from "../candidates/store.ts";
+import { frameFromCandidate, revokeCandidateFrames } from "../candidates/frames.ts";
 import { collectRoutes } from "../resolve/routing.ts";
 import type { RuleAnswer } from "../resolve/routing.ts";
 import { needsAi, stratumOf } from "../resolve/route.ts";
@@ -174,11 +177,13 @@ function reuseQueue(dir: string, opts: { batch: string; seed: string }): QueueRe
  * 本番の待ち行列（2026-10-01）。AI に回す型（config/extract.yaml の ai_routes）の終わった枠のうち、AI の判定がまだ無いもの
  * （includeHold なら保留も）から、sha256(シード:video_id) の昇順で先頭 n 件（--max-files なら 50×N 件）。候補を見せない形で書き出す（src/report/blind.ts）。
  * ルールの答えは sealed/ に残し、採点の表（ai:report）で並べる。
- * 同じ batch の2回目は前の待ち行列を使う（reuseQueue）。YouTube はローカルの AI の判定の取り分（data/ai/quota.json）で止める（docs/ai-ops.md の 5）
+ * 同じ batch の2回目は前の待ち行列を使う（reuseQueue）。YouTube はローカルの AI の判定の取り分（data/ai/quota.json）で止める（docs/ai-ops.md の 5）。
+ * 続きの回の候補（D-04。candidates の表の ready、includeHold なら hold も）も同じ待ち行列に混ぜる（docs/ai-ops.md 3-3）。--type（routes）を付けたときは入れない。
+ * candidatesOnly なら候補だけ
  */
 export async function aiQueueRoutes(
   ctx: Ctx, cfg: ExtractConfig,
-  opts: { batch: string; seed: string; n?: number; maxFiles?: number; routes?: string[]; includeHold?: boolean; videos?: string[]; quotaFile?: string },
+  opts: { batch: string; seed: string; n?: number; maxFiles?: number; routes?: string[]; includeHold?: boolean; videos?: string[]; quotaFile?: string; candidatesOnly?: boolean },
 ): Promise<QueueResult> {
   const dir = batchDir(opts.batch);
   if (existsSync(join(dir, "sealed", "answers.json"))) return reuseQueue(dir, opts);
@@ -187,23 +192,27 @@ export async function aiQueueRoutes(
   }
   const n = opts.maxFiles !== undefined ? Math.min(opts.n ?? Infinity, opts.maxFiles * CHUNK) : opts.n ?? 300;
   const routes = opts.routes ?? cfg.ai_routes ?? [];
-  if (!routes.length) throw new Error("AI に回す型がありません（config/extract.yaml の ai_routes）");
-  const { routed } = await collectRoutes(ctx, cfg);
+  if (!routes.length && !opts.candidatesOnly) throw new Error("AI に回す型がありません（config/extract.yaml の ai_routes）");
+  const { routed } = opts.candidatesOnly ? { routed: [] } : await collectRoutes(ctx, cfg);
   const decided = new Map((ctx.db.prepare("SELECT watch_event_id, status FROM ai_decisions WHERE revoked_at IS NULL").all() as
     { watch_event_id: number; status: string }[]).map((r) => [r.watch_event_id, r.status]));
   // 終わった枠だけ（2026-10-27 の決定 D-01。予定枠・配信中の枠はサイトに出さず、終わってから判定する。動画を指定しても入れない）
   const ended = new Set((ctx.db.prepare("SELECT id FROM watch_events WHERE status = 'completed'").all() as { id: number }[]).map((r) => r.id));
   // 動画を指定したときは、判定の有無と型に関係なく入れる（判定し直し用。判定済みの枠を入れ直すと、ai:apply で前の判定は取り消しになる）
-  const pool = (opts.videos
+  const framePool = (opts.videos
     ? routed.filter((r) => opts.videos!.includes(r.ev.video_id))
     : routed.filter((r) => needsAi(r.rule, routes) && (!decided.has(r.ev.id) || (opts.includeHold && decided.get(r.ev.id) === "hold"))))
     .filter((r) => ended.has(r.ev.id));
+  // 続きの回の候補（終わった動画で、一覧に出る枠の無いもの）。判定役には候補であることと種の枠を見せ、層は見せない
+  const candPool = opts.routes && !opts.candidatesOnly ? [] : candidateQueueRows(ctx.db, { includeHold: !!opts.includeHold, ...(opts.videos ? { videos: opts.videos } : {}) });
+  const pool: QueueRow[] = [...framePool, ...candPool];
+  const stratum = (r: QueueRow) => (r.rule ? stratumOf(r.rule) : "candidate");
   const byVid = new Map(pool.map((r) => [r.ev.video_id, r]));
   const rows = sampleOrder(opts.seed, [...byVid.keys()]).slice(0, n).map((v) => byVid.get(v)!);
   const perRoute: Record<string, number> = {};
-  for (const r of pool) perRoute[stratumOf(r.rule)] = (perRoute[stratumOf(r.rule)] ?? 0) + 1;
+  for (const r of pool) perRoute[stratum(r)] = (perRoute[stratum(r)] ?? 0) + 1;
   const picked: Record<string, number> = {};
-  for (const r of rows) picked[stratumOf(r.rule)] = (picked[stratumOf(r.rule)] ?? 0) + 1;
+  for (const r of rows) picked[stratum(r)] = (picked[stratum(r)] ?? 0) + 1;
   if (!rows.length) {
     return { text: `母集団 ${pool.length} 枠。判定する枠が無い（batch は作らない）`, batch: opts.batch, files: [], remaining: 0, quotaStopped: false, units: 0, reused: false };
   }
@@ -229,10 +238,13 @@ export async function aiQueueRoutes(
     `# AI の判定の待ち行列（${opts.batch}）`, "",
     opts.videos
       ? `- 母集団: 一覧に出る終わった枠のうち、指定した動画（${opts.videos.join("・")}。判定の有無と型に関係なく入れる）。${pool.length} 枠`
-      : `- 母集団: 一覧に出る終わった枠のうち、AI に回す型（${routes.join("・")}）で、AI の判定がまだ無いもの${opts.includeHold ? "（保留の枠を含む）" : ""}。${pool.length} 枠`,
+      : opts.candidatesOnly ? `- 母集団: 続きの回の候補（candidates の ready${opts.includeHold ? "・hold" : ""}）。${pool.length} 本`
+      : `- 母集団: 一覧に出る終わった枠のうち、AI に回す型（${routes.join("・")}）で、AI の判定がまだ無いもの${opts.includeHold ? "（保留の枠を含む）" : ""} ${framePool.length} 枠と、` +
+        `続きの回の候補（candidates の ready${opts.includeHold ? "・hold" : ""}。型は candidate）${candPool.length} 本`,
     `- 抽出: sha256(シード + ":" + video_id) の昇順で先頭 ${rows.length} 件。シード「${opts.seed}」。待ち行列の並びは sha256(シード + ":queue:" + video_id) の昇順`,
     "- AI に見せるもの: 配信者・日時・タイトル・概要欄（定型文と URL で始まる行を除き（題名を見せるリンクの行は残す）、その枠を指す行を先に12行まで）・サムネイル・概要欄のリンク先の題名・YouTube のリンク先（題名・チャンネル名・公開日）・公開の枠のコメント欄・" +
-      "同じ配信者の同じ作品名の枠と前後の枠・同時視聴枠にならなかった同じ配信者の動画（同じ作品名の動画と、メン限の枠では前後のメン限の動画。タイトルと日付だけ）。型・区間・候補・ルールの答えは見せない（GUIDE.md）",
+      "同じ配信者の同じ作品名の枠と前後の枠・同時視聴枠にならなかった同じ配信者の動画（同じ作品名の動画と、メン限の枠では前後のメン限の動画。タイトルと日付だけ）。型・区間・候補・ルールの答えは見せない（GUIDE.md）。" +
+      "続きの回の候補には、候補であること（同時視聴でなければ not_watchalong）と候補にした同時視聴の枠（近い5枠）を足す。候補の理由（層）は見せない（docs/ai-ops.md 3-3）",
     "- 判定のあと: ai:apply data/ai/<batch>/answers で入れ、ai:report <batch> --sample N --seed S で採点の表を作る", "",
     "| 型 | 母集団 | この待ち行列 |", "| --- | ---: | ---: |",
     ...Object.entries(perRoute).sort((a, b) => b[1] - a[1]).map(([k, v]) => `| ${k} | ${v} | ${picked[k] ?? 0} |`), "",
@@ -360,7 +372,7 @@ const FUTURE_SLACK_MS = 3_600_000;
 /**
  * 取り込みの問題の種類（docs/workflows.md 6-3）。ai:ingest が batch の結果（入れた・やり直し・failed）をこれで決める
  *   file      ファイル単位（読めない・batch・model・finished_at が無いか読めない・答えの配列が無い）→ failed
- *   no_event  枠が無い（判定から外れた・アーカイブが消えた枠。候補（続きの回）の答えも塊 D3a まではここ）→ 入れた
+ *   no_event  枠が無い（判定から外れた・アーカイブが消えた枠。候補の表に無い動画。候補の詳細が無く枠を作れない）→ 入れた
  *   invalid   答えの形が不正 → 入れた（結果に書いて人が直す）
  *   lookup    外部DBで引けない（照会のエラー・作品クラスでない項目）→ やり直し
  *   enrich    作品の属性を埋められなかった → 入れた（次の resolve で埋める）
@@ -383,9 +395,11 @@ export interface ApplyResult {
   problems: ApplyProblem[];
   /** 結果を変えない知らせ（not_in_db に kind・movie が無いなど） */
   notices: string[];
+  /** 続きの回の候補の答え（D-04）: 枠を作った（作った・戻した）・同時視聴ではない（候補の表に持つ）・保留（候補のまま） */
+  candidates: { framed: string[]; notWatchalong: string[]; hold: string[] };
 }
 
-type AnswerItem = DecisionInput & { title?: string; missing?: string[]; kind?: string; movie?: boolean; model: string; batch: string; at: number; file: string };
+type AnswerItem = Omit<DecisionInput, "status"> & { status: AiStatus | "not_watchalong"; title?: string; missing?: string[]; kind?: string; movie?: boolean; model: string; batch: string; at: number; file: string };
 
 /**
  * 答えのファイル1つを読んで検査する（aiApply と ai:check が同じものを使う）。
@@ -420,7 +434,7 @@ export function readAnswerFile(f: string, opts: { noEvent?: (videoId: string) =>
     for (const a of j.answers) {
       if (!a || typeof a.video_id !== "string") { problems.push({ kind: "invalid", file: f, message: "video_id が無い答え" }); continue; }
       videoIds.push(a.video_id);
-      // 候補（続きの回）の答えは塊 D3a で枠を作ってから入れる。それまでは枠が無いので no_event になる
+      // 続きの回の候補（候補の表にある動画）は、枠が無くても noEvent が通す（aiApply が枠を作ってから入れる。D-04）
       const gone = noEvent(a.video_id);
       if (gone) { problems.push({ kind: "no_event", file: f, video_id: a.video_id, message: gone }); continue; }
       const why = validateAnswer(a);
@@ -428,7 +442,7 @@ export function readAnswerFile(f: string, opts: { noEvent?: (videoId: string) =>
       // 2026-10-02 より前の答えには無い（受け付けて、UI の絞り込みから漏れることだけ知らせる）
       if (a.status === "not_in_db" && (!a.kind || a.movie === undefined)) notices.push(`${a.video_id}: not_in_db に kind・movie が無い（映像の種類・映画での絞り込みに出ない）`);
       items.push({
-        video_id: a.video_id, status: a.status as AiStatus, confidence: a.confidence, evidence: a.evidence, rationale: a.rationale, seconds: a.seconds,
+        video_id: a.video_id, status: a.status, confidence: a.confidence, evidence: a.evidence, rationale: a.rationale, seconds: a.seconds,
         works: (a.works ?? []).map((w) => ({ key: w.key, ...(w.episodes?.length ? { episodes: w.episodes } : {}) })),
         ...(a.title ? { title: a.title } : {}), ...(a.missing?.length ? { missing: a.missing } : {}),
         ...(a.kind ? { kind: a.kind } : {}), ...(a.movie !== undefined ? { movie: a.movie } : {}),
@@ -483,16 +497,21 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string, deps: 
   const db = ctx.db;
   const problems: ApplyProblem[] = [];
   const notices: string[] = [];
-  // 枠が無い = 行が無い・判定から外れた（excluded_at）・アーカイブが消えた（archive_gone_at）。docs/workflows.md 6-3。入れ直しても入らない
-  const evOf = db.prepare("SELECT id, excluded_at, archive_gone_at FROM watch_events WHERE video_id = ?");
-  const evRow = (vid: string) => evOf.get(vid) as { id: number; excluded_at: string | null; archive_gone_at: string | null } | undefined;
-  const evId = (vid: string) => evRow(vid)!.id;
+  // 枠が無い = 行が無い・判定から外れた（excluded_at）・アーカイブが消えた（archive_gone_at）。docs/workflows.md 6-3。入れ直しても入らない。
+  // ただし続きの回の候補（candidates の表にある動画。D-04）は、行が無い・外れた枠でも通し、枠を作る関数（src/candidates/frames.ts）で作るか戻してから入れる
+  // （語彙の変更で外れていた行（detect_rule）・取り消しで外した ai_candidate の枠（ai_revoked）も戻す）。アーカイブが消えた枠は候補でも入れない
+  const evOf = db.prepare("SELECT id, excluded_at, archive_gone_at, detect_source FROM watch_events WHERE video_id = ?");
+  const evRow = (vid: string) => evOf.get(vid) as { id: number; excluded_at: string | null; archive_gone_at: string | null; detect_source: string } | undefined;
+  const candOf = db.prepare("SELECT state, answered_at FROM candidates WHERE video_id = ?");
+  const candRow = (vid: string) => candOf.get(vid) as { state: string; answered_at: string | null } | undefined;
   const items: AnswerItem[] = [];
   for (const f of files) {
     const r = readAnswerFile(f, {
       noEvent: (v) => {
         const e = evRow(v);
-        return !e ? "枠が無い" : e.excluded_at ? "枠が判定から外れている（excluded_at）" : e.archive_gone_at ? "枠のアーカイブが消えた（archive_gone_at）" : null;
+        if (e?.archive_gone_at) return "枠のアーカイブが消えた（archive_gone_at）";
+        if ((!e || e.excluded_at) && candRow(v)) return null;
+        return !e ? "枠が無い" : e.excluded_at ? "枠が判定から外れている（excluded_at）" : null;
       },
     });
     items.push(...r.items);
@@ -512,27 +531,67 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string, deps: 
     return max;
   };
 
+  // 続きの回の候補は、枠（行があれば。外れた行も含む）の判定の時刻と、候補の表の答えの時刻（not_watchalong・hold。取り消した答えも含む）の大きいほう
+  const existingAt = (vid: string): number | null => {
+    const e = evRow(vid);
+    const ts = [e ? dbAt(e.id) : null, answerInstant(candRow(vid)?.answered_at)].filter((t): t is number => t !== null);
+    return ts.length ? Math.max(...ts) : null;
+  };
+
   // 作品の情報を外部DBから引く。DB の判定より古い・同じ時刻の答えは入らないので引かない（同じ呼び出しの中の比べは下で）
-  const fresh = items.filter((d) => answerFreshness(dbAt(evId(d.video_id)!), d.at) === "apply");
+  const fresh = items.filter((d) => answerFreshness(existingAt(d.video_id), d.at) === "apply");
   const got = await (deps.fetchWorks ?? fetchWorks)(ctx, cfg, [...new Set(fresh.flatMap((d) => (d.works ?? []).map((w) => w.key)))]);
 
   const applied: number[] = [];
   const appliedVids: string[] = [];
   const stale: string[] = [];
   const already: string[] = [];
-  // この呼び出しで入れた答えの時刻（枠ごと）。同じ時刻なら名前の順で後ろのファイルを入れる
-  const inCall = new Map<number, number>();
+  // この呼び出しで入れた答えの時刻（動画ごと）。同じ時刻なら名前の順で後ろのファイルを入れる
+  const inCall = new Map<string, number>();
+  // 続きの回の候補の答え（D-04）: 枠を作った（作った・戻した）・同時視聴ではない・保留（候補のまま）
+  const cand = { framed: [] as string[], notWatchalong: [] as string[], hold: [] as string[] };
+  const setAnswer = db.prepare(`UPDATE candidates SET state = ?, state_at = ?, answer_status = ?, answer_batch = ?, answer_detail = ?, answered_at = ?, answer_revoked_at = NULL
+    WHERE video_id = ?`);
+  const revokeOf = db.prepare("UPDATE ai_decisions SET revoked_at = ? WHERE watch_event_id = ? AND revoked_at IS NULL");
   // 確定した判定（hold 以外）を hold に置き換えた枠。取り消した判定の結果（未同定の理由など）が残るので、ルールで名寄せし直す（ai:revoke と同じ）
   const reresolve = new Set<string>();
   const locked = db.prepare("SELECT 1 FROM ai_decisions WHERE watch_event_id = ? AND revoked_at IS NULL AND status != 'hold'");
   const now = nowIso();
   tx(db, () => {
     for (const d of items) {
-      const ev = evId(d.video_id)!;
-      const prev = inCall.get(ev);
-      const verdict = prev !== undefined ? (d.at >= prev ? "apply" : "stale") : answerFreshness(dbAt(ev), d.at);
+      const prev = inCall.get(d.video_id);
+      const verdict = prev !== undefined ? (d.at >= prev ? "apply" : "stale") : answerFreshness(existingAt(d.video_id), d.at);
       if (verdict === "stale") { stale.push(d.video_id); continue; }
       if (verdict === "already") { already.push(d.video_id); continue; }
+      const e0 = evRow(d.video_id);
+      const live = !!e0 && !e0.excluded_at;
+      const c = candRow(d.video_id);
+      const detail = () => JSON.stringify({ model: d.model, confidence: d.confidence, rationale: d.rationale, evidence: d.evidence, ...(d.seconds !== undefined ? { seconds: d.seconds } : {}) });
+      // 同時視聴ではない（続きの回の候補だけ）。枠は作らず、候補の表に答えを持つ。AI が足した枠があれば（直しの答え）判定を取り消して枠を外す
+      if (d.status === "not_watchalong") {
+        if (!c) { problems.push({ kind: "invalid", file: d.file, video_id: d.video_id, message: "not_watchalong は続きの回の候補の動画だけ" }); continue; }
+        if (live && e0!.detect_source !== "ai_candidate") {
+          problems.push({ kind: "invalid", file: d.file, video_id: d.video_id, message: "同時視聴の語で枠になった動画に not_watchalong は入れない" });
+          continue;
+        }
+        if (live) {
+          revokeOf.run(now, e0!.id);
+          revokeCandidateFrames(db, [e0!.id], now);
+        }
+        setAnswer.run("not_watchalong", now, "not_watchalong", d.batch, detail(), new Date(d.at).toISOString(), d.video_id);
+        inCall.set(d.video_id, d.at);
+        cand.notWatchalong.push(d.video_id);
+        appliedVids.push(d.video_id);
+        continue;
+      }
+      // 保留で一覧に出る枠が無い候補は、枠を作らず候補のまま（次の回に --include-hold で出す）
+      if (d.status === "hold" && !live && c) {
+        setAnswer.run("hold", now, "hold", d.batch, detail(), new Date(d.at).toISOString(), d.video_id);
+        inCall.set(d.video_id, d.at);
+        cand.hold.push(d.video_id);
+        appliedVids.push(d.video_id);
+        continue;
+      }
       // シリーズの項目に付け替えた作品には話数を付けない（どのシーズンの話か分からない）
       const works: AiWork[] = (d.works ?? []).map((w) => ({ key: w.key, work: got.get(w.key), ...(w.episodes?.length && !got.get(w.key)?.liftedFrom ? { episodes: w.episodes } : {}) }));
       const unknown = works.filter((w) => !w.work).map((w) => w.key);
@@ -540,17 +599,26 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string, deps: 
         problems.push({ kind: "lookup", file: d.file, video_id: d.video_id, message: `外部DBで引けない（照会のエラーか、作品クラスでない Wikidata の項目）: ${unknown.join(", ")}` });
         continue;
       }
+      // 枠は判定より先に作る（ai_decisions.watch_event_id は NOT NULL）。一覧に出る枠が無いのは、noEvent が通した続きの回の候補だけ
+      let ev: number;
+      if (live) ev = e0!.id;
+      else {
+        const fr = frameFromCandidate(db, d.video_id, now);
+        if (!fr.ok) { problems.push({ kind: "no_event", file: d.file, video_id: d.video_id, message: `候補から枠を作れない: ${fr.why}` }); continue; }
+        ev = fr.eventId;
+        cand.framed.push(d.video_id);
+      }
       const extra = d.title || d.missing?.length || d.kind ? JSON.stringify({
         ...(d.title ? { title: d.title } : {}), ...(d.missing?.length ? { missing: d.missing } : {}),
         ...(d.kind ? { kind: d.kind } : {}), ...(d.movie !== undefined ? { movie: d.movie } : {}),
       }) : null;
       if (d.status === "hold" && locked.get(ev)) reresolve.add(d.video_id);
       else if (d.status !== "hold") reresolve.delete(d.video_id);
-      db.prepare("UPDATE ai_decisions SET revoked_at = ? WHERE watch_event_id = ? AND revoked_at IS NULL").run(now, ev);
+      revokeOf.run(now, ev);
       db.prepare(`INSERT INTO ai_decisions (watch_event_id, status, works, confidence, evidence, rationale, model, batch, seconds, decided_at, extra)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ev, d.status, works.length ? JSON.stringify(works) : null, d.confidence,
         JSON.stringify(d.evidence), d.rationale, d.model, d.batch, d.seconds ?? null, new Date(d.at).toISOString(), extra);
-      inCall.set(ev, d.at);
+      inCall.set(d.video_id, d.at);
       applied.push(ev);
       appliedVids.push(d.video_id);
     }
@@ -570,11 +638,13 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string, deps: 
   const text = [
     `入れた判定 ${applied.length} / 答え ${items.length + problems.filter((p) => p.kind === "no_event" || p.kind === "invalid").length}（${[...by].map(([k, v]) => `${k} ${v}`).join("・")}）` +
       `・古い答え ${stale.length}・入れ済み ${already.length}・ファイル ${files.length}`,
+    ...(cand.framed.length || cand.notWatchalong.length || cand.hold.length
+      ? [`続きの回の候補: 枠を作った ${cand.framed.length}・同時視聴ではない ${cand.notWatchalong.length}・保留（候補のまま）${cand.hold.length}`] : []),
     ...(reresolve.size ? [`確定した判定を保留に置き換えた ${reresolve.size} 件はルールで名寄せし直す`] : []),
     ...problems.map((p) => `  ✖ [${KIND[p.kind]}] ${p.video_id ?? (p.file ? basename(p.file) : "")}: ${p.message}`),
     ...notices.map((x) => `  ・ ${x}`),
   ].join("\n");
-  return { text, reresolve: [...reresolve], files, applied: appliedVids, stale, already, problems, notices };
+  return { text, reresolve: [...reresolve], files, applied: appliedVids, stale, already, problems, notices, candidates: cand };
 }
 
 /**
@@ -618,6 +688,10 @@ export function aiCheck(path: string, opts: { now?: number } = {}): { ok: boolea
     const m = basename(f).match(/^(\d+)\.json$/);
     const batchRoot = join(f, "..", "..");
     if (r.head && m && basename(join(f, "..")) === "answers" && existsSync(join(batchRoot, "queue.json"))) {
+      // not_watchalong は待ち行列で続きの回の候補にした動画だけ（D-04。枠に not_watchalong は入らない）
+      const qItems = (JSON.parse(readFileSync(join(batchRoot, "queue.json"), "utf8")) as { items: { video_id: string; candidate?: unknown }[] }).items;
+      const candVids = new Set(qItems.filter((x) => x.candidate).map((x) => x.video_id));
+      for (const it of r.items) if (it.status === "not_watchalong" && !candVids.has(it.video_id)) problems.push(`${it.video_id}: not_watchalong は続きの回の候補の動画だけ（この動画は枠）`);
       const chunk = queueChunks(batchRoot).find((c) => c.nn === m[1]);
       if (!chunk) problems.push(`待ち行列 ${m[1]} が無い`);
       else {
@@ -728,6 +802,9 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
   }
   const ruleBlock = (vid: string, q: QueueItem | undefined) => {
     const ru = sealedRule.get(vid);
+    // 続きの回の候補（D-04）はルールの答えが無い。候補の理由（層）を出す
+    const cand = (ru as unknown as { candidate?: { reasons: string[] } } | undefined)?.candidate;
+    if (cand) return { status: `判定の前: 続きの回の候補（題名に同時視聴の語が無い。層 ${cand.reasons.join("・")}）`, lines: [], flags: "" };
     if (ru) {
       return {
         status: `判定の前のルール（型 ${stratumOf(ru)}）: ${ru.status === "identified" ? "同定" : `未同定（${ru.reason ?? ru.status}）`}`,
@@ -784,16 +861,32 @@ export function scoredVideos(md: string, unscored = false): string[] {
 }
 
 
-/** 判定を取り消す。取り消した枠の video_id を返す（呼び出し側でルールの名寄せをし直す） */
-export function aiRevoke(ctx: Ctx, opts: { batch?: string; videos?: string[] }): string[] {
+/**
+ * 判定を取り消す（行は残して revoked_at を立てる）。
+ * - ルールの枠: video_id を reresolve に返す（呼び出し側でルールの名寄せをし直す）
+ * - AI が続きの回の候補から足した枠（detect_source = 'ai_candidate'。D-04）: ルールでは枠にならないので、枠を外す（excluded_reason = 'ai_revoked'。行は消さない）。
+ *   候補は判定に回す状態（ready）に戻る（src/candidates/frames.ts の revokeCandidateFrames）
+ * - 候補の表に持つ答え（not_watchalong・hold）: answer_revoked_at を立てて ready に戻す（答えの時刻 answered_at は残す。古い答えの決まりで、取り消した答え・それより古い答えはもう入らない）
+ */
+export function aiRevoke(ctx: Ctx, opts: { batch?: string; videos?: string[] }): { reresolve: string[]; candidateFrames: string[]; candidateAnswers: string[] } {
   const db = ctx.db;
   const where = opts.batch ? "a.batch = ?" : `e.video_id IN (${(opts.videos ?? []).map(() => "?").join(",") || "''"})`;
   const params = opts.batch ? [opts.batch] : opts.videos ?? [];
-  const rows = db.prepare(`SELECT a.id, e.video_id FROM ai_decisions a JOIN watch_events e ON e.id = a.watch_event_id WHERE a.revoked_at IS NULL AND ${where}`)
-    .all(...params) as { id: number; video_id: string }[];
+  const rows = db.prepare(`SELECT a.id, a.watch_event_id, e.video_id, e.detect_source FROM ai_decisions a JOIN watch_events e ON e.id = a.watch_event_id
+    WHERE a.revoked_at IS NULL AND ${where}`).all(...params) as { id: number; watch_event_id: number; video_id: string; detect_source: string }[];
+  const cwhere = opts.batch ? "answer_batch = ?" : `video_id IN (${(opts.videos ?? []).map(() => "?").join(",") || "''"})`;
+  const answers = (db.prepare(`SELECT video_id FROM candidates WHERE state IN ('not_watchalong', 'hold') AND answer_revoked_at IS NULL AND ${cwhere}`)
+    .all(...params) as { video_id: string }[]).map((r) => r.video_id);
   const now = nowIso();
   tx(db, () => {
     for (const r of rows) db.prepare("UPDATE ai_decisions SET revoked_at = ? WHERE id = ?").run(now, r.id);
+    revokeCandidateFrames(db, rows.filter((r) => r.detect_source === "ai_candidate").map((r) => r.watch_event_id), now);
+    const back = db.prepare("UPDATE candidates SET state = 'ready', state_at = ?, answer_revoked_at = ? WHERE video_id = ?");
+    for (const v of answers) back.run(now, now, v);
   });
-  return rows.map((r) => r.video_id);
+  return {
+    reresolve: rows.filter((r) => r.detect_source !== "ai_candidate").map((r) => r.video_id),
+    candidateFrames: rows.filter((r) => r.detect_source === "ai_candidate").map((r) => r.video_id),
+    candidateAnswers: answers,
+  };
 }
