@@ -24,7 +24,8 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
       resolve/          名寄せ（extract・照合・期と部の表記（markers）・視聴系列の期（series）・分割クールのまとめ（splitcour）・AI の判定の反映（ai）・同定の型（route）・型の記録と出し方（routing）・
                         作品の属性（enrich）・Wikidata のアニメのまとめ（link）・Annict / AniList / Wikipedia のクライアント・保存）
       report/           ローカル確認用のレポート・同定の検証用の抽出・外部DBの照会（lookup）・AI の判定の道具（ai）・
-                        型ごとの抽出と AI との突き合わせ（audit）・候補を見せない待ち行列（blind）・判定役に見せる手がかり（neighbors）・AI の答えの形式（answer）・裁定と採点の HTML（review）
+                        型ごとの抽出と AI との突き合わせ（audit）・候補を見せない待ち行列（blind）・判定役に見せる手がかり（neighbors）・AI の答えの形式（answer）・裁定と採点の HTML（review）・
+                        AI の答えの受け箱との出し入れ（inbox。ai:ingest・ai:pull・ai:push。ローカルのフォルダと AWS CLI の R2 を --remote で切り替える）
       publish/          サイト用のデータの書き出し（出す枠・集計値（snapshot）・作品の公開キー（keys）・書き出し（export））
     site/               Astro のサイト（srcDir）。pages/（6画面・一覧のタブとページ・JSON（pages/data/）・og:image・sitemap）・layouts/・components/・
                         lib/（ビルド時のデータ（data）・カードと行の HTML（views）・JSON の形（encode）・og:image（og））・scripts/（ブラウザの動き）・styles/・public/
@@ -44,6 +45,8 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
 Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのまま実行する。
 `.env.example` を `.env` にコピーして `YOUTUBE_API_KEY` と `ANNICT_TOKEN` を入れる（`.env.example` にはキーを書かない）。
 `ANNICT_TOKEN` が無ければ AniList と Wikipedia だけで名寄せする。
+`ai:pull`・`ai:push`（と `--remote r2` の `ai:ingest`）は AWS CLI（`aws`）で R2 に出し入れするので、`.env` に `R2_ACCESS_KEY_ID`・`R2_SECRET_ACCESS_KEY`・`CLOUDFLARE_ACCOUNT_ID`・`R2_BUCKET`（ローカル用の R2 トークン。docs/ai-ops.md 2-1）を入れる。
+R2 を設定する前は `--remote <フォルダ>` でローカルのフォルダを R2 に見立てる（キーをそのままフォルダの下のパスにし、オブジェクトのメタデータは `<キー>.meta.json`）。
 
     npm install
     npm run cli -- roster          # Tier 1 の同期
@@ -68,8 +71,15 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
     npm run cli -- resolve:series    # 視聴系列による期の割り当ての一覧（data/review/series-assign.md。DB は変えない）
     npm run cli -- lookup "来る" "亜人"   # 外部作品DBの照会結果を並べる（判断の確認用）
     npm run cli -- ai:queue --seed ai-run-1 --n 300 --include-hold          # AI に回す型の枠の待ち行列（候補を見せない。data/ai/<batch>/。--video で動画を指定。判定済みの枠も入る）
+    npm run cli -- ai:queue --seed ai-20261113 --max-files 10 --include-hold   # 1回の上限 10ファイル＝500件。同じシードの2回目は前の待ち行列を使い、答えのそろったファイルを飛ばす。
+                                                                        # YouTube はローカルの取り分（data/ai/quota.json。1日 600）で止める。最後の行に {batch, files, remaining, quotaStopped, units, reused}
     npm run cli -- ai:queue --reason not_found --n 100 --seed ai-trial-1   # 未同定の理由で選ぶ待ち行列（ai-trial-1 の形）
-    npm run cli -- ai:apply data/ai/ai-run-1/answers                     # 判定を入れる（確定。ファイルかフォルダ）（→ D-03・D-09 で、ジョブの ai:ingest も同じ中身を通り、古い答えは入れない形に変更予定・未実装）
+    npm run cli -- ai:check ai-run-1                                    # 答えのファイルの検査（形・finished_at・待ち行列を全部答えたか。ファイル・フォルダ・batch の名前）
+    npm run cli -- ai:apply data/ai/ai-run-1/answers                     # 判定を入れる（確定。ファイルかフォルダ）。すでにある判定より古い答えは入れない。batch・model・finished_at の無いファイルは入れない（ai:ingest と同じ aiApply。D-09）
+    npm run cli -- ai:pull [--remote r2|<フォルダ>] [--db F]             # R2 の DB を落として検査し、ローカルの写しにする（ai:pull で落としたのでない DB は上書きしない）
+    npm run cli -- ai:push ai-run-1 [--remote r2|<フォルダ>]             # ai:check に通った答え（answers/*.json と直下の fix-*.json）を受け箱 ai/inbox/<batch>/ に置く
+    npm run cli -- ai:ingest [--remote r2|<フォルダ>] [--result F]       # 受け箱の batch を5つまで取り込み、結果（入れた・やり直し・failed）と移す先を JSON に書く（日次のジョブ。docs/workflows.md 6）
+    npm run cli -- ai:ingest --settle F [--remote r2|<フォルダ>]         # DB の書き戻しのあと、F のとおり受け箱から ai/applied/・ai/failed/ へ移し、ai/results/ の印を上書きする
     npm run cli -- ai:report ai-trial-1                                 # 判定の根拠の一覧（report.md）と採点用の report.html
     npm run cli -- ai:report ai-run-1 --exclude-scored data/ai/ai-run-1/scores-sample150.md   # 採点済みを除いた残り（保留・特定できない・外部DBに無いは全部）
     npm run cli -- ai:revoke --batch ai-trial-1                         # 判定の取り消しとルールでの名寄せし直し
@@ -93,7 +103,8 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
 
 - 各ジョブはステップ単位で失敗を記録して次へ進む。ジョブの終了コードは 0（後続のジョブを止めない）。
   **例外**: `db:check`・`db:pack` はワークフローを止めるための道具なので、外れたら終了コード 1 を返す（取得した DB が壊れている・行を消さない表の行が減ったときに、巡回・書き戻しをさせない。docs/workflows.md 2-3・2-4）。
-  `site:fingerprint` も site-data.json が無ければ 1（site:data が失敗した回にビルドとアップロードをさせない。docs/workflows.md 3-1 の 13）
+  `site:fingerprint` も site-data.json が無ければ 1（site:data が失敗した回にビルドとアップロードをさせない。docs/workflows.md 3-1 の 13）。
+  `ai:check`・`ai:pull`・`ai:push` も、通らない・落とせない・置けないときは 1（判定のワークフローが次へ進まないように。docs/ai-ops.md 4-2）。`ai:ingest` は 0（結果は JSON。docs/workflows.md 6）
 - YouTube のクォータ: 定期実行のジョブ（hourly・daily）は `stop_at` から AI の判定の取り分 `ai_reserve` を引いた値（9,000 − 600 = 8,400）で止める（config/crawl.yaml）
 - ログと実行記録（runs）に出す URL は、クエリの値を伏せてパラメータの名前だけ残す（`src/lib/http.ts` の redactUrl。公開リポジトリの Actions のログは誰でも見られる）。生レスポンスは伏せない
 - 生レスポンスは `data/raw/<日付>/<run_id>.jsonl.gz` に1ジョブ1ファイルで保存する（APIキーは伏せる）。

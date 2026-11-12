@@ -1,7 +1,7 @@
 # 公開後の AI の判定の運用と、続きの回の候補（仕様の下書き）
 
 2026-10-22 の下書き。2026-10-26 に「7. 決めたこと」の5点をユーザーが決めた。2026-10-27 のユーザーの決定（日次だけ・予定枠を出さない）と Fable のレビューの指摘を反映し、
-2026-10-30 にローカルの R2 の道具をユーザーが決めた。**まだ実装していない。**
+2026-10-30 にローカルの R2 の道具をユーザーが決めた。**取り込む側と道具（2・2-1・4-1・4-2 の ai:queue・5）は 2026-11-13 に作った（塊 C。src/report/ai.ts・src/report/inbox.ts）。ほかはまだ実装していない**（候補の 3-2〜3-4 は塊 D3a、ワークフロー・フックの 4 は塊 E、ジョブから呼ぶのは塊 F）。
 ユーザーの決定（2026-10-22）: この運用は**公開の前に**作る。範囲には、題名に同時視聴の語が無い続きの回を枠にする仕組み（候補 → AI）も含める。
 決まったことは、CLAUDE.md とコードを実装と同じコミットで直す（直す箇所の一覧は「8. 実装のときに直すところ」。CLAUDE.md には回の結果・例を書かない）。
 
@@ -47,21 +47,25 @@ docs/workflows.md の付録）。そのため「**予定枠・配信中の枠は
   答えは日次のジョブで入るので、ai:push から反映まで最大1日かかる
 - 写しは古くなるが困らない。答えは動画の ID（video_id）で結びつき、ルールの答え・型には依存しない。
   取り込むときに枠が無くなっていた（判定から外れた・アーカイブが消えた）ら飛ばして記録する
-- **古い答えで新しい答えを上書きしない**（Fable の高-1。docs/workflows.md 6-2）。今の `aiApply` は答えの時刻を見ずに入れ直すので、「同じファイルを2回入れても同じ」は、
-  あいだにほかの答え（採点のあとの fix）が入らないときしか成り立たない。決め方は、`ai:ingest` が**その枠にすでにある取り消されていない判定の `decided_at` が
+- **古い答えで新しい答えを上書きしない**（Fable の高-1。docs/workflows.md 6-2。2026-11-13 実装）。前の `aiApply` は答えの時刻を見ずに入れ直していたので、「同じファイルを2回入れても同じ」は、
+  あいだにほかの答え（採点のあとの fix）が入らないときしか成り立たなかった。決め方は、`ai:ingest` が**その枠にすでにある取り消されていない判定の `decided_at` が
   今の答えの時刻（答えのファイルの `finished_at`）より新しければ飛ばし、「古い答え」と記録する**（同じ時刻なら「入れ済み」）。ローカルの側の約束:
   - **答えのファイルには `finished_at` を必ず書く**（`decided_at` はここから入る）。`ai:check` が確かめ、無いファイルは ai:push しない（ジョブは failed にする）
   - **直しの答えのファイルの名前は `fix-` で始める**（batch の中は名前の順に入るので、`01.json`〜 の後ろに並ぶ）。直しの `finished_at` は直したときの時刻にする
   - 採点で見つけた誤りは、新しい batch の `fix-*.json` として置く（古い batch が受け箱に残っていても、時刻で古い答えは飛ぶ）
-  - この決まりは `aiApply` の中に入れ、`ai:ingest` とローカルの `ai:apply` で共通にする案（docs/workflows.md 9 で ai-ops の側に任された点。公開の前のローカルの試しでも同じ動きになる）。
+  - この決まりは `aiApply` の中に入れ、`ai:ingest` とローカルの `ai:apply` で共通にする（D-09。2026-11-13 実装。時刻は文字列でなく瞬間で比べ、入れるときは UTC にする。公開の前のローカルの試しでも同じ動きになる）。
     公開後はローカルの DB が写しなので、ローカルの `ai:apply` で直しても本番には入らない（直しは必ず受け箱へ）
 - 取り込みはジョブ（DB を書く concurrency の組）の中で動く。ローカルから R2 の DB を書くことはしない
 - R2 を設定するまで（Phase 4 の前）は、「R2」をローカルのフォルダ（例 data/remote/）に置き換えて同じ手順を試す。ジョブの取り込みも `npm run cli -- ai:ingest` で手で流して確かめる
+  （実装: どのコマンドも `--remote <フォルダ>` でローカルのフォルダ、`--remote r2`（既定）で AWS CLI の R2。フォルダではキーをそのままパスにし、オブジェクトのメタデータは `<キー>.meta.json` に置く）
 
 ### 2-1. ローカルの R2 の道具（2026-10-30 ユーザー決定）
 
 - **AWS CLI をローカルにも入れる**（`winget install Amazon.AWSCLI`。Actions と同じ道具。S3 の SDK は依存に足さない。docs/workflows.md 2-2）
 - `ai:pull`・`ai:push` は CLI のコマンドにし、中から `aws` を子プロセスで呼ぶ（`ai:pull` = `aws s3 cp` で db/db.sqlite.gz を落として展開、`ai:push` = 答えのフォルダを `ai/inbox/<batch>/` に `aws s3 cp`）。
+  実装（2026-11-13）: `ai:pull` は head-object のメタデータで `db:check` と同じ検査（sha256・integrity_check・user_version・行数）をしてから `--db`（既定 data/db.sqlite）に置き、隣に `<db>.pulled.json` を書く。
+  **`.pulled.json` の無い DB は上書きしない**（公開の前の正の DB を写しで消さない。段6 で正の DB の名前を変えてから使う）。
+  `ai:push` は `answers/*.json` と batch の直下の `fix-*.json` を `ai:check` に通し、1つでも通らなければ何も置かない（`--skip-failed` で通ったものだけ）
   ローカルは一覧（`aws s3 ls`）を使わない。CLI にしておくと、許可の規則が `npm run cli -- ai:push *` で済み、`aws` そのものを許可しなくてよい（4-3）
 - 書く先は `ai/inbox/` だけ（コードで決める）。**R2 の API トークンはバケットまでしか絞れない**（と理解している。実装の前に Cloudflare の文書で確かめる）ので、
   ローカルの鍵でも DB を上書きできてしまう。そのため鍵は **Actions とは別のローカル用の R2 トークン**（Object Read & Write・このバケットだけ）にし、漏れたらそれだけを取り消す
@@ -148,12 +152,14 @@ docs/ai-runs.md の計測で当たりの多かった層だけを候補にする�
 - 判定役は**専用のエージェントの型**（`.claude/agents/ai-judge.md`）にし、台本の `agentType: 'ai-judge'` で起動する。型にしておくと、道具を絞れることと、
   フックで判定役の呼び出しだけを見分けられる（4-3）
 - 再開: 同じ会話の中なら、止まった回を `resumeFromRunId` で続きから再開できる（終わったエージェントの結果は使い回す）。**会話をまたぐと使えない**ので、
-  `ai:queue` は同じシードで2回目に呼ばれたらバッチのフォルダをそのまま使い、答えのそろったファイルを飛ばす（新しく作るときの決まり）
+  `ai:queue` は同じシードで2回目に呼ばれたらバッチのフォルダをそのまま使い、答えのそろったファイルを飛ばす（2026-11-13 実装。「そろった」は answers/NN.json が読めて finished_at があり、queue/NN.md の枠を全部答えていること。
+  DB の今の状態では選び直さない。別のシードで同じ batch の名前なら断る）
 
 ### 4-2. 段（台本の形）
 
     Prepare    エージェント1本（effort low）: ai:pull → ai:queue --seed <args.seed> --include-hold --candidates --max-files <args.maxFiles>
                → { batch, files: [待ち行列のファイル], remaining: 上限で残った件数, quotaStopped } を schema で返す。0ファイルなら終わり
+               （実装: ai:queue の最後の行に {"batch","files","remaining","quotaStopped","units","reused"} の JSON を出す。--max-files は 1〜10）
     Judge      判定役を5本まで同時に（台本の中で5本の作業者が待ち行列のファイルを順に取る形にする。pipeline の同時数の上限は
                min(16, CPU数−2) で5本に絞れないため）。PROMPT.md の <NN> を置き換えてそのまま渡す
                → ファイルが終わるごとに ai:check（エージェント1本・effort low。形・lookup の記録・finished_at）。だめなら同じファイルをもう1回だけ判定させ、それでもだめなら答えから外して log に出す
@@ -222,6 +228,8 @@ lookup は DB の照会のキャッシュ（resolve_cache）を読み書きす�
 - APIキーはジョブと同じ1つ（docs/workflows.md 7。クォータのためにプロジェクトを分けない）
 - ローカルは、自分の消費を太平洋時間の日付ごとにローカルのファイル（例 data/ai/quota.json）に足し、取り分を超えたら ai:queue のリンク先・コメントの取得をやめる
   （待ち行列は作り、コメントなしと書く）。500件の回で、公開の枠が全部でも約 500＋α ユニットで収まる
+  （2026-11-13 実装: data/ai/quota.json。その回の上限を「取り分 − 今日のローカルの消費」に下げ、使い切ったら以降の枠は待ち行列に「コメント欄: 取らなかった（YouTube のクォータの都合…）」
+  「YouTube のリンク先: 取らなかった」と書く。途中で落ちてもその回の消費は足す。ローカルの DB の写しの quota_usage の stop_at も今までどおり効く）
 - 候補の videos.list（3-2）はジョブ側で引くので、ジョブのクォータに入る（205本で5ユニット）
 
 ## 6. 公開の前にやること（順番）
@@ -269,14 +277,14 @@ Fable の指摘で決めたこと（2026-10-27。親セッションから）: �
 | docs/data-model.md「データモデル」「取得用の内部テーブル」（CLAUDE.md から移した） | `candidates` の表・`WatchEvent.detect_source` に `ai_candidate`・答えの区分 `not_watchalong` |
 | docs/dev.md「実行方法」「ファイル構成」（CLAUDE.md から移した） | ai:pull・ai:push・ai:check・ai:ingest・`ai:queue --candidates`、`.claude/workflows/`・`.claude/agents/`・`.claude/hooks/`、`.env` の R2 の名前 |
 | CLAUDE.md「フェーズ」 | AI の判定の運用と候補を Phase 4 の公開の前に入れる |
-| src/resolve/ai.ts 6行 | 「定期実行のジョブからは入れない」→ 1章の読み替え |
-| src/report/ai.ts 32行 | 「ローカルの CLI。定期実行のジョブからは呼ばない」→ 同上（ai:ingest はジョブから呼ぶ） |
-| src/cli.ts 63行（HELP） | 「人が起動する。定期実行のジョブからは呼ばない」→ 同上。新しいコマンドを足す |
-| src/report/ai.ts の aiApply | 「古い答え」の決まり（2）・ファイル単位の問題を分けて返す（docs/workflows.md 6-3） |
+| src/resolve/ai.ts 6行 | 済（2026-11-13）。「定期実行のジョブからは入れない」→ 1章の読み替え |
+| src/report/ai.ts 32行 | 済（2026-11-13）。「ローカルの CLI。定期実行のジョブからは呼ばない」→ 同上（ai:ingest はジョブから呼ぶ） |
+| src/cli.ts 63行（HELP） | 済（2026-11-13。ai:check・ai:pull・ai:push・ai:ingest。`ai:queue --candidates` は D3a）。「人が起動する。定期実行のジョブからは呼ばない」→ 同上。新しいコマンドを足す |
+| src/report/ai.ts の aiApply | 済（2026-11-13）。「古い答え」の決まり（2）・ファイル単位の問題を分けて返す（docs/workflows.md 6-3） |
 | src/resolve/route.ts の publishState | eventStatus の分岐を外す（docs/workflows.md の側で直すかと合わせる） |
 | src/report/neighbors.ts・config/extract.yaml | メン限の見出しの区間を除く（3-1） |
 | src/crawl/ingest.ts・src/report/reports.ts | `ai_candidate` の枠を語彙で判定し直さない（3-4） |
-| `.env.example` | `R2_ACCESS_KEY_ID`・`R2_SECRET_ACCESS_KEY`・`CLOUDFLARE_ACCOUNT_ID`・`R2_BUCKET`（値なし） |
+| `.env.example` | 済（2026-11-13）。`R2_ACCESS_KEY_ID`・`R2_SECRET_ACCESS_KEY`・`CLOUDFLARE_ACCOUNT_ID`・`R2_BUCKET`（値なし） |
 | config/crawl.yaml | `quota.ai_reserve: 600` |
 | src/report/blind.ts（GUIDE） | 候補の説明と `not_watchalong`・`finished_at` を必ず書く |
 
