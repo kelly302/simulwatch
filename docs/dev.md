@@ -84,7 +84,8 @@ R2 を設定する前は `--remote <フォルダ>` でローカルのフォル�
     npm run cli -- ai:ingest --settle F [--remote r2|<フォルダ>]         # DB の書き戻しのあと、F のとおり受け箱から ai/applied/・ai/failed/ へ移し、ai/results/ の印を上書きする
     npm run cli -- ai:report ai-trial-1                                 # 判定の根拠の一覧（report.md）と採点用の report.html
     npm run cli -- ai:report ai-run-1 --exclude-scored data/ai/ai-run-1/scores-sample150.md   # 採点済みを除いた残り（保留・特定できない・外部DBに無いは全部）
-    npm run cli -- ai:revoke --batch ai-trial-1                         # 判定の取り消しとルールでの名寄せし直し
+    npm run cli -- ai:queue --candidates --seed cand-1 --max-files 5    # 続きの回の候補（candidates の ready）だけの待ち行列（ふだんの ai:queue は候補も混ぜる。--type を付けると混ぜない）
+    npm run cli -- ai:revoke --batch ai-trial-1                         # 判定の取り消しとルールでの名寄せし直し（続きの回の候補から足した枠は外し、候補の表の答えも取り消す）
     npm run cli -- ai:status                                            # サイトでの出し方ごとの件数と、AI の判定待ちの型の内訳
     npm run cli -- candidates:select                                    # 続きの回の候補（docs/ai-ops.md 3-1）を選んで候補の表（candidates）に入れる（日次。API なし）
     npm run cli -- candidates:select --dry-run                          # 表に入れず、層ごとの件数と一覧だけ（data/review/candidates-select.{json,md}。DB は読むだけ）

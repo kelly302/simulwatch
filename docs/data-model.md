@@ -102,6 +102,8 @@ first_event_at / latest_event_at）は DB に持たず、サイト用のデー�
                               unavailable（削除・非公開・ライブでない）/ detected（題名が変わり同時視聴の語で枠になった）/ framed（答えで枠を作った）/
                               not_watchalong（同時視聴ではない）/ hold（答えが保留）
                       選び直しでは、答える前（selected・waiting・ready）の候補だけ理由と種の枠を新しくする。枠を作った答えは ai_decisions に入る（答えの時刻はそちらの decided_at）
+                      答えの区分 not_watchalong（同時視聴ではない）は候補だけの答えで、枠を作らずここに持つ。保留（hold）も、一覧に出る枠の無い候補ならここに持つ。
+                      取り消し（ai:revoke）は answer_revoked_at を立てて ready に戻す（answered_at は残し、古い答えの比べに使う）
     site_pages        作品ページ・配信者ページの中身の指紋（再生数を除く）と、中身が変わった日（sitemap の lastmod）
 
 ### 間違えやすい点
