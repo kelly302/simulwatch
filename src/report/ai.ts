@@ -341,7 +341,7 @@ export function answerInstant(s: string | null | undefined): number | null {
 }
 
 /**
- * 古い答えの決まり（D-03・D-09。docs/workflows.md 6-2）。すでにある取り消されていない判定の時刻（existing）と、入れる答えの時刻（answer。ファイルの finished_at）を瞬間で比べる。
+ * 古い答えの決まり（D-03・D-09。docs/workflows.md 6-2）。その枠のすでにある判定の時刻（existing。aiApply は取り消した行も含めた decided_at の最大を渡す）と、入れる答えの時刻（answer。ファイルの finished_at）を瞬間で比べる。
  *   apply    入れる（前の判定は取り消す。行は残る）。すでにある判定が無い・読めない・答えより古いとき
  *   already  入れ済み（同じ時刻。何度入れても同じ）
  *   stale    古い答え（すでにある判定のほうが新しい）。飛ばす
@@ -473,7 +473,8 @@ export interface ApplyDeps {
  *   decisions（ai-trial-1 の形）と answers（候補を見ない判定の形。src/report/answer.ts。not_in_db・missing・also を持つ）
  *
  * - ファイルには batch・model・finished_at（時差付き）が要る。無いファイルは入れない（problems の file。ai:ingest は failed にする）
- * - 古い答えは入れない（answerFreshness）。時刻はファイルの finished_at で、瞬間で比べ、decided_at には UTC で入れる
+ * - 古い答えは入れない（answerFreshness）。時刻はファイルの finished_at で、その枠の判定（取り消した行も含む）の decided_at の最大と瞬間で比べ、decided_at には UTC で入れる。
+ *   ai:revoke で取り消したあとも、取り消した答え・それより古い答えは入らない（取り消したあとに作った新しい答えだけが入る）
  * - 同じ呼び出しの中では名前の順に入れ、同じ枠の答えは時刻の新しいほう（同じ時刻ならあとのファイル。`fix-*.json`）が残る
  * - 同じファイルを何度入れても判定の集合は変わらない（2回目は全部「入れ済み」）
  */
@@ -498,8 +499,18 @@ export async function aiApply(ctx: Ctx, cfg: ExtractConfig, file: string, deps: 
     problems.push(...r.problems);
     notices.push(...r.notices);
   }
-  const curAt = db.prepare("SELECT decided_at FROM ai_decisions WHERE watch_event_id = ? AND revoked_at IS NULL");
-  const dbAt = (ev: number) => (curAt.get(ev) as { decided_at: string } | undefined)?.decided_at ?? null;
+  // 比べる時刻は、その枠の取り消した行も含めた全部の判定の decided_at の最大（瞬間で比べる）。
+  // 取り消されていない判定だけを見ると、ai:revoke のあとに受け箱に残った取り消した答え・それより古い答えがまた入る。
+  // revoked_at は使わない（aiApply の置き換えで立つ revoked_at は取り込んだ時刻なので、あとの正しい答えまで古い答えになる）
+  const allAt = db.prepare("SELECT decided_at FROM ai_decisions WHERE watch_event_id = ?");
+  const dbAt = (ev: number): number | null => {
+    let max: number | null = null;
+    for (const r of allAt.all(ev) as { decided_at: string }[]) {
+      const t = answerInstant(r.decided_at);
+      if (t !== null && (max === null || t > max)) max = t;
+    }
+    return max;
+  };
 
   // 作品の情報を外部DBから引く。DB の判定より古い・同じ時刻の答えは入らないので引かない（同じ呼び出しの中の比べは下で）
   const fresh = items.filter((d) => answerFreshness(dbAt(evId(d.video_id)!), d.at) === "apply");

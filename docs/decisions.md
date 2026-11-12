@@ -69,6 +69,7 @@
 
 - 中身: 時刻の決まりは aiApply の中に1つだけ作り、ジョブの ai:ingest とローカルの ai:apply の両方が通る（決まりを2つにしない）
 - 実装: src/report/ai.ts の `answerFreshness`（すでにある取り消されていない判定の decided_at と、答えのファイルの finished_at を瞬間で比べる。新しければ入れる・同じなら入れ済み・古ければ飛ばす）。
+  比べる時刻はその枠の取り消した行も含めた decided_at の最大（ai:revoke のあとに受け箱の取り消した答えがまた入らないように）。
   同じ呼び出しの中では名前の順に入れ、同じ時刻ならあとのファイル（`fix-*.json`）が残る。decided_at は UTC で入れる（前からある `+09:00` の行は直さない。比べるときに瞬間にする）。
   batch・model・finished_at（時差付き・未来でない）の無いファイルは、ai:apply でも入れない（それまでは finished_at が無いと取り込んだ時刻で入っていた）
 - 正の文書: docs/workflows.md 6-2（「ai-ops の側と決める」としていた所の答え）

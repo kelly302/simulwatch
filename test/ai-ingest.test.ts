@@ -150,6 +150,37 @@ test("aiApply: 同じファイルを2回入れても判定の集合も行の数�
   assert.equal(rowCount(ctx), n);
 });
 
+test("aiApply: ai:revoke で取り消したあと、取り消した答え・それより古い答えはまた入らず、あとに作った答えだけが入る", async () => {
+  const { ctx } = setup();
+  const dir = tmp();
+  writeAnswers(dir, "01.json", file("2026-11-07T00:00:00Z", [ans("v3", "not_a_work"), ans("v4", "not_a_work")]));
+  await ai.aiApply(ctx, cfg, dir, deps);
+  // 取り消す（行は残る）。v1 は前からある +09:00 の判定を取り消す
+  assert.deepEqual(ai.aiRevoke(ctx, { videos: ["v3", "v4", "v1"] }).sort(), ["v1", "v3", "v4"]);
+  const n = rowCount(ctx);
+  // 受け箱に残った同じ答え → 入れ済み。それより古い答え → 古い答え。v1 の取り消した判定（12:00+09:00 = 03:00Z）より古い 02:00Z の答えも入らない
+  const again = await ai.aiApply(ctx, cfg, dir, deps);
+  assert.deepEqual(again.already.sort(), ["v3", "v4"]);
+  assert.equal(again.applied.length, 0);
+  const d2 = tmp();
+  writeAnswers(d2, "01.json", file("2026-11-06T00:00:00Z", [ans("v3", "unidentifiable")]));
+  writeAnswers(d2, "02.json", file("2026-11-01T11:00:00+09:00", [ans("v1", "not_a_work")]));
+  const old = await ai.aiApply(ctx, cfg, d2, deps);
+  assert.deepEqual(old.stale.sort(), ["v1", "v3"]);
+  assert.equal(rowCount(ctx), n);
+  assert.equal((ctx.db.prepare("SELECT COUNT(*) AS n FROM ai_decisions WHERE watch_event_id IN (1, 3, 4) AND revoked_at IS NULL").get() as { n: number }).n, 0);
+  // 取り消したあとに作った答え（finished_at があと）は入る
+  const d3 = tmp();
+  writeAnswers(d3, "fix-1.json", file("2026-11-08T00:00:00Z", [ans("v3", "unidentifiable")]));
+  writeAnswers(d3, "fix-2.json", file("2026-11-01T04:00:00Z", [ans("v1", "unidentifiable")]));
+  const fresh = await ai.aiApply(ctx, cfg, d3, deps);
+  assert.deepEqual(fresh.applied.sort(), ["v1", "v3"]);
+  const st = (v: number) => (ctx.db.prepare("SELECT status FROM ai_decisions WHERE watch_event_id = ? AND revoked_at IS NULL").get(v) as { status: string } | undefined)?.status;
+  assert.equal(st(3), "unidentifiable");
+  assert.equal(st(1), "unidentifiable");
+  assert.equal(st(4), undefined);
+});
+
 test("readAnswerFile: batch・model・finished_at が無い・時刻が読めない・未来・壊れた JSON はファイル単位の問題", () => {
   const dir = tmp();
   const cases: [string, Record<string, unknown> | string, RegExp][] = [
