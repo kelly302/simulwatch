@@ -1,6 +1,7 @@
 // AI の答え（候補を見ない判定）の形式と検査。型ごとの検証（audit）と本番の判定（ai:apply）で同じものを使う
 
-export type AuditStatus = "identified" | "not_a_work" | "unidentifiable" | "not_in_db" | "hold";
+/** not_watchalong は続きの回の候補（題名に同時視聴の語が無い動画。D-04）だけの答え（同時視聴ではない）。候補かどうかは ai:check（待ち行列）と aiApply（候補の表）が見る */
+export type AuditStatus = "identified" | "not_a_work" | "unidentifiable" | "not_in_db" | "hold" | "not_watchalong";
 
 export interface AuditAnswer {
   video_id: string;
@@ -23,7 +24,7 @@ const KEY_RE = /^(annict:\d+|anilist:\d+|wikidata:Q\d+)$/;
 
 /** 答えの形式の検査。問題が無ければ null */
 export function validateAnswer(a: AuditAnswer): string | null {
-  const STATUS = ["identified", "not_a_work", "unidentifiable", "not_in_db", "hold"];
+  const STATUS = ["identified", "not_a_work", "unidentifiable", "not_in_db", "hold", "not_watchalong"];
   if (!STATUS.includes(a.status)) return `status が不正: ${a.status}`;
   if (!["high", "medium", "low"].includes(a.confidence)) return `confidence が不正: ${a.confidence}`;
   if (!a.rationale?.trim()) return "rationale が空";
@@ -34,6 +35,7 @@ export function validateAnswer(a: AuditAnswer): string | null {
     return `${a.status} なのに外部DBを照会していない（evidence.looked に lookup、queries に照会した語が必要）`;
   }
   if (a.status === "not_in_db" && !a.title?.trim()) return "not_in_db なのに title（作品名）が無い";
+  if (a.status === "not_watchalong" && ((a.works ?? []).length || a.title !== undefined)) return "not_watchalong（同時視聴ではない）に works・title は書かない";
   if (a.missing !== undefined && (!Array.isArray(a.missing) || a.missing.some((x) => typeof x !== "string" || !x.trim()))) return "missing は作品名の配列";
   if (a.missing?.length && a.status !== "identified") return "missing は identified のときだけ";
   if (a.kind !== undefined && !["anime", "tokusatsu", "live_action"].includes(a.kind)) return `kind が不正: ${a.kind}`;

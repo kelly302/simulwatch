@@ -92,7 +92,8 @@ export function quotaReport(db: DB, days: number): string {
  *    新たにヒットしたものは 'hit' にしておき、detect:fetch（または日次ジョブ）が詳細を取りに行く
  * 2. 「ライブ配信でない」で除外していた動画は、require_live が false なら 'hit' に戻す
  * 3. 既存の WatchEvent をタイトルと保存済みの概要欄で再判定する。当たらなくなった枠は
- *    行を消さずに excluded_at を立てて外す。ルールを戻して再び当たれば外した印を消す
+ *    行を消さずに excluded_at を立てて外す。ルールを戻して再び当たれば外した印を消す。
+ *    AI が候補から足した枠（detect_source = 'ai_candidate'。題名に同時視聴の語が無い）は判定し直さない（docs/ai-ops.md 3-4。外すのは ai:revoke）
  */
 export function rerunDetect(db: DB, cfg: DetectConfig): Record<string, number> {
   const r = {
@@ -133,7 +134,8 @@ export function rerunDetect(db: DB, cfg: DetectConfig): Record<string, number> {
     }
 
     const evs = db
-      .prepare("SELECT id, title_raw, description_raw, excluded_reason FROM watch_events WHERE excluded_at IS NULL OR excluded_reason LIKE 'detect_rule%'")
+      .prepare(`SELECT id, title_raw, description_raw, excluded_reason FROM watch_events
+        WHERE (excluded_at IS NULL OR excluded_reason LIKE 'detect_rule%') AND detect_source != 'ai_candidate'`)
       .all() as { id: number; title_raw: string; description_raw: string | null; excluded_reason: string | null }[];
     const exclude = db.prepare("UPDATE watch_events SET excluded_at = ?, excluded_reason = ?, updated_at = ? WHERE id = ?");
     const restore = db.prepare("UPDATE watch_events SET excluded_at = NULL, excluded_reason = NULL, detect_source = ?, detect_keyword = ?, updated_at = ? WHERE id = ?");

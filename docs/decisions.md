@@ -27,19 +27,33 @@
 - 進み具合（2026-11-13。塊 C）: 取り込む側を作った。aiApply の古い答えの決まり（瞬間で比べ、UTC で入れる）と問題の種類分け、
   `ai:ingest`（受け箱の batch を5つまで・結果と移す先を JSON に・`--settle` で移す）・`ai:check`・`ai:pull`・`ai:push`（ローカルのフォルダと AWS CLI の R2 を `--remote` で切り替える層。src/report/inbox.ts）、
   `ai:queue` のローカルのクォータのファイル（data/ai/quota.json）・同じシードの2回目・`--max-files`・返す値。
-  残り: 日次のワークフローから呼ぶこと（塊 F）・R2 との実際の往復（段6）・Claude Code のワークフロー（塊 E）。候補の答えの反映は塊 D3a（それまでは「枠が無い」）。
+  残り: 日次のワークフローから呼ぶこと（塊 F）・R2 との実際の往復（段6）・Claude Code のワークフロー（塊 E）。候補の答えの反映は塊 D3a で入れた（2026-11-13。D-04 の進み具合）。
   経緯と検証は docs/ai-runs.md の 2026-11-13 の節
 
 ### D-04 題名に同時視聴の語が無い続きの回を「候補 → AI」で枠にする（2026-10-22・10-30）
 
 - 中身: 公開の前に作る。最初の候補は3層（弱い語は判定役の試しのあとに決める）。候補の表 candidates・答えの区分 not_watchalong・`detect_source = ai_candidate`
 - 正の文書: docs/ai-ops.md の3章
-- 印を付けた本文: docs/backlog.md（題名に同時視聴の語が無い続きの回）、docs/crawl.md（detect の弱い語）、docs/data-model.md（detect_source）
+- 印を付けた本文: docs/backlog.md（題名に同時視聴の語が無い続きの回）、docs/crawl.md（detect の弱い語）。docs/data-model.md（detect_source）の印は 2026-11-13 に外した（表と detect_source を書いた）
 - 進み具合: 2026-11-08 に塊 D1（候補の選定と件数）を作った。3層の選び方（src/candidates/select.ts・config/candidates.yaml）・メン限の見出しの区間を除く決まり（neighbors.ts と共有）・
   `candidates:select --dry-run`（件数と一覧だけ）。巡回の前の DB で 201本・今の DB でも 201本（docs/ai-runs.md の 2026-11-08 の節）。
   残り: D3a（表と保存・fetch・反映）・D3b（層と語の設定・GUIDE）
 - 進み具合（2026-11-08）: 塊 D2（判定役の試し）を済ませた。110本で正解が「同時視聴でない」49本に yes は0（95%上限 5.9%）、取りこぼし0。結果と手順は docs/ai-runs.md の 2026-11-08 の節。
   層を絞るか・弱い語を入れるかはまだ決めていない（塊 D3b でユーザーが決める）
+- 進み具合（2026-11-13）: 塊 D3a の前半を作った。候補の表 candidates（マイグレーション 12。詳細の列・状態・答えの時刻まで。行を消さない）・
+  `candidates:select` の保存（`--dry-run` は残した）・`candidates:fetch`（job は daily）・`detect_source = 'ai_candidate'` の枠を巡回と detect:rerun が語彙で外さない・
+  候補から枠を作る関数と AI が足した枠を外す関数（src/candidates/frames.ts。`ai_revoked`）。docs/data-model.md に表と detect_source を書いた。
+  今の DB の写しで select は 201本（dry-run と動画の ID・理由・種の枠まで同じ）、fetch は 5ユニットで 201本とも終わった動画。
+  残り（D3a の後半。塊 C のマージのあと）: ai:queue が表から読む・aiApply で枠を作ってから判定を入れる・not_watchalong を表に持つ・ai:revoke・古い答えの決まりを候補にも当てる
+- 進み具合（2026-11-13）: 塊 D3a の後半を作った（塊 C のマージのあと）。
+  - ai:queue: 候補（ready。`--include-hold` で hold）を枠と同じ待ち行列に混ぜる。候補であること・同時視聴でなければ not_watchalong・候補にした同時視聴の枠（近い5枠）を見せ、層は sealed/ にだけ残す。`--candidates` で候補だけ。`--type` を付けると入れない
+  - 答えの形: not_watchalong を受け付ける（works・title は書かない）。ai:check は待ち行列の候補でない動画の not_watchalong を弾く
+  - aiApply: 候補の動画は枠が無い・外れた行でも通し、src/candidates/frames.ts で枠を作るか戻してから判定を入れる。語彙の変更で外れた行（detect_rule）・取り消しで外した枠も同じ行を戻す（ルールの枠の答えは塊 C のまま「枠が無い」）。
+    アーカイブが消えた枠は候補でも入れない。not_watchalong と枠の無い候補の hold は候補の表に持つ。直しの not_watchalong が AI の足した枠に来たら、判定を取り消して枠を外す
+  - 古い答え: 枠の判定の decided_at（取り消した行も含む）と候補の表の answered_at（取り消した答えも含む）の大きいほうと、answerFreshness で比べる
+  - ai:revoke: ai_candidate の枠は外し（`ai_revoked`）、候補を ready に戻す。候補の表の答え（not_watchalong・hold）も取り消す（answer_revoked_at。answered_at は残す）。ルールの枠は今までどおり名寄せし直す
+  - 今の DB の写しで select（201本）→ fetch（5ユニット）→ queue（10本）→ 用意した答え → ai:push → ai:ingest → settle を通した（結果は D3a の報告。答えは判定役のものではない）
+  - 残り（D3b）: 層・続きの語・弱い語・GUIDE の文面（not_watchalong と「そもそも作品を観ていない枠は not_a_work」の整理）。ai:report は not_watchalong の答え（候補の表）を採点の表に出していない
 
 ### D-05 Phase 4 の進め方（2026-10-30）
 

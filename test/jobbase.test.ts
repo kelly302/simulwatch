@@ -46,7 +46,7 @@ test("db:pack → 展開 → db:check の往復が通り、-wal は空。メタ�
   assert.ok(p.ok, p.lines.join("\n"));
   assert.ok(!existsSync(`${path}-wal`) || statSync(`${path}-wal`).size === 0);
   const meta = readMeta(join(dir, "out", "meta.json"));
-  assert.deepEqual(decodeRows(meta.rows), { streamers: 3, watch_events: 1, videos_seen: 0, ai_decisions: 0, unresolved: 0, work_public_keys: 0 });
+  assert.deepEqual(decodeRows(meta.rows), { streamers: 3, watch_events: 1, videos_seen: 0, ai_decisions: 0, unresolved: 0, work_public_keys: 0, candidates: 0 });
   assert.equal(meta["user-version"], String(schemaVersion()));
   assert.equal(meta.writer, "daily");
   // ASCII だけ・2KB まで

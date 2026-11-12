@@ -13,7 +13,7 @@ import type { Frame, Video } from "../report/neighbors.ts";
 // 題名に同時視聴の語が無い続きの回（同じ配信者のメン限の続きの回など）を、同時視聴枠にならなかった動画（videos_seen）から選ぶ。
 // 選んだ動画は videos.list で詳細を取り（candidates:fetch）、人が起動した AI の判定役が「同時視聴か・どの作品か」を答える。
 // 層の中身と語は config/candidates.yaml。作品名の区間は判定役に見せる「同じ作品名の動画」と同じ決まり（neighbors.ts の videoKeys）。
-// 候補の表への保存は塊 D3a（この版は件数と一覧だけ）
+// 表（candidates）への保存と詳細の取得は src/candidates/store.ts。ここは選ぶだけ（--dry-run は件数と一覧だけ）
 
 export type CandidateReason = "same_work_members" | "continuation_word" | "same_title_body";
 export const CANDIDATE_REASONS: CandidateReason[] = ["same_work_members", "continuation_word", "same_title_body"];

@@ -11,6 +11,7 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
       roster.yaml       Tier 1 の取得元（公式サイトのURL・日本の所属グループ・卒業の印・所属の中の区分の印）
       crawl.yaml        巡回頻度・クォータ上限・遡りの予算・HTTP（User-Agent と照会先ごとの間隔）
       extract.yaml      名寄せのルール（作品ではない語・ノイズ語・前後の語・Wikidata の作品クラス）
+      candidates.yaml   続きの回の候補の層と続きの語（docs/ai-ops.md 3-1）
       site.yaml         サイトの設定（仮のサイトの URL・予定枠を出すかの切り替えと出すときの時間・ランキングの枠数・ページの件数）
     src/
       cli.ts            コマンドの入口
@@ -21,6 +22,7 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
       roster/           公式サイトからの一覧取得と同期
       detect/           キーワード判定（純粋関数）
       crawl/            巡回ジョブ（取得元・判定と保存・状態の取り直し）
+      candidates/       続きの回の候補（D-04）。選び方（select）・表への保存と videos.list（store）・候補から枠を作る・AI が足した枠を外す（frames）
       resolve/          名寄せ（extract・照合・期と部の表記（markers）・視聴系列の期（series）・分割クールのまとめ（splitcour）・AI の判定の反映（ai）・同定の型（route）・型の記録と出し方（routing）・
                         作品の属性（enrich）・Wikidata のアニメのまとめ（link）・Annict / AniList / Wikipedia のクライアント・保存）
       report/           ローカル確認用のレポート・同定の検証用の抽出・外部DBの照会（lookup）・AI の判定の道具（ai）・
@@ -82,9 +84,12 @@ R2 を設定する前は `--remote <フォルダ>` でローカルのフォル�
     npm run cli -- ai:ingest --settle F [--remote r2|<フォルダ>]         # DB の書き戻しのあと、F のとおり受け箱から ai/applied/・ai/failed/ へ移し、ai/results/ の印を上書きする
     npm run cli -- ai:report ai-trial-1                                 # 判定の根拠の一覧（report.md）と採点用の report.html
     npm run cli -- ai:report ai-run-1 --exclude-scored data/ai/ai-run-1/scores-sample150.md   # 採点済みを除いた残り（保留・特定できない・外部DBに無いは全部）
-    npm run cli -- ai:revoke --batch ai-trial-1                         # 判定の取り消しとルールでの名寄せし直し
+    npm run cli -- ai:queue --candidates --seed cand-1 --max-files 5    # 続きの回の候補（candidates の ready）だけの待ち行列（ふだんの ai:queue は候補も混ぜる。--type を付けると混ぜない）
+    npm run cli -- ai:revoke --batch ai-trial-1                         # 判定の取り消しとルールでの名寄せし直し（続きの回の候補から足した枠は外し、候補の表の答えも取り消す）
     npm run cli -- ai:status                                            # サイトでの出し方ごとの件数と、AI の判定待ちの型の内訳
-    npm run cli -- candidates:select --dry-run                          # 続きの回の候補（docs/ai-ops.md 3-1）の層ごとの件数と一覧（data/review/candidates-select.{json,md}。DB は読むだけ。表への保存は D3a）
+    npm run cli -- candidates:select                                    # 続きの回の候補（docs/ai-ops.md 3-1）を選んで候補の表（candidates）に入れる（日次。API なし）
+    npm run cli -- candidates:select --dry-run                          # 表に入れず、層ごとの件数と一覧だけ（data/review/candidates-select.{json,md}。DB は読むだけ）
+    npm run cli -- candidates:fetch                                     # 詳細がまだの候補と予定・配信中だった候補の videos.list（日次。50本で1ユニット。終わった動画だけ判定に回す）
     npm run cli -- works:enrich [--all]                                 # 作品の属性（映像の種類・制作国・シリーズの名前）を外部DBから埋める
     npm run cli -- audit:types                     # 同定の型ごとの件数と目印の重なり（data/audit/types.md。DB は変えない）
     npm run cli -- audit:sample --seed audit-1     # 型ごとの抽出。AI に見せる待ち行列と封をしたルールの答え（data/audit/<batch>/）

@@ -5,7 +5,8 @@ export type Affiliation = "nijisanji" | "hololive" | "vspo" | "other";
 export type Platform = "youtube";
 export type Tier = 1 | 2;
 export type EventStatus = "upcoming" | "live" | "completed";
-export type DetectSource = "title" | "description";
+/** 枠になった経路。ai_candidate は題名に同時視聴の語が無い候補を AI が同時視聴と答えた枠（docs/ai-ops.md 3-4。語彙で判定し直さない） */
+export type DetectSource = "title" | "description" | "ai_candidate";
 /** 動画をどの経路で最初に見つけたか */
 export type FoundVia = "rss" | "playlist" | "members_playlist" | "backfill";
 /**

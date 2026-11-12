@@ -18,7 +18,7 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
                started_at, status (upcoming / live / completed),
                is_members_only, view_count, view_count_fetched_at, detected_at,
                description_raw, scheduled_start_at, ended_at,
-               detect_source (title / description。→ D-04 で ai_candidate を足す予定・未実装), detect_keyword,
+               detect_source (title / description / ai_candidate), detect_keyword,
                found_via (rss / playlist / members_playlist / backfill),
                started_at_source (actual_start / scheduled_start / published_at),
                archive_gone_at, excluded_at, excluded_reason, last_checked_at, updated_at
@@ -54,6 +54,10 @@ first_event_at / latest_event_at）は DB に持たず、サイト用のデー�
 - `WatchEvent.excluded_at` / `excluded_reason` 判定ルールの変更で同時視聴枠でなくなった時刻と理由（`detect_rule:<語彙のバージョン>`）。
   NULL でなければ一覧から消す。**行は消さない**。ルールを戻して再び当たれば外れる
 - `WatchEvent.detect_source` / `detect_keyword` どの語で判定したか。語彙の調整に使う
+- `WatchEvent.detect_source = 'ai_candidate'`（2026-11-13。D-04）題名に同時視聴の語が無い候補（下の candidates）を、AI の判定役が同時視聴と答えて作った枠。
+  `detect_keyword` は候補の理由（層を + でつなぐ。`same_work_members+continuation_word`）。**語彙で判定し直さない**（巡回の fetchAndUpsert・detect:rerun）。
+  外すのは取り消し（`excluded_reason = 'ai_revoked'`。行は消さない）だけ。列は候補の表の詳細を写す（is_members_only は候補の表の値と videos_seen の is_members_hint の大きいほう）。
+  語彙の変更で外れていた行（`detect_rule`）の動画が候補になって同時視聴と答えられたら、その行を ai_candidate の枠として戻す（video_id は1行だけ）
 
 ### Phase 2 で足した列の意味
 
@@ -90,6 +94,16 @@ first_event_at / latest_event_at）は DB に持たず、サイト用のデー�
     ai_decisions      AI の判定（確定）。1枠に取り消されていない判定は1つ。取り消しても行は残す
     split_cours       分割クールでまとめた後半の作品（Annict の ID）と、まとめ先の前半の作品。名寄せのたびに作り直す（公開キーの転送に使う）
     work_public_keys  一度出した作品の公開キーと、そのときの外部DBの ID。同じ作品には同じキーを付け直し、行がまとまったら古いキーから 301
+    candidates        題名に同時視聴の語が無い続きの回の候補（2026-11-13。D-04・docs/ai-ops.md 3章）。1動画1行で、**行を消さない**（db:pack が行の減少で止める）。
+                      列: 候補の理由（reasons。層の並び）・種の枠（seeds。[{ reason, seed（watch_events.id）, key（作品名の区間）}]）・最初と最後に選んだ時刻・
+                      状態（state と state_at）・詳細（videos.list。watch_events と同じ列・同じ意味。description_raw は公開しない）と取った時刻・取れなかった理由（fetch_note）・
+                      枠を作らない答え（answer_status = not_watchalong / hold・answer_batch・answer_detail・答えの時刻 answered_at・answer_revoked_at）・作った枠（watch_event_id）
+                      state = selected（選んだ。詳細はまだ）/ waiting（予定・配信中。次の日にもう一度詳細を取る）/ ready（終わった。判定に回す）/
+                              unavailable（削除・非公開・ライブでない）/ detected（題名が変わり同時視聴の語で枠になった）/ framed（答えで枠を作った）/
+                              not_watchalong（同時視聴ではない）/ hold（答えが保留）
+                      選び直しでは、答える前（selected・waiting・ready）の候補だけ理由と種の枠を新しくする。枠を作った答えは ai_decisions に入る（答えの時刻はそちらの decided_at）
+                      答えの区分 not_watchalong（同時視聴ではない）は候補だけの答えで、枠を作らずここに持つ。保留（hold）も、一覧に出る枠の無い候補ならここに持つ。
+                      取り消し（ai:revoke）は answer_revoked_at を立てて ready に戻す（answered_at は残し、古い答えの比べに使う）
     site_pages        作品ページ・配信者ページの中身の指紋（再生数を除く）と、中身が変わった日（sitemap の lastmod）
 
 ### 間違えやすい点

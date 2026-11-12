@@ -31,6 +31,7 @@ import { loadSiteConfig } from "./lib/config.ts";
 import type { UnresolvedReason } from "./resolve/types.ts";
 import { DatabaseSync } from "node:sqlite";
 import { candidatesDryRun } from "./candidates/select.ts";
+import { candidatesSelect, fetchCandidates } from "./candidates/store.ts";
 
 // 使い方: npm run cli -- <command> [options]
 
@@ -68,6 +69,7 @@ const HELP = `
 コマンド（AI の判定。答えは人が起動した回でだけ作る。日次のジョブは ai:ingest で取り込むだけ。docs/ai-ops.md・docs/workflows.md 6）:
   ai:queue        AI に回す型（extract.yaml の ai_routes）の枠のうち AI の判定が無いものを選び、候補を見せない待ち行列を data/ai/<batch>/ に書く
                   [--n 300] [--max-files N（1〜10。N×50 件）] [--seed S] [--batch B（既定はシード）] [--type 型,...（ai_routes の代わり）] [--include-hold（保留の枠も入れる）] [--video ID,...（動画を指定する。判定の有無と型に関係なく入れる。判定し直し用）]
+                  続きの回の候補（candidates の ready。--include-hold なら hold も）も混ぜる（候補であることと種の枠を見せ、層は見せない。--type を付けると入れない）。[--candidates（候補だけ）]
                   同じ batch の2回目は前の待ち行列を使い、答えのそろったファイルを飛ばす。YouTube はローカルの取り分（1日 quota.ai_reserve。data/ai/quota.json）で止める。
                   最後の行に {"batch","files","remaining","quotaStopped","units","reused"} の JSON を出す
                   --reason R を付けると未同定の理由で選ぶ（ai-trial-1 の形。区間と注記を見せる）
@@ -84,11 +86,13 @@ const HELP = `
                   B をカンマでつなぐと複数の回を1つの表にまとめる（出力は data/ai/<回を _ でつないだ名前>/）
                   [--sample N --seed S（確度 high からシードで N 件を抜き取り）] [--include-high（確度 high も全部）]
                   [--exclude-scored F（採点済みの scores*.md を除いた残りを report-rest.html に）] [--video ID,…（必ず出す枠）]
-  ai:revoke       判定を取り消して、ルールで名寄せし直す [--batch B] [--video ID,...]
+  ai:revoke       判定を取り消して、ルールで名寄せし直す [--batch B] [--video ID,...]。続きの回の候補から足した枠（ai_candidate）は外し（ai_revoked）、
+                  候補の表の答え（同時視聴ではない・保留）も取り消す。候補は ready に戻る
   works:enrich    作品の属性（映像の種類・制作国・シリーズの名前）を外部DBから埋める [--all（全部埋め直す）]
   ai:status       サイトでの出し方（作品を付けて出す・枠として出す・出さない・AI の判定待ち）ごとの件数と、判定待ちの型の内訳
-  candidates:select --dry-run  題名に同時視聴の語が無い続きの回の候補（docs/ai-ops.md 3-1。config/candidates.yaml）を選び、
-                  層ごとの件数を表示して一覧を data/review/candidates-select.{json,md} に書く（DB は読むだけ。表への保存はまだ無い）
+  candidates:select  題名に同時視聴の語が無い続きの回の候補（docs/ai-ops.md 3-1。config/candidates.yaml）を選び、候補の表（candidates）に入れる（日次。API なし）
+                  [--dry-run（表に入れず、層ごとの件数と一覧を data/review/candidates-select.{json,md} に書く。DB は読むだけ）]
+  candidates:fetch  詳細がまだの候補と予定・配信中だった候補の videos.list を引いて表に入れる（日次。50本で1ユニット。終わった動画だけを判定に回す）
 
 コマンド（公開。Phase 3）:
   site:data       サイト用のデータ（集計・作品の公開キー・ページの更新日）を data/site/site-data.json に書き出す。
@@ -159,6 +163,7 @@ async function main(): Promise<number> {
       now: { type: "string" },
       since: { type: "string" },
       "dry-run": { type: "boolean" },
+      candidates: { type: "boolean" },
       "max-files": { type: "string" },
       "max-batches": { type: "string" },
       remote: { type: "string" },
@@ -194,6 +199,26 @@ async function main(): Promise<number> {
     "crawl:daily": { job: "daily", run: crawlDaily },
     "refresh": { job: "daily", run: refreshAll },
     "detect:fetch": { job: "daily", run: fetchOrphans },
+    "candidates:select": {
+      job: "daily",
+      run: async (ctx) => {
+        const r = await runStep(ctx, "candidates:select", async () => candidatesSelect(ctx.db, loadExtractConfig(), ctx.crawlCfg.upcoming.max_days_ahead));
+        if (r) {
+          ctx.summary.candidates_select = r.stats;
+          console.log(r.text);
+        }
+      },
+    },
+    "candidates:fetch": {
+      job: "daily",
+      run: async (ctx) => {
+        const r = await runStep(ctx, "candidates:fetch", () => fetchCandidates(ctx));
+        if (r) {
+          ctx.summary.candidates_fetch = r;
+          console.log(`候補の詳細: 対象 ${r.targets}・引いた ${r.requested}・終わった（判定に回す）${r.ready}・予定と配信中 ${r.waiting}・非公開など ${r.unavailable}・返らなかった ${r.missing}`);
+        }
+      },
+    },
     "resolve": { job: "resolve", run: resolveJob },
     "lookup": {
       job: "report",
@@ -242,6 +267,7 @@ async function main(): Promise<number> {
           ...(values.n !== undefined ? { n: Number(values.n) } : {}),
           ...(values["max-files"] !== undefined ? { maxFiles: Number(values["max-files"]) } : {}),
           ...(values.video ? { videos: values.video.split(",") } : {}),
+          ...(values.candidates ? { candidatesOnly: true } : {}),
         }));
         if (r) {
           console.log(r.text);
@@ -258,10 +284,9 @@ async function main(): Promise<number> {
         if (!file) throw new Error("判定のファイルを指定してください");
         const r = await runStep(ctx, "ai:apply", () => aiApply(ctx, loadExtractConfig(), file));
         if (r) console.log(r.text);
-        if (r?.reresolve.length) {
-          await runStep(ctx, "resolve (videos)", () => resolveEvents(ctx, { mode: "videos", videoIds: r.reresolve }));
-          await recordRoutes(ctx);
-        }
+        if (r?.reresolve.length) await runStep(ctx, "resolve (videos)", () => resolveEvents(ctx, { mode: "videos", videoIds: r.reresolve }));
+        // 続きの回の候補から作った枠・外した枠も型を記録する
+        if (r?.reresolve.length || r?.candidates.framed.length || r?.candidates.notWatchalong.length) await recordRoutes(ctx);
       },
     },
     "ai:ingest": {
@@ -276,10 +301,9 @@ async function main(): Promise<number> {
           // ログには件数と動画の ID だけを出す（公開リポジトリの Actions のログ。答えの根拠・概要欄は出さない）
           apply: async (dir) => {
             const a = await aiApply(ctx, cfg, dir);
-            if (a.reresolve.length) {
-              await runStep(ctx, "resolve (videos)", () => resolveEvents(ctx, { mode: "videos", videoIds: a.reresolve }));
-              await recordRoutes(ctx);
-            }
+            if (a.reresolve.length) await runStep(ctx, "resolve (videos)", () => resolveEvents(ctx, { mode: "videos", videoIds: a.reresolve }));
+            // 続きの回の候補から作った枠・外した枠も型を記録する
+            if (a.reresolve.length || a.candidates.framed.length || a.candidates.notWatchalong.length) await recordRoutes(ctx);
             return a;
           },
         }));
@@ -302,12 +326,11 @@ async function main(): Promise<number> {
     "ai:revoke": {
       job: "ai",
       run: async (ctx) => {
-        const videos = aiRevoke(ctx, { batch: values.batch, videos: values.video?.split(",") });
-        console.log(`取り消した判定 ${videos.length} 件。ルールで名寄せし直します`);
-        if (videos.length) {
-          await runStep(ctx, "resolve (videos)", () => resolveEvents(ctx, { mode: "videos", videoIds: videos }));
-          await recordRoutes(ctx);
-        }
+        const r = aiRevoke(ctx, { batch: values.batch, videos: values.video?.split(",") });
+        console.log(`取り消した判定 ${r.reresolve.length + r.candidateFrames.length} 件（ルールで名寄せし直す ${r.reresolve.length}・` +
+          `続きの回の候補から足した枠を外した ${r.candidateFrames.length}）・候補の表の答え（同時視聴ではない・保留）を取り消した ${r.candidateAnswers.length} 件`);
+        if (r.reresolve.length) await runStep(ctx, "resolve (videos)", () => resolveEvents(ctx, { mode: "videos", videoIds: r.reresolve }));
+        if (r.reresolve.length || r.candidateFrames.length) await recordRoutes(ctx);
       },
     },
     "audit:types": {
@@ -347,6 +370,12 @@ async function main(): Promise<number> {
       },
     },
   };
+
+  // --dry-run は DB を読むだけ（実行記録も書かない）
+  if (cmd === "candidates:select" && values["dry-run"]) {
+    console.log(candidatesDryRun(new DatabaseSync(DB_PATH, { readOnly: true }), loadExtractConfig(), loadCrawlConfig().upcoming.max_days_ahead));
+    return 0;
+  }
 
   // 受け箱から移すのは DB の書き戻しのあと（docs/workflows.md 3-1 の 11）。DB は開かない
   if (cmd === "ai:ingest" && values.settle) {
@@ -424,15 +453,6 @@ async function main(): Promise<number> {
       const r = await aiPush(remote, batch, { skipFailed: !!values["skip-failed"] });
       console.log(r.text);
       return r.pushed.length && (r.ok || values["skip-failed"]) ? 0 : 1;
-    }
-    case "candidates:select": {
-      if (!values["dry-run"]) {
-        console.log("候補の表への保存はまだ無い（docs/phase4-plan.md の D3a）。--dry-run を付けて件数と一覧だけを出す");
-        return 1;
-      }
-      const r = candidatesDryRun(new DatabaseSync(DB_PATH, { readOnly: true }), loadExtractConfig(), loadCrawlConfig().upcoming.max_days_ahead);
-      console.log(r);
-      return 0;
     }
     case "site:data": {
       const ctx = createCtx("site");

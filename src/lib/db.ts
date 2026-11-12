@@ -273,6 +273,50 @@ const MIGRATIONS: string[] = [
     checked_at      TEXT NOT NULL
   );
   `,
+  // 12: 続きの回の候補（2026-11-13。docs/ai-ops.md 3章・決定 D-04）。題名に同時視聴の語が無い動画のうち、続きの回かもしれないもの。
+  //     日次のジョブが選び（candidates:select）、videos.list で詳細を取り（candidates:fetch）、人が起動した AI の判定役が
+  //     「同時視聴か・どの作品か」を答える。同時視聴と答えたら枠（watch_events。detect_source = 'ai_candidate'）を作る。
+  //     行を消さない表（db:pack が行の減少で止める）。同じ動画は1回だけ候補にする
+  `
+  CREATE TABLE candidates (
+    id                    INTEGER PRIMARY KEY,
+    video_id              TEXT NOT NULL UNIQUE,
+    streamer_id           INTEGER NOT NULL REFERENCES streamers(id),
+    -- selected: 選んだ（詳細はまだ）/ waiting: 予定・配信中（次の日にもう一度詳細を取る）/ ready: 終わった（判定に回す）/
+    -- unavailable: 詳細が取れない（削除・非公開・ライブでない）/ detected: 同時視聴の語で枠になった（判定に回さない）/
+    -- framed: 答えで枠を作った / not_watchalong: 同時視聴ではない / hold: 答えが保留（--include-hold で回す）
+    state                 TEXT NOT NULL CHECK (state IN ('selected', 'waiting', 'ready', 'unavailable', 'detected', 'framed', 'not_watchalong', 'hold')),
+    state_at              TEXT NOT NULL,
+    reasons               TEXT NOT NULL,       -- JSON。候補の理由（層）の並び ["same_work_members","continuation_word"]
+    seeds                 TEXT NOT NULL,       -- JSON。種の枠 [{ reason, seed（watch_events.id）, key（作品名の区間）}]
+    selected_at           TEXT NOT NULL,       -- 最初に選んだ時刻
+    last_selected_at      TEXT NOT NULL,       -- 最後に選んだ時刻（選び方を変えて選ばれなくなっても行は残す）
+    -- 詳細（videos.list）。watch_events と同じ列・同じ意味。枠にするときそのまま写す（もう一度 videos.list を引かない）。
+    -- description_raw は判定のためだけに持ち、公開しない
+    title_raw             TEXT,
+    description_raw       TEXT,
+    thumbnail_url         TEXT,
+    started_at            TEXT,
+    started_at_source     TEXT,
+    scheduled_start_at    TEXT,
+    ended_at              TEXT,
+    status                TEXT CHECK (status IS NULL OR status IN ('upcoming', 'live', 'completed')),
+    is_members_only       INTEGER NOT NULL DEFAULT 0,   -- videos_seen の is_members_hint（メン限プレイリスト）と題名のメン限の語
+    view_count            INTEGER,
+    view_count_fetched_at TEXT,
+    fetched_at            TEXT,                -- 詳細を最後に取った時刻
+    fetch_note            TEXT,                -- 取れなかった理由（missing_in_videos_list / privacy:private / not_live）
+    -- 枠を作らない答え（not_watchalong・hold）。枠を作った答えは ai_decisions に入れる
+    answer_status         TEXT,
+    answer_batch          TEXT,
+    answer_detail         TEXT,                -- JSON。{ model, confidence, rationale, evidence, seconds }
+    answered_at           TEXT,                -- 答えの時刻（答えのファイルの finished_at。UTC）。これより古い答えは入れない
+    answer_revoked_at     TEXT,
+    watch_event_id        INTEGER REFERENCES watch_events(id)   -- 作った枠（detected は語で当たった枠）
+  );
+  CREATE INDEX candidates_state ON candidates(state);
+  CREATE INDEX candidates_streamer ON candidates(streamer_id);
+  `,
 ];
 
 export function openDb(path: string = DB_PATH): DB {

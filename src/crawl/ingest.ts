@@ -189,6 +189,7 @@ export async function fetchAndUpsert(ctx: Ctx, pending: Map<string, PendingHit>,
     (db.prepare("SELECT id, channel_id FROM streamers").all() as { id: number; channel_id: string }[]).map((r) => [r.channel_id, r.id]),
   );
   const markSeen = db.prepare("UPDATE videos_seen SET detect_result = ?, detect_note = ? WHERE video_id = ?");
+  const getEvent = db.prepare("SELECT detect_source FROM watch_events WHERE video_id = ?");
 
   for (const ids of chunk([...pending.keys()], 50)) {
     stats.api_videos_requested += ids.length;
@@ -213,7 +214,9 @@ export async function fetchAndUpsert(ctx: Ctx, pending: Map<string, PendingHit>,
         // 新しく作る枠は、取得したタイトル・概要欄を今の語彙で判定し直す。
         // 以前の語彙でヒットして保留されていた動画（orphan）が古いルールのまま入らないようにする。
         // 定型文の除外はここでは使えないが、除外を減らす方向にしか働かないので誤って落とすことはない
-        const known = p.keyword === "(known)";
+        // すでに行のある枠（AI が候補から足した枠 detect_source = 'ai_candidate' を含む）は判定し直さない。
+        // ai_candidate の枠は題名に同時視聴の語が無いので、判定し直すと必ず外れる（docs/ai-ops.md 3-4）
+        const known = p.keyword === "(known)" || getEvent.get(v.id) !== undefined;
         if (!known) {
           const again = detect({ title: c.title, description: c.description }, ctx.detectCfg);
           if (!again.hit) {

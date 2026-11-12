@@ -8,7 +8,7 @@ import type { Routed } from "../resolve/routing.ts";
 import { sampleOrder } from "./sample.ts";
 import { loadExtractConfig } from "../resolve/config.ts";
 import { streamerFrames, streamerVideos, frameContext, otherVideos, pickLinks, linkTitles, videoComments, youtubeRefs, youtubeInfo, youtubeLinks } from "./neighbors.ts";
-import type { YouTubeLink, YouTubeShown } from "./neighbors.ts";
+import type { Frame, YouTubeLink, YouTubeShown } from "./neighbors.ts";
 
 // 候補を見せない AI の判定の待ち行列（型ごとの検証 audit:sample と本番の ai:queue が使う）。
 //   queue/NN.md（50件ずつ）・queue.json・GUIDE.md・thumbs/（サムネイル）・sealed/answers.json（その時点のルールの答え。判定が終わるまで開かない）・answers/（AI の答え）
@@ -232,6 +232,17 @@ export interface BlindItem {
   comments: string[];
   /** YouTube のクォータ（ローカルの AI の判定の取り分。docs/ai-ops.md の 5）を使い切って取らなかったもの */
   skipped?: ("comments" | "youtube")[];
+  /** 続きの回の候補（題名に同時視聴の語が無い動画。D-04）。候補にした同時視聴の枠（日付と題名）。層は見せない（docs/ai-ops.md 3-3） */
+  candidate?: { seeds: { date: string; title: string }[] };
+}
+
+/**
+ * 待ち行列の1行。枠（rule にルールの答え）か、続きの回の候補（rule は null。ev.id は負の数で、枠はまだ無い。src/candidates/store.ts の candidateQueueRows）
+ */
+export interface QueueRow {
+  ev: Routed["ev"];
+  rule: Routed["rule"] | null;
+  candidate?: { reasons: string[]; seeds: { date: string; title: string }[] };
 }
 
 
@@ -244,6 +255,12 @@ export function formatYouTube(y: YouTubeLink): string {
   return `${y.url} → ${parts.join("・")}`;
 }
 
+/** 枠の並び（日付順）に、まだ枠の無い候補を日付の位置で入れる（同じ日の枠のあと） */
+function withPseudoFrame(frames: Frame[], f: Frame): Frame[] {
+  const i = frames.findIndex((x) => x.date !== "?" && x.date > f.date);
+  return i < 0 ? [...frames, f] : [...frames.slice(0, i), f, ...frames.slice(i)];
+}
+
 function jst(t: string | null): string {
   if (!t) return "?";
   return new Date(Date.parse(t) + 9 * 3_600_000).toISOString().slice(0, 16).replace("T", " ");
@@ -252,7 +269,7 @@ function jst(t: string | null): string {
 /** 待ち行列を書く。rows はシード（seed + ":queue"）で混ぜて並べる。sealed はルールの答えのファイルに足す項目 */
 export async function writeBlindQueue(
   ctx: Ctx, dir: string,
-  opts: { batch: string; seed: string; rows: Routed[]; sealed?: Record<string, unknown>; sealedNote: string },
+  opts: { batch: string; seed: string; rows: QueueRow[]; sealed?: Record<string, unknown>; sealedNote: string },
 ): Promise<{ items: BlindItem[]; chunks: number }> {
   const picked = opts.rows;
   // 型をまたいで混ぜる
@@ -278,8 +295,10 @@ export async function writeBlindQueue(
   for (const vid of order) {
     const r = byVid.get(vid)!;
     const thumb = await downloadThumb(ctx, r.ev.thumbnail_url, join(dir, "thumbs"), vid);
-    const fc = frameContext(framesOf(r.ev.streamer_id), r.ev.id, r.ev.title_raw, cfg, r.ev.streamer);
-    const ov = otherVideos(videosOf(r.ev.streamer_id), framesOf(r.ev.streamer_id),
+    // 候補は枠の並びにまだ入っていないので、日付の位置に入れて前後の枠・同じ作品名の枠を選ぶ。枠にならなかった動画からは自分を除く
+    const frames = r.candidate ? withPseudoFrame(framesOf(r.ev.streamer_id), { id: r.ev.id, date: jst(r.ev.started_at).slice(0, 10), title: r.ev.title_raw }) : framesOf(r.ev.streamer_id);
+    const fc = frameContext(frames, r.ev.id, r.ev.title_raw, cfg, r.ev.streamer);
+    const ov = otherVideos(r.candidate ? videosOf(r.ev.streamer_id).filter((v) => v.id !== vid) : videosOf(r.ev.streamer_id), framesOf(r.ev.streamer_id),
       { startedAt: r.ev.started_at, title: r.ev.title_raw, membersOnly: !!r.ev.is_members_only }, cfg, r.ev.streamer);
     const urls = pickLinks(desc.links(r.ev.streamer_id, r.ev.description_raw), cfg);
     const titles = await linkTitles(ctx, cfg, urls);
@@ -302,13 +321,15 @@ export async function writeBlindQueue(
       youtube,
       comments,
       ...(skipped.length ? { skipped } : {}),
+      ...(r.candidate ? { candidate: { seeds: r.candidate.seeds } } : {}),
     });
     if (i % 100 === 0) log.info(`  待ち行列 ${i}/${order.length}`);
   }
   const created = nowIso();
   writeFileSync(join(dir, "sealed", "answers.json"), JSON.stringify({
     batch: opts.batch, seed: opts.seed, created_at: created, ...opts.sealed,
-    answers: order.map((v) => byVid.get(v)!.rule),
+    // 候補はルールの答えが無いので、候補の理由（層）を残す（採点の表で見る。判定役には見せない）
+    answers: order.map((v) => byVid.get(v)!.rule ?? { video_id: v, candidate: { reasons: byVid.get(v)!.candidate?.reasons ?? [] } }),
   }, null, 2), "utf8");
   writeFileSync(join(dir, "sealed", "README.md"), `# 封をしたルールの答え\n\nAI の判定が終わるまで開かない（${opts.sealedNote}）。\n`, "utf8");
   writeFileSync(join(dir, "queue.json"), JSON.stringify({ batch: opts.batch, created_at: created, items }, null, 2), "utf8");
@@ -333,6 +354,10 @@ export async function writeBlindQueue(
       ...part.flatMap((x) => [
         `## ${x.no}. ${x.video_id}　${x.streamer}　${x.started_at}`,
         `- タイトル: ${x.title}`,
+        ...(x.candidate ? [
+          "- 候補: 題名に同時視聴の語が無い動画。まず同時視聴の枠かどうかを判断する（同時視聴でなければ status は not_watchalong）",
+          `- 候補にした同時視聴の枠: ${x.candidate.seeds.map((f) => `${f.date} ${f.title}`).join(" ／ ") || "なし"}`,
+        ] : []),
         `- 概要欄: ${x.description_lines.join(" ／ ") || "なし"}`,
         `- サムネイル: ${x.thumbnail ?? "なし"}`,
         ...(x.links.length ? [`- リンク先の題名: ${x.links.map((l) => `${l.url} →「${l.title ?? "取れなかった"}」${l.year ? `（${l.year}年）` : ""}${l.summary ? ` あらすじ: ${l.summary}` : ""}`).join(" ／ ")}`] : []),

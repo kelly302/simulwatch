@@ -156,7 +156,7 @@ test("aiApply: ai:revoke で取り消したあと、取り消した答え・そ�
   writeAnswers(dir, "01.json", file("2026-11-07T00:00:00Z", [ans("v3", "not_a_work"), ans("v4", "not_a_work")]));
   await ai.aiApply(ctx, cfg, dir, deps);
   // 取り消す（行は残る）。v1 は前からある +09:00 の判定を取り消す
-  assert.deepEqual(ai.aiRevoke(ctx, { videos: ["v3", "v4", "v1"] }).sort(), ["v1", "v3", "v4"]);
+  assert.deepEqual(ai.aiRevoke(ctx, { videos: ["v3", "v4", "v1"] }).reresolve.sort(), ["v1", "v3", "v4"]);
   const n = rowCount(ctx);
   // 受け箱に残った同じ答え → 入れ済み。それより古い答え → 古い答え。v1 の取り消した判定（12:00+09:00 = 03:00Z）より古い 02:00Z の答えも入らない
   const again = await ai.aiApply(ctx, cfg, dir, deps);
