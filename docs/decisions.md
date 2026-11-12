@@ -23,7 +23,12 @@
   R2 の出し入れはローカルも AWS CLI
 - 置き換えるもの: 2026-10-01 の「人が起動するコマンドでだけ入れる（定期実行のジョブからは呼ばない）」
 - 正の文書: docs/ai-ops.md の1・2・7章、docs/workflows.md の6章
-- 印を付けた本文: docs/ai-judging.md（AI の判定のしかた）、docs/dev.md（実行方法）
+- 印を付けた本文: docs/ai-judging.md（AI の判定のしかた）
+- 進み具合（2026-11-13。塊 C）: 取り込む側を作った。aiApply の古い答えの決まり（瞬間で比べ、UTC で入れる）と問題の種類分け、
+  `ai:ingest`（受け箱の batch を5つまで・結果と移す先を JSON に・`--settle` で移す）・`ai:check`・`ai:pull`・`ai:push`（ローカルのフォルダと AWS CLI の R2 を `--remote` で切り替える層。src/report/inbox.ts）、
+  `ai:queue` のローカルのクォータのファイル（data/ai/quota.json）・同じシードの2回目・`--max-files`・返す値。
+  残り: 日次のワークフローから呼ぶこと（塊 F）・R2 との実際の往復（段6）・Claude Code のワークフロー（塊 E）。候補の答えの反映は塊 D3a（それまでは「枠が無い」）。
+  経緯と検証は docs/ai-runs.md の 2026-11-13 の節
 
 ### D-04 題名に同時視聴の語が無い続きの回を「候補 → AI」で枠にする（2026-10-22・10-30）
 
@@ -48,11 +53,6 @@
 - 置き換えるもの: 「unresolved は R2 の JSON に出力し、ローカルの CLI で確認する」（Phase 1）
 - 印を付けた本文: docs/crawl.md（unresolved の確認方法）、docs/dev.md（unresolved:export）
 
-### D-09 ローカルの ai:apply にも「古い答えは取り込まない」を入れる（2026-11-04。Claude（任された））
-
-- 中身: 時刻の決まりは aiApply の中に1つだけ作り、ジョブの ai:ingest とローカルの ai:apply の両方が通る（決まりを2つにしない）
-- 正の文書: docs/workflows.md 6-2（「ai-ops の側と決める」としていた所の答え）
-
 ## 実装済み
 
 ### D-01 日次だけにする・「これから始まる枠」をやめる（2026-10-27。実装 2026-11-08、塊 A）
@@ -64,6 +64,14 @@
   ai:queue と ai:status は終わった枠だけ（ai:status は終わっていない枠を別の行に数える）。トップの UI と CSS（水色の面・LIVE バッジ）・formatWhen を消した。
   戻すときは UI と「判定待ちの予定枠を枠として出す」分岐を履歴から作り直す（docs/workflows.md の付録）。日次のワークフロー自体は塊 F
 - 正の文書: docs/workflows.md の冒頭・3章・5-2・付録（戻すとき）
+
+### D-09 ローカルの ai:apply にも「古い答えは取り込まない」を入れる（2026-11-04。Claude（任された）。実装 2026-11-13、塊 C）
+
+- 中身: 時刻の決まりは aiApply の中に1つだけ作り、ジョブの ai:ingest とローカルの ai:apply の両方が通る（決まりを2つにしない）
+- 実装: src/report/ai.ts の `answerFreshness`（すでにある取り消されていない判定の decided_at と、答えのファイルの finished_at を瞬間で比べる。新しければ入れる・同じなら入れ済み・古ければ飛ばす）。
+  同じ呼び出しの中では名前の順に入れ、同じ時刻ならあとのファイル（`fix-*.json`）が残る。decided_at は UTC で入れる（前からある `+09:00` の行は直さない。比べるときに瞬間にする）。
+  batch・model・finished_at（時差付き・未来でない）の無いファイルは、ai:apply でも入れない（それまでは finished_at が無いと取り込んだ時刻で入っていた）
+- 正の文書: docs/workflows.md 6-2（「ai-ops の側と決める」としていた所の答え）
 
 ### D-06 決定は決めた日に記録し、本文は実装と同じコミットで直す（2026-10-30）
 

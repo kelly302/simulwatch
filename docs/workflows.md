@@ -331,6 +331,13 @@ docs/ai-ops.md「2. 全体の流れ」の右の列（GitHub Actions）。ロー�
 
 **4・5 は DB の書き戻し（2-4）が成功したあとに動かす**（3-1 の 11）。取り込んだ DB を書き戻せなかったのに受け箱から消すと、答えが失われる。
 
+**実装（2026-11-13。塊 C。src/report/inbox.ts）**: 1〜3 は `npm run cli -- ai:ingest --remote r2 --result <file>` が1つでする（一覧・印・落とす・取り込む・結果の JSON。どの batch を取りどこへ移すかを CLI が決めて結果に書く）。
+4〜5 は `npm run cli -- ai:ingest --settle <file> --remote r2`（3-1 の 11）。R2 との出し入れは CLI の中から AWS CLI を呼ぶ（`--remote <フォルダ>` ならローカルのフォルダで同じ手順を試せる）。
+- 「古い batch から」は batch の名前の順（`aws s3 ls` の PRE の行には日付が無い）。batch の名前は日付を含める（`ai-YYYYMMDD` など）。名前に英数字と `_ . -` 以外がある batch は取り込まず結果の `ignored` に書く
+- 印のファイルの名前は run_id（`--run-id`。無ければ `${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}`。同じ回をやり直したときも別の印になる）
+- `--settle` は**取り込んだファイルだけ**を1つずつ移す（`aws s3 mv`。取り込みのあとに `ai:push` で同じ batch に置かれたファイルは受け箱に残り、次の回に入る）
+- 結果の JSON（`ai/results/` にも置く）には問題の中身（ファイル名・動画の ID・理由）を書く。ログには件数と動画の ID だけを出す（答えの根拠・概要欄は出さない。2-9）
+
 ### 6-2. 古い答えで新しい答えを上書きしない（Fable の高-1）
 
 今の `aiApply`（src/report/ai.ts）は、入れる答えの時刻を見ずに、その枠の取り消されていない判定を取り消して入れ直す。
@@ -357,6 +364,9 @@ docs/ai-ops.md「2. 全体の流れ」の右の列（GitHub Actions）。ロー�
 | `ai:ingest` が途中で殺された（タイムアウト・ランナーの停止。result.json が無い） | **やり直しと同じ**（Fable の中-5）。6-2 の決まりで入れ直しても同じ結果になる |
 
 - **やり直しの回数は `ai/results/<batch>/` のファイルの数で数える**（2 で「始めた」の印を先に置くので、殺された回も1回に数える）。3回（3日）に達したら ai/failed/ に移す
+  （実装: やり直しになった回がその batch の3回目なら failed。取り込む前に印がもう3つ以上ある batch は、入れずに failed。落とせない・DB の例外など答えのせいでない失敗はやり直しに数える）
+- 「枠が無い」は、watch_events に行が無い・判定から外れた（excluded_at）・アーカイブが消えた（archive_gone_at）の3つ（実装 2026-11-13。それまでの aiApply は行があれば外れた枠にも入れていた）。
+  候補（続きの回）の答えは、塊 D3a で枠を作るまでここに入る
 - failed の batch は人が見る（結果の JSON に理由がある）。直したら新しい batch の名前で受け箱に置き直す
 
 ### 6-4. 1回の量
@@ -436,7 +446,7 @@ docs/ai-ops.md「2. 全体の流れ」の右の列（GitHub Actions）。ロー�
 | --- | --- | --- |
 | `db:check --expect <meta.json>` | 2-3 の検査。DB が無ければ**作らずに**失敗する（`openDb` を使わない）。`--accept` で sha256・行数の照合を飛ばす | 外れたら 1 |
 | `db:pack --against <meta.json> --out <dir>` | 2-4 の後始末（checkpoint・quick_check・行を消さない表の行数の比較・gzip・新しいメタデータの JSON） | 外れたら 1 |
-| `ai:ingest <dir> --result <file> [--max-batches 5]` | 6 の取り込み。batch ごと・ファイル名の順に `aiApply` を呼び、6-2 の時刻の決まりで飛ばし、6-3 の結果（入れた / やり直し / failed・件数・飛ばした動画・問題）を JSON に書く | 0（結果は JSON で返す） |
+| `ai:ingest --remote r2 --result <file> [--max-batches 5]`・`ai:ingest --settle <file>` | 6 の取り込み。batch ごと・ファイル名の順に `aiApply` を呼び、6-2 の時刻の決まりで飛ばし、6-3 の結果（入れた / やり直し / failed・件数・飛ばした動画・問題）と移す先を JSON に書く。受け箱の一覧・印・落とす・移すも CLI の中（6-1 の実装）。2026-11-13 実装（塊 C） | 0（結果は JSON で返す） |
 | `candidates:select`・`candidates:fetch` | docs/ai-ops.md 3-1・3-2 の候補の選定（API なし）と詳細（videos.list）。中身は ai-ops の側で設計する | 0 |
 | `site:fingerprint [--commit <sha>] [--date YYYY-MM-DD]` | 2-6 の指紋（generatedAt を除いた site-data.json の sha256）。`--commit` を渡すとコミットと日本時間の日付（既定は今日）も混ぜる。標準出力は `fingerprint=…` の1行（`$GITHUB_OUTPUT` に足せる） | 0。**site-data.json が無ければ 1**（3-1 の 13 が失敗する前提。2026-11-08 実装で決めた） |
 | `job:due --meta <head.json>`（か `--written-at`・`--writer`）`[--hours 20]` | 5-2 の保険の cron。メタデータの `written-at` と `writer` だけで決め、日次が20時間以内に書いていれば `due=false`、値が無い・読めない・日次でない・未来なら `due=true` | 0 |
@@ -452,7 +462,7 @@ docs/ai-ops.md「2. 全体の流れ」の右の列（GitHub Actions）。ロー�
 | どこ | 何を |
 | --- | --- |
 | `src/resolve/resolve.ts` の対象の選び方（`ORDER BY e.id`） | 済（2026-11-08）。未処理の枠を先・照会エラーの枠を後に（`ORDER BY (u.reason = 'error'), e.id`）。`--limit` がエラーの枠で埋まらないように（Fable の中-6） |
-| `src/report/ai.ts` の `aiApply` | (1) `problems` を「枠が無い」「形が不正」「外部DBで引けない」「属性」「ファイル単位（読めない・batch・model・finished_at が無い）」に分けて返す（6-3。Fable の中-7）。<br>(2) 6-2 の時刻の決まり（取り消されていない判定の `decided_at` が答えの `finished_at` 以上なら飛ばす）。`ai:apply`（ローカルの直し）でも同じ決まりにするかは ai-ops の側と決める。<br>(3) ファイルを名前の順に入れる（今も sort している。`fix-` の決まりを関数の説明に書く） |
+| `src/report/ai.ts` の `aiApply` | 済（2026-11-13。塊 C）。(1) `problems` を種類（file・no_event・invalid・lookup・enrich）で返す。(2) 6-2 の時刻の決まりを瞬間で比べる（`answerFreshness`）。ローカルの `ai:apply` も同じ（D-09）。(3) 名前の順・`fix-` の決まりを関数の説明に書いた |
 | `src/lib/quota.ts`・`src/lib/config.ts`・`config/crawl.yaml` | 済（2026-11-08）。`quota.ai_reserve: 600`（7）。job が hourly・daily のときは `stop_at − ai_reserve` で止める |
 | `src/lib/http.ts` の HttpError | 済（2026-11-08）。URL のクエリの値とフラグメントを伏せ、名前だけ残す（runStep が runs とログに出すため）。パスは伏せない（日次で呼ぶ照会先のパスに照会の語は入らない。Wikipedia・Wikidata は POST の本文） |
 | `src/resolve/ai.ts` の冒頭のコメント | 「定期実行のジョブからは入れない」→「判定は人が起動した回でだけ作り、ジョブは答えのファイルを取り込むだけ」（docs/ai-ops.md の 1。2026-10-26 決定） |

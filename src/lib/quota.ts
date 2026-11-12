@@ -30,7 +30,9 @@ export class Quota {
   private readonly cfg: CrawlConfig["quota"];
   private readonly runId: string;
   private readonly job: string;
-  private readonly runLimit: number;
+  private runLimit: number;
+  /** reserve が上限で止めたことがある（この回で以降の呼び出しも止まる） */
+  exhausted = false;
   /** 1日の使用量がこれに達したら止める。定期実行のジョブは stop_at から AI の判定の取り分を引いた値 */
   private readonly stopAt: number;
 
@@ -57,14 +59,24 @@ export class Quota {
     return Math.max(0, Math.min(this.stopAt - this.usedToday(), this.runLimit - this.usedThisRun));
   }
 
+  /**
+   * この回の上限を下げる（ローカルの ai:queue が、AI の判定の取り分の残り（data/ai/quota.json）で止めるため。docs/ai-ops.md の 5）。
+   * 上げることはしない
+   */
+  limitRun(units: number): void {
+    this.runLimit = Math.max(0, Math.min(this.runLimit, units));
+  }
+
   /** 呼び出し前に確認する。足りなければ QuotaExhausted を投げる */
   reserve(endpoint: string): void {
     const cost = QUOTA_COST[endpoint] ?? 1;
     if (this.usedThisRun + cost > this.runLimit) {
+      this.exhausted = true;
       throw new QuotaExhausted(`per-run limit ${this.runLimit} reached (job=${this.job})`);
     }
     const today = this.usedToday();
     if (today + cost > this.stopAt) {
+      this.exhausted = true;
       const why = this.stopAt === this.cfg.stop_at ? "" : ` = stop_at ${this.cfg.stop_at} - ai_reserve ${this.cfg.ai_reserve}`;
       throw new QuotaExhausted(`daily stop ${this.stopAt}${why} reached (used today=${today}, job=${this.job})`);
     }

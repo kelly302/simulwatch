@@ -3,7 +3,7 @@ import { nowIso } from "../lib/time.ts";
 import type { WorkCandidate } from "./types.ts";
 import { upsertWork, getOrCreateEpisode, markUnresolved, markResolved } from "./store.ts";
 
-// AI の判定の反映。判定は人が起動するコマンド（ai:apply）でだけ入る。定期実行のジョブからは入れない。
+// AI の判定の反映。判定（答えのファイル）は人が起動した Claude Code の回でだけ作り、ローカルの ai:apply か、日次のジョブの ai:ingest（受け箱の答えを取り込むだけ）で入る（D-03・docs/ai-ops.md の 1）。
 //
 //   確定: 取り消されていない判定（hold 以外）の枠は、resolve が上書きしない（resolve の対象から外し、最後にこの判定を入れ直す）
 //   hold: AI も決められなかった枠。ルールの結果（未同定）のまま残す。判定済みとして次の ai:queue に出さない

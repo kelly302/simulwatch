@@ -732,6 +732,41 @@ docs/ai-ops.md 6章の2。題名に同時視聴の語が無い候補の動画を
   - 答えの形は試しの yes / no / unsure で、本番の形（not_watchalong と作品を1回で答える。ai-ops.md 3-3）では回していない。GUIDE の「そもそも作品を観ていない枠は not_a_work」と not_watchalong の重なり（D3b）も残る
   - 予定・配信中の候補（videos.list で終わっていない動画）は抜き取りに無かった（110本とも終わった動画か投稿）
 
+## 2026-11-13 AI の答えの取り込み（塊 C。D-03・D-09）の確かめ
+
+作ったもの: aiApply の古い答えの決まり（`answerFreshness`。瞬間で比べ UTC で入れる）と問題の種類分け、`ai:ingest`（`--settle`）・`ai:check`・`ai:pull`・`ai:push`（src/report/inbox.ts。`--remote` でローカルのフォルダか AWS CLI の R2）、
+`ai:queue` のローカルのクォータのファイル・同じシードの2回目・`--max-files`・返す値。テストは test/ai-ingest.test.ts（19件。小さな DB と小さなファイルで 6-3 の各区分・時刻の混在・2回の取り込み・途中で殺した回・ai:check・ai:pull・ai:push・aws のコマンドの組み立て）。
+
+DB の写しでの確かめ（2026-11-13。本体の data/db.sqlite を `VACUUM INTO` で作業ツリーに写したもの。user_version 11・ai_decisions 4,665行・取り消されていない 4,476・decided_at が `+09:00` の行 638）:
+
+1. **過去の答えを全部、受け箱から2回取り込む**。受け箱: ローカルのフォルダに、本体の data/ai の答えのある batch 14（ai-fix-1018・ai-fix-1019・ai-redo-1・ai-run-1〜9・cont-trial-1021・fix-1021）の answers/*.json と直下の fix-*.json、
+   それと塊 D2 の作業ツリーの cand-trial-1104 の answers（候補の答え110件）を置いた（118ファイル）。`ai:ingest --max-batches 20` を2回（`--settle` はしない）。
+   判定の基準（取り込む前に決めた）: 取り消されていない判定の集合（動画・区分・確度・作品のキー・decided_at・batch）と行の数が、取り込む前・1回目のあと・2回目のあとで同じ。
+   結果: 3つとも同じ（取り消されていない 4,476・行 4,665・`+09:00` の行 638 のまま）。入れた 0。batch ごとの区分は、入れ済み 4,310・古い答え 172・枠が無い 191（cand-trial-1104 の 110 と cont-trial-1021 の 81。どちらも候補の答え）・
+   ファイル単位の問題 20 ファイル（finished_at の無い過去の fix-*.json。2026-10 の直しは finished_at を書かずに ai:apply していた）→ その batch は failed。
+2. **入れ済み・古い答えの1件ずつの突き合わせ**（1の1回目の結果の 4,482件）: 入れ済みはその枠の取り消されていない判定の decided_at と答えのファイルの finished_at が同じ瞬間、古い答えは decided_at のほうが新しい瞬間か、を1件ずつ見た。外れ 0。
+   **文字列で比べていたら区分が変わる答えが 6件**あった（例: ZoYMdDgF4JY は判定が 2026-10-18T13:28:59.796Z、ai-run-8 の答えが 2026-10-18T22:02:30+09:00＝13:02:30Z で古い答え。文字列ではあとに見えて、あとの直しを古い答えで上書きしていた）。
+   入れ済みのうち、書き方（Z と +09:00）が違うのに同じ瞬間だったものは 0件（過去の decided_at は答えのファイルの finished_at をそのまま入れていたため）。この形はテストで確かめた
+3. **候補の答えと、判定から外れた枠**: 1 の前に一度、外れた枠（excluded_at）も「枠がある」として流したら、cand-trial-1104 の 4件（IAiJ5pAsG0A・aAngU-Z6D8M・ZQd8IOcUgoc・nvOQTAGiBIw）に判定が入った。
+   4件とも 2026-09-23 に概要欄の語で枠になり、同じ日に外れた枠（excluded_at あり）。docs/workflows.md 6-3 の「枠が無い（判定から外れた・アーカイブが消えた枠など）」に合わせ、外れた枠・アーカイブが消えた枠も「枠が無い」にした（1 はそのあとの写しで流し直した）。
+   **塊 D1 の候補には、外れた枠の動画が入っている**（D3a で候補から枠を作るとき、外れた枠の行がもうある動画をどう扱うかを決める要がある）
+4. **途中で殺した回**: 有効な終わった枠で判定の無いものを video_id の順に 250（作った答え。50件ずつ5 batch・unidentifiable と hold を交互・finished_at は同じ）。
+   写し A で殺さずに1回、写し B で `timeout -s KILL 14` で殺した（終了コード 137。結果の JSON なし・k1 の「始めた」の印だけ・k1 の 50件は書かれていた・runs は running のまま）→ もう一度流した（k1 は2回目で入れ済み 50、k2〜k5 は入れた）。
+   基準: 取り消されていない判定の集合・行の数・その 250枠の unresolved の行（理由・開いているか）が A と B で同じ。結果: 同じ（取り消されていない 4,726・行 4,915）。`--settle` で受け箱から ai/applied/ に移り、ai/results/k1/ に印が2つ（kill1・kill2）
+5. **ai:check・ai:push・ai:pull（ローカルのフォルダ）**: cand-trial-1104 の答えは ai:check で 3ファイルとも通らない（not_watchalong 53件が「status が不正」。D3a まではこの区分を受け付けない）。
+   not_watchalong を除いた写しは 3/3 通り、ai:push で受け箱に3ファイル。finished_at の無い fix-*.json を足すと ai:check は終了コード 1、ai:push は何も置かない。
+   db:pack した写し（gzip 55.2MB）をフォルダの db/ に置き、ai:pull で別の場所に落とした（約3秒。検査は全部通った）。`.pulled.json` の無い data/db.sqlite には置かない（終了コード 1）
+6. **ai:queue のクォータ**: data/ai/quota.json に今日（太平洋時間）597 ユニットを書いておき、`ai:queue --seed c-q-1113 --max-files 1`。使ったのは 3（YouTube のリンク先 1・コメント 2）で止まり、
+   公開の枠のうち 28枠に「コメント欄: 取らなかった」、quota.json は 600。返す値は `{"files":["…/queue/01.md"],"remaining":2,"quotaStopped":true,"units":3,"reused":false}`。
+   同じシードの2回目は前の待ち行列を使い（reused・units 0）、answers/01.json をそろえた3回目は files が空。別のシードで同じ batch の名前は断る
+
+この手順で見つけられない誤り:
+- R2 との実際の往復（AWS CLI のチェックサムの設定・メタデータの付け方・`aws s3 ls` の出力の形・権限）。aws の側は組み立てるコマンドのテストだけ（段6で確かめる）
+- 同じ時刻・違う batch の答え（別の日の batch に同じ finished_at の答え）は「入れ済み」になり、あとの batch の答えが入らない。finished_at を答えを書いた時刻にする約束で起きないとしている
+- ai:revoke で取り消した枠に、受け箱に残った古い答えがまた入る（比べるのは取り消されていない判定だけ。docs/workflows.md 6-2 の決め方のまま）
+- 時計の狂い（PC の時計が進んでいて finished_at が未来）は1時間までは通る。それより先は ai:check と aiApply が弾く
+- 取り込みの所要時間（ランナー・R2 からの取得）。手元では 15 batch・約4,700件の入れ済みの判定で 33秒、50件ずつ5 batch の新しい判定で 32秒
+
 ## ゲート2の決定（2026-09-28。型ごとの検証は audit-1〜3 で済み、振り分けを確定（2026-10-01）。AI の本番の判定はこれから）
 
 **目的はサイトに出る同定の正しさ。** ルールで誤って同定するくらいなら AI の確認に回す。同定できた割合は参考値にする。
