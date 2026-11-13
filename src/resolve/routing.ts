@@ -62,6 +62,9 @@ export interface EventRow {
   thumbnail_url: string | null;
   streamer: string;
   is_members_only: number;
+  /** 配信の長さを判定役に見せるため（actual_start と ended_at があれば実開始〜実終了。published_at は投稿した動画） */
+  started_at_source?: string | null;
+  ended_at?: string | null;
 }
 
 export interface Routed {
@@ -76,7 +79,7 @@ export interface Routed {
 export async function collectRoutes(ctx: Ctx, cfg: ExtractConfig): Promise<{ routed: Routed[]; unknownFrom: number }> {
   const db = ctx.db;
   const cutoff = farFutureCutoff(ctx.crawlCfg.upcoming.max_days_ahead);
-  const events = db.prepare(`SELECT e.id, e.video_id, e.title_raw, e.description_raw, e.started_at, e.streamer_id, e.thumbnail_url, e.is_members_only, s.name AS streamer
+  const events = db.prepare(`SELECT e.id, e.video_id, e.title_raw, e.description_raw, e.started_at, e.streamer_id, e.thumbnail_url, e.is_members_only, e.started_at_source, e.ended_at, s.name AS streamer
     FROM watch_events e JOIN streamers s ON s.id = e.streamer_id WHERE ${activeEventSql("e")} ORDER BY e.id`).all(cutoff) as unknown as EventRow[];
   const aiOf = new Map((db.prepare(`SELECT watch_event_id, status FROM ai_decisions WHERE revoked_at IS NULL AND status != 'hold'`).all() as
     { watch_event_id: number; status: RouteFacts["ai"] }[]).map((r) => [r.watch_event_id, r.status]));

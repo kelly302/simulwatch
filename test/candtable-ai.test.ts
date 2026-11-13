@@ -309,3 +309,30 @@ test("ai:queue: 弱い語だけの候補（種の枠が無い）は「候補に�
   assert.match(guide, /## 続きの回の候補/);
   assert.match(guide, /- not_watchalong: 同時視聴ではない。\*\*候補の動画だけ\*\*/);
 });
+
+test("ai:queue: 待ち行列に「メン限」と「配信の長さ」の行を出す（候補・枠とも）", async () => {
+  const blind = await import("../src/report/blind.ts");
+  // 長さの書き方
+  assert.equal(blind.streamLength({ started_at: "2026-10-01T12:00:00Z", started_at_source: "actual_start", ended_at: "2026-10-01T14:05:30Z" }), "2時間6分（実開始〜実終了）");
+  assert.equal(blind.streamLength({ started_at: "2026-10-01T12:00:00Z", started_at_source: "published_at", ended_at: null }), "ライブ配信ではない（投稿した動画）");
+  assert.equal(blind.streamLength({ started_at: "2026-10-01T12:00:00Z", started_at_source: "actual_start", ended_at: null }), "分からない");
+  assert.equal(blind.streamLength({ started_at: "2026-10-01T12:00:00Z" }), "分からない");
+  // 候補（c6 はメン限・2時間5分）
+  const ctx = setup();
+  ctx.db.prepare(`UPDATE candidates SET ended_at = '2026-10-07T14:05:00Z' WHERE video_id = 'c6'`).run();
+  ctx.db.prepare(`UPDATE candidates SET started_at_source = 'published_at', ended_at = NULL WHERE video_id = 'c2'`).run();
+  await ai.aiQueueRoutes(ctx, cfg, { batch: "cq-len", seed: "s", candidatesOnly: true, videos: ["c6", "c2"] });
+  const md = readFileSync(join(DATA, "ai", "cq-len", "queue", "01.md"), "utf8");
+  assert.match(md, /## \d+\. c6[^\n]*\n- タイトル: ARCANE 最終回\n- メン限: はい\n- 配信の長さ: 2時間5分（実開始〜実終了）\n/);
+  assert.match(md, /## \d+\. c2[^\n]*\n- タイトル: [^\n]*\n- メン限: いいえ\n- 配信の長さ: ライブ配信ではない（投稿した動画）\n/);
+  const guide = readFileSync(join(DATA, "ai", "cq-len", "GUIDE.md"), "utf8");
+  assert.match(guide, /- 配信の長さ・メン限:/);
+  assert.match(guide, /\*\*長さだけで作品・期・話数を決めない\*\*/);
+  assert.match(guide, /\*\*長さだけでは同時視聴にしない\*\*/);
+  // 枠（ルールの答えのある行）も同じ行を出す
+  const dir = join(DATA, "ai", "cq-len-frame");
+  const ev = { id: 2, video_id: "r1", title_raw: "【同時視聴】映画A", description_raw: null, started_at: "2026-10-05T12:00:00Z", streamer_id: 1,
+    thumbnail_url: null, streamer: "テスト配信者", is_members_only: 0, started_at_source: "actual_start", ended_at: "2026-10-05T13:59:00Z" };
+  await blind.writeBlindQueue(ctx, dir, { batch: "cq-len-frame", seed: "s", rows: [{ ev, rule: { video_id: "r1" } as never }], sealedNote: "t" });
+  assert.match(readFileSync(join(dir, "queue", "01.md"), "utf8"), /- タイトル: 【同時視聴】映画A\n- メン限: いいえ\n- 配信の長さ: 1時間59分（実開始〜実終了）\n/);
+});

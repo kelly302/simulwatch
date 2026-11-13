@@ -118,8 +118,9 @@ export const GUIDE = `# 答え方（候補を見ない AI の判定）
   - 題名の作品名と回の番号（「〇〇 第N話から」「〇〇 S2 EP3-4」など）・観ていることが分かる語（「観ようよ」「みてる」など）
   - 同じ配信者の同時視聴枠との並び: 同じ見出しの形・同じ作品名・話数の続き・日付が近い（「候補にした同時視聴の枠」「同じ配信者の同じ作品名の枠」「前後の枠」。候補は日付の位置に「← この枠」で入る）
   - 概要欄（配信サービスのリンク・「〇〇を観ます」など）・サムネイル（作品の画面やロゴか、ゲーム・雑談の画面か）・コメント欄
+  - 配信の長さ（下の「配信の長さ・メン限」）: 同じ配信者の同時視聴枠と同じくらいの長さか、何時間ものゲーム・雑談の長さか。**長さだけでは同時視聴にしない**
   - 注意: メン限の番組名・見出し（チャンネルごとのメン限の配信の決まった題）は雑談の回にも使われる。作品と同じ名前のゲームの配信も多い。
-    見出しや作品名が同時視聴枠と同じというだけでは同時視聴にしない。観ていることが題名・概要欄・サムネイル・コメント欄で分かるときだけ同時視聴にする
+    見出しや作品名が同時視聴枠と同じというだけでは同時視聴にしない。観ていることが題名・概要欄・サムネイル・コメント欄で分かるときだけ同時視聴にする（長さは裏付けに使う）
 - 候補でない枠（「候補」の行が無い枠）には not_watchalong を使わない（受け付けない。下の not_a_work の「そもそも作品を観ていない枠」）
 
 ## status
@@ -148,6 +149,10 @@ export const GUIDE = `# 答え方（候補を見ない AI の判定）
 
 ## リンク先の題名・YouTube のリンク先・コメント欄・同じ配信者のほかの枠と動画
 
+- 配信の長さ・メン限: 「配信の長さ」は実際に配信を始めてから終えるまで（「ライブ配信ではない」は投稿した動画、「分からない」は取れていない）。「メン限: はい」はメンバー限定の配信（コメント欄は無い）。
+  映画は2時間前後、テレビアニメは1話25分前後×話数で、前後に準備・感想の時間が入る。観た話数の数・映画か連続ものかの裏付けに使ってよい
+  （題名に話数が無い連続ものの回で、長さから観た話数のおおよそが分かる、など）。**長さだけで作品・期・話数を決めない**（休憩・雑談・途中で止めることがある）。
+  長さを手がかりにしたら evidence.looked に length を入れる
 - リンク先の題名: 概要欄のリンク先（Amazon Prime Video・Netflix・ABEMA・Hulu・映画.com など）のページの題名。作品を決める強い手がかり。
   「(吹替版)」「(字幕版)」は作品の違いではない。題名の取れないサイト（Disney+・U-NEXT など）のリンクは開けない
 - YouTube のリンク先: 概要欄の YouTube の動画・再生リストの題名・チャンネル名・公開日（再生リストは作った日）。概要欄に同じ URL の行があれば、前後の行でそのリンクが何か確かめる
@@ -233,7 +238,7 @@ export const GUIDE = `# 答え方（候補を見ない AI の判定）
 - not_watchalong のときは works と title を書かない（"works": [] は書いてよい）。evidence.looked と rationale は必須（同時視聴でないと読んだ手がかり）
 - confidence: high / medium / low（hold は low）
 - evidence.looked: 見たもの（title / description / thumbnail / lookup / link（リンク先の題名）/ youtube（YouTube のリンク先）/ comments（コメント欄）/ same_streamer（同じ配信者のほかの枠）/
-  other_videos（同時視聴枠でない動画）/ seeds（候補にした同時視聴の枠））。not_a_work と not_in_db は lookup と queries が必須（not_watchalong は要らない）
+  other_videos（同時視聴枠でない動画）/ seeds（候補にした同時視聴の枠）/ length（配信の長さ））。not_a_work と not_in_db は lookup と queries が必須（not_watchalong は要らない）
 `;
 
 
@@ -243,6 +248,10 @@ export interface BlindItem {
   streamer: string;
   started_at: string;
   title: string;
+  /** メン限の配信か（枠は is_members_only。候補は videos_seen の印も） */
+  members: boolean;
+  /** 配信の長さ（streamLength） */
+  length: string;
   description_lines: string[];
   thumbnail: string | null;
   /** 同じ配信者の同じ作品名の枠（日付順。self がこの枠）・前後の枠（src/report/neighbors.ts） */
@@ -286,6 +295,15 @@ export function formatYouTube(y: YouTubeLink): string {
 function withPseudoFrame(frames: Frame[], f: Frame): Frame[] {
   const i = frames.findIndex((x) => x.date !== "?" && x.date > f.date);
   return i < 0 ? [...frames, f] : [...frames.slice(0, i), f, ...frames.slice(i)];
+}
+
+/** 配信の長さを待ち行列の書き方にする（実開始〜実終了。投稿した動画・取れていないものはそう書く） */
+export function streamLength(ev: { started_at: string | null; started_at_source?: string | null; ended_at?: string | null }): string {
+  if (ev.started_at_source === "published_at") return "ライブ配信ではない（投稿した動画）";
+  if (ev.started_at_source !== "actual_start" || !ev.started_at || !ev.ended_at) return "分からない";
+  const min = Math.round((Date.parse(ev.ended_at) - Date.parse(ev.started_at)) / 60_000);
+  if (!Number.isFinite(min) || min < 0) return "分からない";
+  return `${Math.floor(min / 60)}時間${min % 60}分（実開始〜実終了）`;
 }
 
 function jst(t: string | null): string {
@@ -339,6 +357,7 @@ export async function writeBlindQueue(
     if (!ytInfo && (ytRefs.get(vid) ?? []).length && ctx.quota.exhausted) skipped.push("youtube");
     items.push({
       no: ++i, video_id: vid, streamer: r.ev.streamer, started_at: jst(r.ev.started_at), title: r.ev.title_raw,
+      members: !!r.ev.is_members_only, length: streamLength(r.ev),
       description_lines: lines, thumbnail: thumb ? relative(dir, thumb).replaceAll("\\", "/") : null,
       same_name: fc.sameName.map(({ date, title, self }) => ({ date, title, ...(self ? { self } : {}) })),
       around: fc.around.map(({ date, title }) => ({ date, title })),
@@ -381,6 +400,8 @@ export async function writeBlindQueue(
       ...part.flatMap((x) => [
         `## ${x.no}. ${x.video_id}　${x.streamer}　${x.started_at}`,
         `- タイトル: ${x.title}`,
+        `- メン限: ${x.members ? "はい" : "いいえ"}`,
+        `- 配信の長さ: ${x.length}`,
         ...(x.candidate ? [
           "- 候補: 題名に同時視聴の語が無い動画。まず同時視聴の枠かどうかを判断する（同時視聴でなければ status は not_watchalong）",
           `- 候補にした同時視聴の枠: ${x.candidate.seeds.map((f) => `${f.date} ${f.title}`).join(" ／ ") || "なし"}`,
