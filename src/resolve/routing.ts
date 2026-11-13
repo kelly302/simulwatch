@@ -141,7 +141,8 @@ export async function collectRoutes(ctx: Ctx, cfg: ExtractConfig): Promise<{ rou
     try {
       wdHits.set(t, (await wp.searchEntities(t)).map((h) => h.id));
     } catch (e) {
-      log.warn(`Wikidata の検索に失敗（ほかの作品名の確認を飛ばす）: ${t}: ${String(e).slice(0, 120)}`);
+      // 区間の文は出さない（概要欄から切り出した区間もあり、公開リポジトリの Actions のログは誰でも見られる。docs/workflows.md 2-9）
+      log.warn(`Wikidata の検索に失敗（ほかの作品名の確認を飛ばす）: ${String(e).slice(0, 120)}`);
     }
     if (++n % 200 === 0) log.info(`  Wikidata のラベル検索 ${n}/${texts.length}`);
   }

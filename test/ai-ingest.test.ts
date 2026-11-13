@@ -533,6 +533,31 @@ test("AwsRemote: 組み立てる aws のコマンド。鍵は環境変数で渡�
   assert.ok(inbox.openRemote(tmp(), {}, run) instanceof inbox.LocalRemote);
 });
 
+test("R2_PREFIX: R2 でもフォルダでも、すべてのキーの先頭に付ける（試しの置き場所）", async () => {
+  const calls: string[][] = [];
+  const run = (args: string[]) => { calls.push(args); return { code: 0, stdout: JSON.stringify({ Metadata: { sha256: "ab" } }), stderr: "" }; };
+  const env = { R2_ACCESS_KEY_ID: "AKID", R2_SECRET_ACCESS_KEY: "SECRET", CLOUDFLARE_ACCOUNT_ID: "acct", R2_BUCKET: "bkt", R2_PREFIX: "test/" };
+  const r = inbox.openRemote("r2", env, run);
+  assert.match(r.name, /test\//);
+  await r.list("ai/inbox/");
+  assert.equal(calls.at(-1)![2], "s3://bkt/test/ai/inbox/");
+  await r.move("ai/inbox/b/01.json", "ai/applied/b/01.json");
+  assert.deepEqual(calls.at(-1)!.slice(2, 4), ["s3://bkt/test/ai/inbox/b/01.json", "s3://bkt/test/ai/applied/b/01.json"]);
+  await r.head("db/db.sqlite.gz");
+  assert.equal(calls.at(-1)![5], "test/db/db.sqlite.gz");
+  // 空なら付けない
+  assert.ok(inbox.openRemote(tmp(), { R2_PREFIX: "" }) instanceof inbox.LocalRemote);
+  // 不正な値は使わない（/ で終わらない・.. ・大文字）
+  for (const bad of ["test", "../x/", "Test/", "/test/"]) assert.throws(() => inbox.openRemote(tmp(), { R2_PREFIX: bad }), /R2_PREFIX が不正/);
+
+  // フォルダでも同じ置き場所になる（ワークフローのシェルの R2_LOCAL_DIR と同じ並び）
+  const root = tmp();
+  const lr = inbox.openRemote(root, { R2_PREFIX: "test/" });
+  await lr.putText("ai/inbox/b/01.json", "{}");
+  assert.ok(existsSync(join(root, "test", "ai", "inbox", "b", "01.json")));
+  assert.deepEqual(await lr.list("ai/inbox/"), { dirs: ["b"], files: [] });
+});
+
 test("parseS3Ls: PRE と日付つきの行", () => {
   assert.deepEqual(inbox.parseS3Ls("                           PRE b2/\r\n                           PRE b1/\r\n2026-11-09 05:00:00          0 a b.json\r\n"),
     { dirs: ["b1", "b2"], files: ["a b.json"] });

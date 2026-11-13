@@ -190,17 +190,44 @@ export function parseS3Ls(out: string): { dirs: string[]; files: string[] } {
   return { dirs: dirs.sort(), files: files.sort() };
 }
 
+/** 先頭に付ける置き場所（R2_PREFIX。例 `test/`）。英小文字・数字・`_ -` の名前を `/` で区切り、`/` で終わる */
+export const PREFIX_RE = /^([a-z0-9_-]+\/)+$/;
+
+/**
+ * すべてのキーの先頭に prefix を付ける層（試しの置き場所。docs/workflows.md 1 の「試しの置き場所」）。
+ * 本物の DB を置く前に、写しで日次を1周するときに使う（ワークフローのシェルも同じ R2_PREFIX を付ける）
+ */
+export class PrefixedRemote implements Remote {
+  readonly name: string;
+  private readonly inner: Remote;
+  private readonly prefix: string;
+  constructor(inner: Remote, prefix: string) {
+    if (!PREFIX_RE.test(prefix)) throw new Error(`R2_PREFIX が不正: ${prefix}（英小文字・数字・_ - の名前を / で区切り、/ で終わる。例 test/）`);
+    this.inner = inner;
+    this.prefix = prefix;
+    this.name = `${inner.name} の ${prefix}`;
+  }
+  list(prefix: string) { return this.inner.list(this.prefix + prefix); }
+  get(key: string, dest: string) { return this.inner.get(this.prefix + key, dest); }
+  put(src: string, key: string) { return this.inner.put(src, this.prefix + key); }
+  putText(key: string, text: string) { return this.inner.putText(this.prefix + key, text); }
+  move(fromKey: string, toKey: string) { return this.inner.move(this.prefix + fromKey, this.prefix + toKey); }
+  head(key: string) { return this.inner.head(this.prefix + key); }
+}
+
 /**
  * --remote の値から層を選ぶ。`r2`（既定）は AWS CLI で R2（.env か Actions の Secrets・Variables の
- * R2_ACCESS_KEY_ID・R2_SECRET_ACCESS_KEY・CLOUDFLARE_ACCOUNT_ID・R2_BUCKET）。それ以外はローカルのフォルダ
+ * R2_ACCESS_KEY_ID・R2_SECRET_ACCESS_KEY・CLOUDFLARE_ACCOUNT_ID・R2_BUCKET）。それ以外はローカルのフォルダ。
+ * R2_PREFIX（例 `test/`）があれば、R2 でもフォルダでもすべてのキーの先頭に付ける（空なら付けない）
  */
 export function openRemote(spec: string | undefined, env: NodeJS.ProcessEnv = process.env, run?: AwsRunner): Remote {
   const s = spec ?? "r2";
-  if (s !== "r2") return new LocalRemote(s);
+  const withPrefix = (r: Remote): Remote => (env.R2_PREFIX ? new PrefixedRemote(r, env.R2_PREFIX) : r);
+  if (s !== "r2") return withPrefix(new LocalRemote(s));
   const names = ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_ACCOUNT_ID", "R2_BUCKET"] as const;
   const lack = names.filter((n) => !env[n]);
   if (lack.length) throw new Error(`R2 の設定が無い: ${lack.join("・")}（.env に書く。.env.example。R2 を設定する前はローカルのフォルダを --remote に渡す）`);
-  return new AwsRemote({ bucket: env.R2_BUCKET!, accountId: env.CLOUDFLARE_ACCOUNT_ID!, accessKeyId: env.R2_ACCESS_KEY_ID!, secretAccessKey: env.R2_SECRET_ACCESS_KEY!, ...(run ? { run } : {}) });
+  return withPrefix(new AwsRemote({ bucket: env.R2_BUCKET!, accountId: env.CLOUDFLARE_ACCOUNT_ID!, accessKeyId: env.R2_ACCESS_KEY_ID!, secretAccessKey: env.R2_SECRET_ACCESS_KEY!, ...(run ? { run } : {}) }));
 }
 
 // ─── ai:ingest（ジョブの側。docs/workflows.md 6） ───

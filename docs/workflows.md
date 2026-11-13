@@ -1,6 +1,7 @@
 # GitHub Actions のワークフロー（Phase 4 の仕様の下書き）
 
-2026-10-23 の下書き。2026-10-27 に**日次だけ**に作り直し、Fable のレビューの指摘を直した。**まだ実装していない**（`.github/workflows/` は無い）。決めることは末尾の「11. 決めること」。
+2026-10-23 の下書き。2026-10-27 に**日次だけ**に作り直し、Fable のレビューの指摘を直した。**2026-11-13 に実装した**（塊 F。`.github/workflows/` の3本・`scripts/ci/`・`wrangler.jsonc`。ファイルとローカルで通す方法は 13）。
+GitHub での起動・R2 との往復・Workers へのアップロードはまだ（リポジトリと Secrets の用意と push のあと。段6）。決めることは末尾の「11. 決めること」。
 
 - 出発点は docs/deploy.md の「2. Claude が作るもの」と「守ること」。公開の基盤は docs/deploy.md 6章の決定（2026-10-26: **Workers の静的アセット**・独自ドメインなし・生レスポンス30日・R2 を使う）に合わせた
 - AI の判定の答えの作り方（ローカルの側）は docs/ai-ops.md。**ジョブが取り込む側の約束事は、この文書の 6 が正**（別のファイルには置かない）
@@ -19,7 +20,7 @@
 
 ### ワークフローは3本
 
-| ワークフロー | ファイル（案） | 起動 | 中身 | DB を書くか |
+| ワークフロー | ファイル | 起動 | 中身 | DB を書くか |
 | --- | --- | --- | --- | --- |
 | 日次 | `daily.yml` | schedule（1日1回）＋保険の cron（5-2）＋ボタン | DB を取得 → `roster` → `crawl:daily` → `refresh` → 候補 → AI の答えの取り込み → `resolve` → `site:data` → DB を書き戻す → ビルド → アップロード | 書く |
 | 手動（publish） | `publish.yml` | `workflow_dispatch` | DB を取得 →（入力しだいで `resolve --all`）→ `site:data` → DB を書き戻す → ビルド → アップロード（本番かプレビュー） | 書く（下の注意） |
@@ -42,6 +43,9 @@
 | `site/last-deploy.json` | 最後に本番へアップロードした中身の指紋・コミット・時刻（→ 2-6） | 日次・手動 | 上書き |
 
 og:image のキャッシュは R2 ではなく Actions のキャッシュに置く（→ 2-5）。
+
+**試しの置き場所**（2026-11-13。塊 F）: Variable の `R2_PREFIX`（例 `test/`）があれば、上のすべてのキーの先頭に付ける（`test/db/db.sqlite.gz` など。ワークフローのシェルも CLI の `--remote` の層も同じ）。
+本物の DB を置く前に、写しをここに置いて日次を1周する（13）。`R2_PREFIX` がある回は**本番にアップロードしない**（日次・手動の最初のステップ `start` が、target が production なら赤で止める。schedule の回も止まる）。試しが済んだら Variable を消し、バケットの `test/` も消す
 
 ## 2. 共通の部品
 
@@ -67,7 +71,9 @@ og:image のキャッシュは R2 ではなく Actions のキャッシュに置�
 
 - 接続先は `https://<CLOUDFLARE_ACCOUNT_ID>.r2.cloudflarestorage.com`、リージョンは `auto`（R2 の文書の AWS CLI の例。2026-10-27 に読んだ）
 - **確かめること**: 新しい AWS CLI が既定で付けるチェックサムが R2 と合わないことがあると言われる（`AWS_REQUEST_CHECKSUM_CALCULATION=when_required`・`AWS_RESPONSE_CHECKSUM_VALIDATION=when_required`）。
-  R2 の文書の AWS CLI の例には書かれていない（2026-10-27）。実装のときに1回出し入れして確かめ、要れば付ける
+  R2 の文書の AWS CLI の例には書かれていない（2026-10-27。2026-11-13 に読み直しても書かれていない）。**ワークフローでは付けた**（2026-11-13。daily.yml・publish.yml の env。
+  2025 年より前の AWS CLI の既定の動きなので、付けて困ることは無い見込み）。段6 の往復で、外しても通るかを確かめる（外せるなら外す）。ローカルの `.env` には付けていない
+- **AWS CLI の版**: ランナーに入っている版は画像の更新で変わるので、`scripts/ci/install-aws.sh` で 2.39.1（2026-10-28 のタグ）を入れる（`AWS_CLI_VERSION`。awscli.amazonaws.com から HTTPS で落とす。署名（PGP）の照合はしていない）
 - **ローカルの道具**（2026-10-30 ユーザー決定。詳細は docs/ai-ops.md の 2-1）:
   - ローカルにも AWS CLI を入れる（`winget install Amazon.AWSCLI`）。S3 の SDK は依存に足さない（ジョブとローカルで道具がそろう）
   - `ai:pull`・`ai:push` は CLI のコマンドにし、中から `aws` を子プロセスで呼ぶ。ローカルは一覧を使わない。**`ai:push` が書くのは `ai/inbox/` だけ**（DB・`ai/applied/`・`ai/failed/`・`ai/results/` はジョブだけが書く）
@@ -183,8 +189,11 @@ S3 互換の PUT は1回で中身とメタデータを一緒に置き換える�
 
 - `wrangler versions upload` は版を作って版の URL を返すだけで、本番は変えない（Cloudflare の文書の Previews。2026-10-27 に読んだ）。`--preview-alias` で読みやすい固定の URL になる。
   版の URL は workers.dev でだけ出る（独自ドメインは使わないので問題ない）。URL を知っていれば誰でも見られる（docs/deploy.md 4）
-- 版の固定: wrangler-action は 2026-10-27 の時点で v4.1.3 が最新（v4.1.0・v4.1.1 は壊れていると公式のリリースの欄に書かれている）。
-  `cloudflare/wrangler-action@v4.1.3`（できればコミットの SHA）と、入力 `wranglerVersion` に 4.34.0 以上（20,000ファイルを使うため）で2週間以上前の版を書く。実装のときにもう一度確かめる
+- 版の固定（2026-11-13 実装。どれも公開から2週間以上たった版をコミットの SHA で）: `cloudflare/wrangler-action@953926a…`（v4.1.3。2026-09-24。最新のまま）・入力 `wranglerVersion: "4.155.0"`（2026-10-28。4.34.0 以上が要る）、
+  `actions/checkout@3d3c42e…`（v7.0.1）・`actions/setup-node@949feb2…`（v7.1.0）・`actions/cache/restore`・`save@55cc834…`（v6.1.0）、ランナーは `ubuntu-24.04`
+- wrangler-action v4.1.3 の README には、PR ごとの「Workers Previews」（`wrangler preview`。wrangler 4.136.3 以上）も書かれている。こちらは採らず、決めたとおり `versions upload --preview-alias preview` にした（版の URL は本番と同じ設定で動く）
+- プレビューの URL は wrangler-action の出力 `deployment-url` を step summary に書く（`versions upload` で出るかは未確認。出なければログの「Version Preview URL」を見る）。
+  **Worker がまだ無いときに `versions upload` が通るかは文書に書かれていない**（未確認）。最初のプレビューで失敗したら、ユーザーに聞いてから本番の `deploy` で Worker を作る（13）
 - API トークンの権限（Workers のスクリプトの編集）で足りるかは docs/deploy.md 1-B-6 のとおり未確認
 
 ### 2-9. 結果の書き出し
@@ -230,6 +239,9 @@ CLI のステップにはステップごとの `timeout-minutes` を付け、**�
 - **`resolve` の対象の並び**（Fable の中-6。2026-11-08 実装）: 前は `ORDER BY e.id` で、照会エラーの枠（古い枠ほど id が小さい）が先頭に固まり、照会先が落ち続けると `--limit` の枠がエラーの枠で埋まって新しい枠が進まなかった。
   未処理の枠を先・照会エラーの枠を後にした（`ORDER BY (u.reason = 'error'), e.id`。すべての mode で同じ並び）
 - 6 の候補は docs/ai-ops.md の 3-1（選び方。API なし）と 3-2（videos.list）。終わった動画だけを判定に回すので、配信中の候補は次の日にもう一度見る
+- **実装**（2026-11-13）: 表の 1 の前に `start`（入力の組み合わせの確かめ・この回の始まりの時刻）と `due`（保険の cron の回だけ 5-2 の判定。ほかは due=true）を置いた。2 以降は due=true のときだけ動く。
+  手で起動するときの入力は `target`（production / preview）と `crawl`（false で 3〜6 を飛ばす。YouTube を呼ばずに1周する試し）。保険の判定はジョブの中（concurrency の中）でするので、日次が動いている間に来た保険の回は待ってから判定する
+- 11（settle）は 10 が成功したときだけ、12（生レスポンス）は 2 が通っていれば必ず、13 からあとは 10 が赤なら動かない（GitHub の既定の success()）。og のキャッシュの保存は、ビルドした回なら失敗しても動く
 
 ### 3-2. 手動（ビルドとアップロード）
 
@@ -257,6 +269,8 @@ CLI のステップにはステップごとの `timeout-minutes` を付け、**�
 - GITHUB_TOKEN で push したコミットはワークフローを起動しない
 - 作者は `github-actions[bot]` の noreply のアドレス。個人のメールアドレスは出ない（docs/deploy.md 6-6 の noreply への書き換えとは別）
 - **ローカルの main が遅れる**。ローカルで push する前に `git pull --rebase` が要る。ファイル1つしか触らないので衝突はしない
+- **keepalive は `SCHEDULE_ENABLED` を見ない**（2026-11-13 実装）。公開の前でも、既定のブランチに置いた時点から毎月3日に動き、リモートの main が進む。公開の前も後も、ローカルから push する前に pull する
+- 同じ日に手で2回押しても、ファイルが変わらなければコミットしない
 - それでも止まったら docs/crawl.md「schedule の60日自動停止への対策」の次の手（Cloudflare Workers の Cron から workflow_dispatch で起動する）
 
 ## 4. 失敗のときの動き（まとめ）
@@ -402,7 +416,12 @@ docs/ai-ops.md「2. 全体の流れ」の右の列（GitHub Actions）。ロー�
   `Quota.remaining()`・`reserve()` でジョブ（job が hourly・daily）のときだけ引く（→ 9）。ローカルの `ai:queue` の「取り分を超えたら止める」は docs/ai-ops.md の 5 の側で作る
 - 遡りが 3,000 を使う日でも 800 + 3,000 = 3,800 で、8,400 に届かない。2時間ごとをやめて空いたぶん（約 600/日）は、付録の「戻すとき」に使えるよう残す
 - **APIキーは1つのまま**（ローカルの AI の判定も同じキー）。クォータを増やすためにプロジェクトを分けてキーを増やすのは、YouTube の API の規約で禁じられていると理解している（「クォータの制限を逃れるために複数のプロジェクトを作らない」）。
-  **実装の前に規約の文面を読み直す**
+  **実装の前に規約の文面を読み直す** → 2026-11-13 に読み直した（Developer Policies と Terms of Service。公式のページ）。
+  - Developer Policies III.D.1.c は「1つの API Client に API Project を1つ」「1つの Project を複数の API Client に使わない」。API Client は「あなたが作った Web サイトかアプリ」なので、
+    このサイトの日次のジョブとローカルの `ai:queue` は同じ API Client（同じ Project・同じキー）と読める。Developer Policies の手引き（Complying with YouTube's Developer Policies）は、
+    同じサービス・同じ用途で枠を増やすために Project を増やすことを禁じ、用途ごと・試しと本番で分けるのは認めている。「キーは1つのまま」はこれに合う
+  - Terms of Service の 15（Usage and Quotas）は、クォータの制限を超えたり逃れたりしないこと。1日の使用量は 2-9 の結果に出す
+  - 保存の期間（III.E.4.c・d）と再生数の更新（III.E.4.e・f）・集計（III.E.2）・派生の指標（III.E.4.h）・広告（III.G.1）は、このジョブより広い話なので塊 F の報告に書いた（docs/ では直していない）
 - 1日の使用量は 2-9 の結果に毎回出す（`today_units`）
 
 ## 8. Secrets と Variables の名前
@@ -418,6 +437,7 @@ docs/ai-ops.md「2. 全体の流れ」の右の列（GitHub Actions）。ロー�
 | `R2_BUCKET` | Variable | バケット名（例 `simulwatch-data`） | 同上 |
 | `SITE_URL` | Variable | サイトの URL（`https://<Worker名>.<サブドメイン>.workers.dev`。astro.config.mjs が `SITE_URL` を読む。config/site.yaml の仮の URL より優先） | 同上 |
 | `SCHEDULE_ENABLED` | Variable | `true` で schedule の回を動かす（5-2） | 日次 |
+| `R2_PREFIX` | Variable | 試しの置き場所（例 `test/`）。あれば R2 のすべてのキーの先頭に付け、本番にはアップロードしない（1・13）。ふだんは**作らない** | 日次・手動 |
 
 - 上の6つは docs/deploy.md の 1-C と同じ名前。Worker 名は Variables に置かず、リポジトリの `wrangler.jsonc` の `name` に書く（docs/deploy.md 3）
 - Variables は秘密ではない値なので Secrets に入れない（ログで伏せ字にならず、見て確かめやすい）
@@ -469,7 +489,7 @@ docs/ai-ops.md「2. 全体の流れ」の右の列（GitHub Actions）。ロー�
 | `src/lib/http.ts` の HttpError | 済（2026-11-08）。URL のクエリの値とフラグメントを伏せ、名前だけ残す（runStep が runs とログに出すため）。パスは伏せない（日次で呼ぶ照会先のパスに照会の語は入らない。Wikipedia・Wikidata は POST の本文） |
 | `src/resolve/ai.ts` の冒頭のコメント | 「定期実行のジョブからは入れない」→「判定は人が起動した回でだけ作り、ジョブは答えのファイルを取り込むだけ」（docs/ai-ops.md の 1。2026-10-26 決定） |
 | CLI のログ | 公開リポジトリの Actions のログに概要欄・判定の根拠を出していないか確かめる（2-9） |
-| `wrangler.jsonc`（新しく置く） | `name`・`compatibility_date`・`assets`（directory・`not_found_handling: "404-page"`）（docs/deploy.md 3） |
+| `wrangler.jsonc`（新しく置く） | 済（2026-11-13）。`name`・`compatibility_date`・`workers_dev`・`preview_urls`・`assets`（directory・`not_found_handling: "404-page"`・`html_handling`）（docs/deploy.md 3） |
 | CLAUDE.md | 「確定している前提」の取得方式（2時間ごと → 日次）、「これは何か」の3つめ、「crawl の分担」（今は docs/crawl.md）、「技術スタック」（Pages → Workers・R2 の置き場所と concurrency の組）、「実行方法」（今は docs/dev.md）に新しいコマンド、「フェーズ」。実装と同じコミットで |
 
 ## 10. 所要時間の見積もり
@@ -518,13 +538,82 @@ docs/ai-ops.md「2. 全体の流れ」の右の列（GitHub Actions）。ロー�
 ## 12. この下書きで確かめていないこと
 
 - ランナーでの所要時間（10 はすべて手元の実績からの目安）。とくに `site:build` とアップロードは手元でも測っていない
-- AWS CLI で R2 に出し入れできるか（チェックサムの設定・メタデータの付け方と読み方を含む）
+- AWS CLI で R2 に出し入れできるか（チェックサムの設定・メタデータの付け方と読み方を含む）。2026-11-13 はローカルのフォルダで同じ手順を通しただけ（13-3）
 - wrangler-action の入力（`wranglerVersion`・`command`）と `versions upload --preview-alias` を Actions から動かしたときの出力（版の URL の取り方）。Workers のトークンの最小の権限
 - concurrency の待ちの取り消しの動き（公式の文書の記述だけ）と、ジョブのタイムアウトで殺されたときに `if: always()` のステップが動くか（ステップごとのタイムアウトで避けている）
 - `db:check` の開き方: WAL のモードの DB を読み取り専用で開くと `-shm` を作れない場所では開けないことがある、と理解している（推測）。ランナーの作業フォルダは書けるので、ふつうに開いてマイグレーションだけしない形にする
 - actions/cache の展開が og のキャッシュの更新日時を保つか（2-5）
-- YouTube の API の規約の「複数のプロジェクト」の文面（7）
-- 今の CLI のログに概要欄が出ていないか（2-9。公開リポジトリのログは誰でも見られる）
+- ~~YouTube の API の規約の「複数のプロジェクト」の文面（7）~~ → 2026-11-13 に読み直した（7）
+- 今の CLI のログに概要欄が出ていないか（2-9。公開リポジトリのログは誰でも見られる）→ 2026-11-13 に日次で呼ぶコードのログの出し方を grep で見た。型分け（src/resolve/routing.ts）が Wikidata の照会に失敗したときに区間の文（概要欄から切り出した区間もありうる）を出していたので、出さないようにした。
+  ほかは件数・動画の ID・エラーの文だけだった。照会先のエラーの文そのものに照会の語が入るか（HttpError の URL は伏せてある）は見ていない
+
+## 13. 実装（2026-11-13。塊 F）
+
+### 13-1. ファイル
+
+| ファイル | 中身 |
+| --- | --- |
+| `.github/workflows/daily.yml` | 3-1 の日次。schedule 2本（`23 20 * * *`・保険の `23 2 * * *`）とボタン（入力 `target`・`crawl`） |
+| `.github/workflows/publish.yml` | 3-2 の手動。入力 `target`・`force`・`resolve_all`・`accept_db` |
+| `.github/workflows/keepalive.yml` | 3-3。`.github/keepalive` に日付を書いて push（`contents: write` はこれだけ） |
+| `scripts/ci/job.sh <ステップ>` | ステップの中身。yml の `run` はこれを1ステップ1回呼ぶだけ（ローカルで同じものを通すため）。R2 の出し入れ（AWS CLI か `R2_LOCAL_DIR` のフォルダ）もここ |
+| `scripts/ci/local-daily.sh` | daily.yml と同じ順・同じ「失敗したら」でローカルに通す（アップロードと actions/cache だけはしない）。終了コードはワークフローの色（赤なら 1） |
+| `scripts/ci/install-aws.sh` | AWS CLI 2.39.1 を入れる（2-2） |
+| `wrangler.jsonc` | Workers の静的アセット（docs/deploy.md 3） |
+
+- 秘密の値はステップごとの `env` で、使うステップにだけ渡す（`npm ci` には渡さない）。`actions/checkout` は `persist-credentials: false`
+- job.sh のステップ: `start`（入力の確かめ・始まりの時刻）・`due`（5-2）・`pull`（2-3）・`roster`・`crawl`・`refresh`・`candidates`・`ai-ingest`・`resolve`・`resolve-all`・`site-data`・
+  `push`（2-4。日次はその日（日本時間）の最初なら `db/backup/` へ写してから。置いたメタデータを読み直して sha256 を確かめる）・`settle`・`raw`・`fingerprint`（2-6。`build=true|false`）・
+  `build`・`check-dist`（2-7。dist/404.html が無くても止める）・`last-deploy`・`summary`（2-9）・`seed`（docs/deploy.md 1-D の最初の置き方。ワークフローからは呼ばない）
+- dist/ のファイル数は `find dist -type f`。wrangler の「Read N files from the assets directory」はフォルダも数える（2026-11-13 の dist/ で 5,695 = ファイル 3,815 ＋ フォルダ 1,880）が、
+  上限を見る manifest はファイルだけ（wrangler 4.155.0 のソースで確かめた）
+- ローカル（Actions の外）の job.sh は、R2 の4つ（`R2_ACCESS_KEY_ID` など）が環境に無ければ `.env` から読む。`R2_PREFIX` は `.env` から読まない（試しの置き場所は起動するときに明示する）
+
+### 13-2. 本物の DB を置く前の試し（R2_PREFIX）
+
+    1. ローカルで写しを試しの置き場所に置く:   R2_PREFIX=test/ SEED_DB=<DB の写し> DATA_DIR=data/seed bash scripts/ci/job.sh seed
+    2. GitHub の Variable に R2_PREFIX = test/ を作る
+    3. Actions → daily → Run workflow: target = preview・crawl = false（YouTube を呼ばない。true なら 1日 800 ユニットほど）
+    4. 見るもの: 緑か・step summary・R2 の test/db/db.sqlite.gz のメタデータ（writer = daily）・test/db/backup/・プレビューの URL
+    5. 済んだら Variable の R2_PREFIX を消し、バケットの test/ を消す
+
+`R2_PREFIX` がある回で target が production なら、`start` が赤で止める（本番に試しのデータを上げない）。
+
+### 13-3. ローカルで通した記録（2026-11-13）
+
+- DB: 本体の data/db.sqlite（2026-11-04 02:22 の更新。user_version 11）を `VACUUM INTO` で作業ツリーの data/db.sqlite に写した（本体は読むだけ）。og:image のキャッシュは本体の data/site/og-cache（1,843枚）の写し
+- R2 の代わり: `R2_LOCAL_DIR=data/trial-r2`・`R2_PREFIX=test/`。最初に `seed` で写しを置いた（55.2MB・メタデータ付き。2回目は「もうある」で止まった）
+- 1日目: `local-daily.sh`（`CRAWL=false`。巡回の4ステップは YouTube のクォータを使うので飛ばした）。受け箱に本体の data/ai/ai-run-9/answers/01.json（入れ済みの答え23件）を置いた。
+  名寄せとチェックのステップが「失敗」になったが、**走っている途中に job.sh を書き換えたため**（bash がファイルを途中から読み直した）で、CLI の名寄せは ok。これを受けて job.sh と local-daily.sh を関数に包み、最後の1行で呼ぶ形にした
+- 2日目（1日目が書き戻した DB から。書き換えのあと）: 全ステップ緑。pull（sha256・integrity_check・user_version 12（1日目にマイグレーション 12 が入った）・行数）→ ai-ingest（ai-run-8 の2ファイル。古い答え14・入れ済み49 → applied）→
+  resolve（対象0）→ site:data（5,101枠）→ push（`db/backup/2026-11-13` は「もうある」の分岐・行が減っていない・sha256 の読み直し）→ settle（ai-run-8 を ai/applied/ へ2ファイル）→ fingerprint（1日目と同じデータの指紋）→ build（1,868ページ）→ check-dist（3,815ファイル・_redirects 16行）
+- `npx wrangler@4.155.0 deploy --dry-run` と `versions upload --preview-alias preview --dry-run` が wrangler.jsonc と dist/ で通った（アカウントには触れていない）
+- 失敗をわざと起こした（scripts は作業用のフォルダ。R2 のフォルダは試しごとに data/trial-r2 の写しを使い、置いてある全ファイルの sha256 を前後で比べた）。11項目すべて期待どおり:
+
+  | # | 起こしたこと | 期待 | 結果 |
+  | --- | --- | --- | --- |
+  | T1 | メタデータの sha256 を 0 にした（local-daily で1周） | pull で赤・push と build は動かない・R2 は変わらない | そのとおり（10ファイルの sha256 が同じ） |
+  | T2 | pull のあと ai_decisions を3行消して push | 「行を消さない表の行が減った: ai_decisions」で終了コード 1・out/ に gzip を残さない・R2 は変わらない | そのとおり |
+  | T3 | R2 に DB が無い | pull で赤・空の DB を作らない | そのとおり |
+  | T4 | gzip の1000バイト目を壊した | pull で赤（gzip -t） | そのとおり |
+  | T5 | R2_PREFIX があるのに target = production | start で赤 | そのとおり |
+  | T6 | 保険の判定: 日次が書いたばかり／writer = manual／DB が無い | false／true／true | そのとおり |
+  | T7 | site-data.json が無い | fingerprint で終了コード 1（ビルドしない） | そのとおり |
+  | T8 | 本番の指紋を last-deploy.json に書いた | build=false。force と preview は true | そのとおり |
+
+- **この試しで確かめていないこと**: AWS CLI の側（R2 のフォルダの代わりにしたので、`aws` の引数・メタデータの付け方と読み方・チェックサムは動かしていない）、GitHub の上での動き（`if` の組み合わせ・concurrency・actions/cache・wrangler-action の出力）、
+  巡回の4ステップ（クォータを使うので流していない）、名寄せの対象がある回の所要時間（2回とも対象0。1日目は Wikidata のアニメのまとめに145秒）、ジョブのタイムアウトで殺されたときの動き、
+  keepalive の push。yml の文法は actionlint 1.7.12（リリースの checksums で照合）で0件（shellcheck は入れていないので、yml の中の短い `run` のシェルは見ていない。job.sh は `bash -n` だけ）
+
+### 13-4. GitHub で手で起動する手順（段6。リポジトリ・Cloudflare・Secrets が済んで push したあと）
+
+    1. Variables: R2_BUCKET・SITE_URL（・試しなら R2_PREFIX）。Secrets: 8 の6つ。SCHEDULE_ENABLED はまだ作らない
+    2. R2 に DB を置く（13-2 の 1。試しなら R2_PREFIX=test/）
+    3. Actions → daily → Run workflow（target = preview。最初は crawl = false）→ 緑と step summary とプレビューの URL を見る
+    4. プレビューで確かめる（docs/phase4-plan.md の段6: 末尾スラッシュ・301・404・noindex）
+    5. 試しの R2_PREFIX を消し、本物の DB を置いて publish（preview）→ ユーザーが確認 → publish（production）→ Search Console → daily を手で1回 → SCHEDULE_ENABLED = true
+
+- **Worker がまだ無いときに `versions upload` が通るかは確かめていない**（文書に書かれていない）。3 で「Worker が無い」で失敗したら、そこで止めてユーザーに聞く（本番の `deploy` で作るか、ダッシュボードで作るか）
 
 ## 付録. 2時間ごとに戻すとき
 

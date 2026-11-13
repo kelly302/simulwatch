@@ -32,6 +32,9 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
     site/               Astro のサイト（srcDir）。pages/（6画面・一覧のタブとページ・JSON（pages/data/）・og:image・sitemap）・layouts/・components/・
                         lib/（ビルド時のデータ（data）・カードと行の HTML（views）・JSON の形（encode）・og:image（og））・scripts/（ブラウザの動き）・styles/・public/
     astro.config.mjs    Astro の設定（_headers・_redirects も書く）。scripts/astro.mjs は telemetry を止めて Astro を動かす
+    wrangler.jsonc      Cloudflare Workers の静的アセットの設定（dist/ を出す。docs/deploy.md 3）
+    .github/workflows/  日次（daily.yml）・手動（publish.yml）・keepalive（keepalive.yml）。docs/workflows.md
+    scripts/ci/         ワークフローのステップの中身（job.sh）・ローカルで日次を通す（local-daily.sh）・AWS CLI を版を固定して入れる（install-aws.sh）
     test/               node --test のテスト
     data/               SQLite と生レスポンス・サイト用のデータ（data/site/）・og:image のキャッシュ（ローカル・コミットしない）
     dist/               ビルドしたサイト（コミットしない）
@@ -49,6 +52,7 @@ Node.js 24 以上。TypeScript はビルドせず Node の型除去でそのま�
 `ANNICT_TOKEN` が無ければ AniList と Wikipedia だけで名寄せする。
 `ai:pull`・`ai:push`（と `--remote r2` の `ai:ingest`）は AWS CLI（`aws`）で R2 に出し入れするので、`.env` に `R2_ACCESS_KEY_ID`・`R2_SECRET_ACCESS_KEY`・`CLOUDFLARE_ACCOUNT_ID`・`R2_BUCKET`（ローカル用の R2 トークン。docs/ai-ops.md 2-1）を入れる。
 R2 を設定する前は `--remote <フォルダ>` でローカルのフォルダを R2 に見立てる（キーをそのままフォルダの下のパスにし、オブジェクトのメタデータは `<キー>.meta.json`）。
+`R2_PREFIX`（例 `test/`）があれば、R2 でもフォルダでもすべてのキーの先頭に付ける（試しの置き場所。docs/workflows.md 13）。
 
     npm install
     npm run cli -- roster          # Tier 1 の同期
@@ -103,6 +107,9 @@ R2 を設定する前は `--remote <フォルダ>` でローカルのフォル�
     npm run -s cli -- site:fingerprint --commit <sha>   # サイトの中身の指紋（fingerprint=…。site-data.json が無ければ終了コード 1）
     npm run -s cli -- job:due --meta head.json          # 保険の cron で日次を流すか（due=true|false）
     npm run cli -- runs:summary --since <ISO> --out "$GITHUB_STEP_SUMMARY"   # この回の実行記録の要約（数・状態・エラーだけ）
+    bash scripts/ci/job.sh <ステップ>   # 日次・手動のワークフローの1ステップ（start・pull・roster・crawl・…・push・settle・raw・fingerprint・build・check-dist・summary。R2_LOCAL_DIR でフォルダ）
+    SEED_DB=data/db.before-r2.sqlite DATA_DIR=data/seed bash scripts/ci/job.sh seed   # 最初の DB を R2 に置く（docs/deploy.md 1-D。もうあれば止まる）
+    R2_LOCAL_DIR=data/trial-r2 R2_PREFIX=test/ DATA_DIR=data/trial bash scripts/ci/local-daily.sh   # 日次のステップを同じ順にローカルで通す（CRAWL=true で巡回も。終了コードはワークフローの色）
     npm test                       # テスト
     npm run typecheck              # 型チェック（src・test と site）
 

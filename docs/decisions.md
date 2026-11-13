@@ -13,6 +13,10 @@
 
 - 置き換えるもの: 技術スタックの「Cloudflare Pages」／決定 D（2026-10-19。「公開の前に決める」→ 決まった）
 - 進み具合: コミットの作者を noreply にするところは済（2026-11-04。履歴の書き換えと user.email）。Workers・R2 は塊 F・段6
+- 進み具合（2026-11-13。塊 F）: Workers の設定（wrangler.jsonc。Worker 名は仮の `simulwatch`）と、日次・手動・keepalive のワークフロー（.github/workflows/・scripts/ci/job.sh）を作った。
+  R2 の出し入れは AWS CLI（2.39.1 に固定）、アップロードは wrangler-action（v4.1.3・wrangler 4.155.0）。試しの置き場所 `R2_PREFIX`（例 `test/`）と、日次の手動の入力 `target: preview`・`crawl: false`。
+  CLAUDE.md の技術スタック・docs/ui.md の印を直した（docs/deploy.md 6-10）。DB の写しでローカルのフォルダを使って日次を通した（docs/workflows.md 13）。
+  残り: リポジトリ・Cloudflare・Secrets（ユーザーの手作業 G）と push のあとの GitHub での起動、R2 との実際の往復・本番へのアップロード（段6）、Worker 名とサブドメインの決定
 - 正の文書: docs/deploy.md の6章（直す箇所の一覧は 6-10）
 - 印を付けた本文: CLAUDE.md の技術スタック、docs/ui.md（Pages の20,000ファイル・決定 D）
 
@@ -27,7 +31,7 @@
 - 進み具合（2026-11-13。塊 C）: 取り込む側を作った。aiApply の古い答えの決まり（瞬間で比べ、UTC で入れる）と問題の種類分け、
   `ai:ingest`（受け箱の batch を5つまで・結果と移す先を JSON に・`--settle` で移す）・`ai:check`・`ai:pull`・`ai:push`（ローカルのフォルダと AWS CLI の R2 を `--remote` で切り替える層。src/report/inbox.ts）、
   `ai:queue` のローカルのクォータのファイル（data/ai/quota.json）・同じシードの2回目・`--max-files`・返す値。
-  残り: 日次のワークフローから呼ぶこと（塊 F）・R2 との実際の往復（段6）・Claude Code のワークフロー（塊 E）。候補の答えの反映は塊 D3a で入れた（2026-11-13。D-04 の進み具合）。
+  残り: ~~日次のワークフローから呼ぶこと（塊 F）~~（2026-11-13 に daily.yml の ai:ingest・settle のステップにした）・R2 との実際の往復（段6）・Claude Code のワークフロー（塊 E）。候補の答えの反映は塊 D3a で入れた（2026-11-13。D-04 の進み具合）。
   経緯と検証は docs/ai-runs.md の 2026-11-13 の節
 
 ### D-04 題名に同時視聴の語が無い続きの回を「候補 → AI」で枠にする（2026-10-22・10-30）

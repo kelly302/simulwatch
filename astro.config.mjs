@@ -53,7 +53,9 @@ function cloudflareFiles() {
 
         writeFileSync(join(out, "_headers"), ["/data/*", "  X-Robots-Tag: noindex", ""].join("\n"));
         const redirects = data.redirects ?? [];
-        // 末尾スラッシュの無い形（/works/annict-1856）も転送する（無くなったページには Pages のスラッシュの付け直しが効かないため）
+        // 末尾スラッシュの無い形（/works/annict-1856）も転送する。Workers の静的アセットの html_handling（wrangler.jsonc の auto-trailing-slash）は
+        // ファイルがある所だけスラッシュを付け直すので（公式の表はファイルがある場合だけ）、無くなったページには効かない見込み。_redirects はファイルの有無に関係なく先に効く（公式）。
+        // 実際の動きは段6 のプレビューで確かめる（docs/phase4-plan.md）
         const lines = redirects.flatMap((r) => [`${r.from} ${r.to} 301`, ...(r.from.endsWith("/") ? [`${r.from.slice(0, -1)} ${r.to} 301`] : [])]);
         if (lines.length > 2000) throw new Error(`_redirects が ${lines.length} 行で、Cloudflare の上限（2,000件）を超えます`);
         writeFileSync(join(out, "_redirects"), lines.join("\n") + (lines.length ? "\n" : ""));
