@@ -14,6 +14,7 @@ import { log, errorMessage } from "../lib/log.ts";
 // - 事務所ごとに独立。1つが失敗しても他は進める
 // - 取得件数が min_count 未満なら失敗扱い。前回の一覧を保持し、誰も卒業扱いにしない
 // - 公式一覧から外れた人は is_active = 0（巡回を止める。データは残す）
+// - config/roster.yaml の excluded_channels に書いたチャンネルも、一覧に載っていても is_active = 0（卒業と同じ扱い。2026-11-13 決定 D-13）
 
 interface OrgResult {
   fetched: number;
@@ -23,6 +24,8 @@ interface OrgResult {
   reactivated: number;
   deactivated: number;
   no_channel: string[];
+  /** excluded_channels で巡回しないことにした source_key */
+  excluded: string[];
 }
 
 function knownChannels(ctx: Ctx): KnownChannels {
@@ -48,7 +51,7 @@ async function resolveHandles(ctx: Ctx, entries: RosterEntry[]): Promise<void> {
 function applyOrg(ctx: Ctx, affiliation: Affiliation, entries: RosterEntry[]): OrgResult {
   const { db } = ctx;
   const now = nowIso();
-  const r: OrgResult = { fetched: entries.length, active: 0, inactive: 0, inserted: 0, reactivated: 0, deactivated: 0, no_channel: [] };
+  const r: OrgResult = { fetched: entries.length, active: 0, inactive: 0, inserted: 0, reactivated: 0, deactivated: 0, no_channel: [], excluded: [] };
   const bySource = db.prepare("SELECT id, is_active, channel_title FROM streamers WHERE source_key = ?");
   const byChannel = db.prepare("SELECT id, is_active, channel_title FROM streamers WHERE channel_id = ?");
   const insert = db.prepare(`
@@ -104,6 +107,7 @@ async function syncOrg(
   affiliation: Affiliation,
   minCount: number,
   fetcher: (known: KnownChannels) => Promise<RosterEntry[]>,
+  excluded: ReadonlySet<string> = new Set(),
 ): Promise<OrgResult & { shared_channel: Record<string, string[]> }> {
   const entries = await fetcher(knownChannels(ctx));
   const activeCount = entries.filter((e) => !e.inactive).length;
@@ -114,8 +118,24 @@ async function syncOrg(
   const sharedBefore = mergeSharedChannels(entries);
   await resolveHandles(ctx, entries);
   const sharedAfter = mergeSharedChannels(entries);
+  const excludedKeys = applyExcluded(entries, excluded);
   const r = applyOrg(ctx, affiliation, entries);
-  return { ...r, shared_channel: { ...sharedBefore, ...sharedAfter } };
+  return { ...r, excluded: excludedKeys, shared_channel: { ...sharedBefore, ...sharedAfter } };
+}
+
+/**
+ * 公式の一覧に載っていても巡回しないチャンネル（config/roster.yaml の excluded_channels）を、卒業と同じ inactive にする。
+ * 既にいる行は applyOrg が is_active = 0 にし、新しい行は作らない。設定から消せば次の roster で戻る。
+ * 戻り値は外した source_key。entries はその場で書き換える
+ */
+export function applyExcluded(entries: RosterEntry[], excluded: ReadonlySet<string>): string[] {
+  const out: string[] = [];
+  for (const e of entries) {
+    if (e.inactive || !e.channelId || !excluded.has(e.channelId)) continue;
+    e.inactive = true;
+    out.push(e.sourceKey);
+  }
+  return out;
 }
 
 /**
@@ -194,13 +214,14 @@ async function refreshChannelMeta(ctx: Ctx): Promise<{ updated: number; missing:
 
 export async function syncRoster(ctx: Ctx): Promise<void> {
   const cfg = ctx.rosterCfg;
+  const excluded = new Set((cfg.excluded_channels ?? []).map((c) => c.channel_id));
   const results: Record<string, unknown> = {};
   results.nijisanji = await runStep(ctx, "roster: nijisanji", () =>
-    syncOrg(ctx, "nijisanji", cfg.nijisanji.min_count, (k) => fetchNijisanji(ctx.http, cfg.nijisanji, k)));
+    syncOrg(ctx, "nijisanji", cfg.nijisanji.min_count, (k) => fetchNijisanji(ctx.http, cfg.nijisanji, k), excluded));
   results.hololive = await runStep(ctx, "roster: hololive", () =>
-    syncOrg(ctx, "hololive", cfg.hololive.min_count, (k) => fetchHololive(ctx.http, cfg.hololive, k)));
+    syncOrg(ctx, "hololive", cfg.hololive.min_count, (k) => fetchHololive(ctx.http, cfg.hololive, k), excluded));
   results.vspo = await runStep(ctx, "roster: vspo", () =>
-    syncOrg(ctx, "vspo", cfg.vspo.min_count, () => fetchVspo(ctx.http, cfg.vspo)));
+    syncOrg(ctx, "vspo", cfg.vspo.min_count, () => fetchVspo(ctx.http, cfg.vspo), excluded));
   results.channel_meta = await runStep(ctx, "roster: channels.list", () => refreshChannelMeta(ctx));
   results.shared_names = await runStep(ctx, "roster: 共用チャンネルの名前", async () => nameSharedChannels(ctx));
   const counts = ctx.db

@@ -43,7 +43,7 @@ first_event_at / latest_event_at）は DB に持たず、サイト用のデー�
 
 ### Phase 1 で足した列の意味
 
-- `Streamer.is_active` 公式一覧に載っていて巡回する人。卒業・引退で 0（行と過去の枠は残す）
+- `Streamer.is_active` 公式一覧に載っていて巡回する人。卒業・引退で 0（行と過去の枠は残す）。公式一覧に載っていても config/roster.yaml の excluded_channels に書いたチャンネルも 0（2026-11-13。D-13）
 - `Streamer.source_key` 公式サイト上の識別子（例 `nijisanji:kuzuha`）。Tier 2 は NULL
 - `Streamer.branch` 所属の中の区分（2026-10-02 に追加）。にじさんじは公式の一覧のプロフィールの項目名で決める（「생일」なら kr、「Ulang Tahun」なら id、ほかは jp。
   config/roster.yaml の `branch_markers`）。ホロライブ・ぶいすぽっ！は jp。ラベルは `BRANCH_LABEL`（src/shared/types.ts。jp は「JP」）

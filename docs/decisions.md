@@ -20,6 +20,7 @@
 - 正の文書: docs/deploy.md の6章（直す箇所の一覧は 6-10）
 - 印を付けた本文: CLAUDE.md の技術スタック、docs/ui.md（Pages の20,000ファイル・決定 D）
 - 2026-11-13: 「workers.dev で公開する」は D-11（midokoroya.com のサブドメイン）で置き換わる予定
+- 2026-11-13 ユーザー決定: 生レスポンス（R2 の raw/）は**30日のまま**（Claude は、R2 のライフサイクルが最大24時間遅れて消すので29日を勧めたが、30日にした。G のセッションがライフサイクルを30日で設定済み。docs/youtube-policy.md の選択肢6）
 
 ### D-03 AI の判定の公開後の運用（2026-10-26・10-27・10-30）
 
@@ -83,15 +84,24 @@
 
 ### D-11 公開の URL は midokoroya.com のサブドメインにする（2026-11-13）
 
-- 中身: ユーザーが取ったドメイン midokoroya.com（同じ Cloudflare のアカウントにある）のサブドメインを、Workers のカスタムドメインとして本番の URL にする。**サブドメインの名前は未定**。
+- 中身: ユーザーが取ったドメイン midokoroya.com（同じ Cloudflare のアカウントにある）のサブドメインを、Workers のカスタムドメインとして本番の URL にする。**サブドメインは `simulwatch`（本番の URL は https://simulwatch.midokoroya.com。2026-11-13 ユーザー決定。G のセッションで控えた）**。
   workers.dev は版とプレビューの URL（`preview-<Worker名>.<アカウントのサブドメイン>.workers.dev`）にだけ使う。本番の workers.dev の URL は止めるか、カスタムドメインへ移す（同じ中身が2つの URL に出ないように）
 - 置き換えるもの: D-02 の「workers.dev で公開する」（docs/deploy.md 6-2 の「独自ドメインは使わない」）
 - 変わるもの: SITE_URL（canonical・sitemap・og:url）、Search Console は「ドメイン」のプロパティ（DNS のレコード）でも確かめられる、AdSense の「workers.dev で審査に通るか分からない」（docs/deploy.md の確かめられなかったこと）は自分のドメインになるので当たらなくなる
-- 確かめること: 同じアカウントの Worker `dokosuku` が midokoroya.com（またはそのサブドメイン）をすでに使っているか、DNS が Cloudflare にあるか
+- 確かめたこと（2026-11-13。G のセッションが読むだけで確かめた）: Worker `dokosuku` はカスタムドメインもルートも無し（`dokosuku.kelly00.workers.dev` だけ）。midokoroya.com は Cloudflare Registrar で登録し、DNS も Cloudflare（レコードはまだ0件）。アカウントの workers.dev のサブドメインは `kelly00`（プレビューの URL に使う）。カスタムドメインを Worker に付けるのは段6の最初のデプロイのあと
 - 正の文書: この決定（docs/deploy.md 6-2 は印を付けた。実装するときに直す）
 - 印を付けた本文: CLAUDE.md の技術スタック、docs/deploy.md（1-B の URL・SITE_URL・6-2・Search Console・6-10 の URL）、docs/workflows.md（2-8・8）、docs/ui.md、config/site.yaml、wrangler.jsonc
 
 ## 実装済み
+
+### D-13 旧 NIJISANJI KR・旧 NIJISANJI ID のうち、同時視聴の枠が1つも無い4チャンネルを巡回しない（2026-11-13。実装 2026-11-13）
+
+- 中身: オ ジユ・明楽レイ（旧 KR）、デレム カド・ナギサ アルシニア（旧 ID）。2026-11-13 に本体の DB を読んで数えた（巡回は 2026-10-30 が最後。data/analysis/overseas-channels-1113.md）。
+  卒業と同じく is_active = 0 にして巡回を止める。行と取得済みのデータは残す（枠は0なのでサイトには出ていない）。設定から消せば次の roster で戻る
+- 実装: config/roster.yaml の `excluded_channels`、src/roster/sync.ts の `applyExcluded`（一覧に載っていても inactive にする）。テストは test/parsers.test.ts
+- 確かめたこと: 本体の DB の写し（VACUUM INTO）で roster を1回流し、streamers 282行のうちこの4行だけが is_active 1 → 0 になり、ほかの行の名前・区分・is_active が変わらないことを1行ずつ比べた（channels.list で約6ユニット）
+- 置き換えたもの: CLAUDE.md の対象範囲の「旧 KR（11人）・旧 ID（6人）は外さない」に例外を足した（2026-10-03 の決定の一部）
+- 残り: 本体の DB に効くのは次の roster（段6の日次）。この4チャンネルの videos_seen（2,526本）の題名の30日の扱いは塊 R に伝えた
 
 ### D-10 YouTube の規約の読み直しのあとも、作品ページの「観た配信者」は再生数の順が既定のまま・最高再生数と合計再生数は残す（2026-11-13。コードは今のまま）
 

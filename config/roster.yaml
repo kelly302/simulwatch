@@ -61,6 +61,15 @@ hololive:
     - UCJFZiqLMntJufDCHc6bQixg   # hololive ホロライブ - VTuber Group
   min_count: 30
 
+# 公式の一覧に載っていても巡回しないチャンネル（卒業と同じく is_active = 0 にする。行と取得済みのデータは残す。ここから消せば次の roster で戻る）。
+# 2026-11-13 ユーザー決定（D-13）: 旧 NIJISANJI KR・旧 NIJISANJI ID のうち、同時視聴の枠が1つも無いチャンネルを外す
+# （2026-11-13 に本体の DB を読んで数えた。巡回は 2026-10-30 が最後。data/analysis/overseas-channels-1113.md）
+excluded_channels:
+  - { channel_id: UCnzZmBOSrQf2wDBbnsDajVw, name: オ ジユ, reason: "旧 KR・同時視聴の枠0" }
+  - { channel_id: UC7hffDQLKIEG-_zoAQkMIvg, name: 明楽レイ, reason: "旧 KR・同時視聴の枠0" }
+  - { channel_id: UCMzVa7B8UEdrvUGsPmSgyjA, name: デレム カド, reason: "旧 ID・同時視聴の枠0" }
+  - { channel_id: UCijNnZ-6m8g85UGaRAWuw7g, name: ナギサ アルシニア, reason: "旧 ID・同時視聴の枠0" }
+
 vspo:
   list_url: "https://vspo.jp/member/"
   # メンバー一覧の li 要素に付くクラス。日本の所属だけを取る

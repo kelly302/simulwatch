@@ -39,6 +39,8 @@ export interface RosterConfig {
     min_count: number;
   };
   vspo: { list_url: string; japanese_class: string; min_count: number };
+  /** 公式の一覧に載っていても巡回しないチャンネル（卒業と同じく is_active = 0。行とデータは残す。2026-11-13） */
+  excluded_channels?: { channel_id: string; name: string; reason: string }[];
 }
 
 export interface CrawlConfig {
