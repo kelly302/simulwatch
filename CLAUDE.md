@@ -129,6 +129,7 @@ CLAUDE.md には毎回守る決まりだけを置く（2026-11-04。長すぎて
 | docs/phase4-plan.md | Phase 4 の実装の段取りと、レビューの指摘の扱い |
 | docs/deploy.md・docs/workflows.md・docs/ai-ops.md | Phase 4 の公開の基盤・ワークフロー・AI の判定の運用（未実装の決定の正） |
 | docs/ai-runs.md | 検証と AI の判定の回ごとの記録（経緯。決まりの正ではない） |
+| docs/youtube-policy.md | YouTube の規約（集計・派生の指標・ランキング・広告）と画面の突き合わせ（2026-11-13。決める前の一覧） |
 
 ## ルール
 
