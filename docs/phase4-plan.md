@@ -11,7 +11,7 @@
 | 0 | 履歴の作者を noreply に書き換え（`git bundle --all` で退避 → UI の作業ツリーを消す → filter-repo（できれば新しいクローンで）→ `user.email` を noreply） | 済（2026-11-04。記録と古い ID の対応表は docs/ai-runs.md の 2026-11-04 の節） |
 | 1 | A・B・D1・D2・G（並行） | A・B・D1・D2 は済（2026-11-08。11-11 に main へマージ）。G はユーザーの手作業で、途中 |
 | 2 | C・D3a（並行） | 済（2026-11-13。C を先にマージし、D3a は ai.ts に触らない前半のあと C を取り込んで後半を足した。どちらも main にマージ済み） |
-| 3 | D3b（D2 の採点のあと） | |
+| 3 | D3b（D2 の採点のあと） | 済（2026-11-13。試し直し cand-retrial-1113 でサイトに出る誤り 0/73・取りこぼし 0/56。記録は docs/ai-runs.md。同日 main にマージ） |
 | 4 | F（早めに push して手で起動して試す） | 作った（2026-11-13。ローカルで1周と失敗の試しまで。同日 main にマージ）。GitHub での起動は G と push のあと |
 | 5 | DB の写しでローカルのフォルダを1周 → 本体の写しを取る → 本体に過去の候補と判定待ちの枠を `ai:ingest` で入れる | |
 | 6 | もう一度 refresh → R2 に置いて往復で確かめ、ローカルの DB を止める → プレビューをユーザーが確認 → 本番 → 日次を手で1回 → Search Console → SCHEDULE_ENABLED | |
@@ -64,6 +64,7 @@ og-cache は写して使う（本体の OG_CACHE を共有しない。ビルド�
 - D3a（C のマージのあと、D2 と並行）: candidates の表のマイグレーション（詳細の列と答えの時刻まで最初に決める。行を消さない表として db:pack に入れる）・candidates:select の保存と candidates:fetch（job は daily）・
   ai:queue が候補を表から読み種の枠も見せる・ingest.ts と reports.ts で `ai_candidate` の枠を語彙で外さない・ai:revoke で AI が足した枠を外す（`ai_revoked`）・aiApply で枠を作ってから判定を入れる（is_members_only は candidates の値）
 - D3b（D2 の採点のあと）: 層・続きの語・弱い語の設定と GUIDE の文面（弱い語は 2026-11-13 に「入れる」と決まった。D-04）。GUIDE の「そもそも作品を観ていない枠は not_a_work」と not_watchalong の重なりをここで整理する
+  状態: 実装済み・main にマージ済み（2026-11-13。ブランチ claude/p4-d3b-guide-098632）。弱い語の層・GUIDE の not_watchalong の節・採点の not_watchalong・待ち行列の配信の長さとメン限の行（2026-11-13 ユーザー決定）。足した2行の効果は段5の本番の判定で見る
 - 済んだの基準: DB の写しで select → fetch → queue → 用意した答え → ingest を通し、`ai_candidate` の枠ができる・is_members_only が正しい・detect:rerun で外れない・ai:revoke で外れる・publishState
 
 ### E Claude Code のワークフロー（公開のあと。D-05）
