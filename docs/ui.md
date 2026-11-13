@@ -62,7 +62,7 @@ SEO・実装:
 - 英語の名前: にじさんじは名簿で読んでいる API の応答の enName（追加の取得なし）。ホロライブは /en/talents?gp=<group>（今の parseHololiveGroup のまま読める。
   取得が17回増える。[Affiliate]・[Alum] を外す）。Streamer に列 name_en を足す（下の決定 C）
 - 公開先の Cloudflare Workers の静的アセット（D-02）の無料プランは1版20,000ファイルまで（wrangler 4.34.0 以上。決めたころの Pages も1サイト20,000ファイル）。**作品ページごとの JSON は作らず、HTML に持たせる**
-- 公開の手順と公開の基盤の決定は docs/deploy.md（D-02 で Workers の静的アセット・workers.dev・生レスポンス30日に決まった。設定とワークフローは 2026-11-13 に作った（wrangler.jsonc・.github/workflows/）。残りの未決は docs/deploy.md の6章）
+- 公開の手順と公開の基盤の決定は docs/deploy.md（D-02 で Workers の静的アセット・workers.dev（→ D-11 で変更予定・未実装）・生レスポンス30日に決まった。設定とワークフローは 2026-11-13 に作った（wrangler.jsonc・.github/workflows/）。残りの未決は docs/deploy.md の6章）
 - 公開後: Search Console で、配信者1人の作品ページとそれ以外のインデックス状況を分けて見る
 
 ### Phase 3 の初めの決定（2026-10-19。A〜D）

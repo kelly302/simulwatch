@@ -12,6 +12,7 @@
 - D-04 題名に同時視聴の語が無い続きの回を「候補 → AI」で枠にする仕組みを公開の前に作る（2026-10-22・10-30）
 - D-05 Phase 4 の進め方（段0〜6 は docs/phase4-plan.md。Claude Code のワークフローは公開のあと。そのとき判定役には CLAUDE.md を読ませない）
 - D-08 unresolved の JSON は R2 に置かない（2026-11-04）
+- D-11 公開の URL は midokoroya.com のサブドメイン（名前は未定）。workers.dev は版とプレビューの URL だけに使う（2026-11-13。D-02 の workers.dev を置き換える）
 
 ## これは何か
 
@@ -106,7 +107,7 @@ AI の判定役に渡す GUIDE（src/report/blind.ts）と同じ内容にそろ�
 | フロント | Astro の SSG。ソートとフィルターはブラウザ側で処理する |
 | データの置き場 | SQLite。R2 の非公開領域に置き、ジョブの開始時に取得して終了時に書き戻す |
 | 生レスポンス | R2 の非公開領域 |
-| ホスティング | Cloudflare Workers の静的アセット（workers.dev。独自ドメインなし）。Actions から wrangler でアップロードする（本番は `deploy`、プレビューは `versions upload --preview-alias preview`。設定は wrangler.jsonc。2026-11-13 に作った。まだアップロードしていない） |
+| ホスティング | Cloudflare Workers の静的アセット（workers.dev。独自ドメインなし（→ D-11 で変更予定・未実装））。Actions から wrangler でアップロードする（本番は `deploy`、プレビューは `versions upload --preview-alias preview`。設定は wrangler.jsonc。2026-11-13 に作った。まだアップロードしていない） |
 | 定期実行 | GitHub Actions の schedule |
 | 秘密情報 | APIキー類は GitHub Actions の Secrets に置く。リポジトリにコミットしない |
 

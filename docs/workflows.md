@@ -188,7 +188,7 @@ S3 互換の PUT は1回で中身とメタデータを一緒に置き換える�
       プレビュー: versions upload --preview-alias preview  （→ preview-<Worker名>.<アカウントのサブドメイン>.workers.dev）
 
 - `wrangler versions upload` は版を作って版の URL を返すだけで、本番は変えない（Cloudflare の文書の Previews。2026-10-27 に読んだ）。`--preview-alias` で読みやすい固定の URL になる。
-  版の URL は workers.dev でだけ出る（独自ドメインは使わないので問題ない）。URL を知っていれば誰でも見られる（docs/deploy.md 4）
+  版の URL は workers.dev でだけ出る（独自ドメインは使わないので問題ない）（→ D-11 で変更予定・未実装）。URL を知っていれば誰でも見られる（docs/deploy.md 4）
 - 版の固定（2026-11-13 実装。どれも公開から2週間以上たった版をコミットの SHA で）: `cloudflare/wrangler-action@953926a…`（v4.1.3。2026-09-24。最新のまま）・入力 `wranglerVersion: "4.155.0"`（2026-10-28。4.34.0 以上が要る）、
   `actions/checkout@3d3c42e…`（v7.0.1）・`actions/setup-node@949feb2…`（v7.1.0）・`actions/cache/restore`・`save@55cc834…`（v6.1.0）、ランナーは `ubuntu-24.04`
 - wrangler-action v4.1.3 の README には、PR ごとの「Workers Previews」（`wrangler preview`。wrangler 4.136.3 以上）も書かれている。こちらは採らず、決めたとおり `versions upload --preview-alias preview` にした（版の URL は本番と同じ設定で動く）
@@ -435,7 +435,7 @@ docs/ai-ops.md「2. 全体の流れ」の右の列（GitHub Actions）。ロー�
 | `R2_ACCESS_KEY_ID` | Secret | R2 の API トークン（Object Read & Write・バケット限定） | 日次・手動 |
 | `R2_SECRET_ACCESS_KEY` | Secret | 同上 | 同上 |
 | `R2_BUCKET` | Variable | バケット名（例 `simulwatch-data`） | 同上 |
-| `SITE_URL` | Variable | サイトの URL（`https://<Worker名>.<サブドメイン>.workers.dev`。astro.config.mjs が `SITE_URL` を読む。config/site.yaml の仮の URL より優先） | 同上 |
+| `SITE_URL` | Variable | サイトの URL（`https://<Worker名>.<サブドメイン>.workers.dev`（→ D-11 で変更予定・未実装）。astro.config.mjs が `SITE_URL` を読む。config/site.yaml の仮の URL より優先） | 同上 |
 | `SCHEDULE_ENABLED` | Variable | `true` で schedule の回を動かす（5-2） | 日次 |
 | `R2_PREFIX` | Variable | 試しの置き場所（例 `test/`）。あれば R2 のすべてのキーの先頭に付け、本番にはアップロードしない（1・13）。ふだんは**作らない** | 日次・手動 |
 

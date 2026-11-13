@@ -29,7 +29,7 @@ CLAUDE.md の決定（Cloudflare Pages へ Actions から直接アップロー�
       4. 集計（site:data）→ Astro でビルド（site:build。dist/）
       5. wrangler で dist/ を Cloudflare Workers（静的アセット）にアップロード
                                    ↓
-                     https://<Worker名>.<アカウントのサブドメイン>.workers.dev（独自ドメインは使わない。6-2）
+                     https://<Worker名>.<アカウントのサブドメイン>.workers.dev（独自ドメインは使わない。6-2）（→ D-11 で変更予定・未実装）
 
 「アップロード」は 5 の1コマンド。人が毎回やる作業は無い（手でやる方法は「4.」）。
 
@@ -82,7 +82,7 @@ Pages のプロジェクトを作る手順（`wrangler pages project create`）�
 | `R2_ACCESS_KEY_ID` | Secret | B-4 | DB・生レスポンス・AI の答えの出し入れ |
 | `R2_SECRET_ACCESS_KEY` | Secret | B-4 | 同上 |
 | `R2_BUCKET` | Variable | B-3 のバケット名（例 `simulwatch-data`） | 同上 |
-| `SITE_URL` | Variable | 本番の URL `https://<Worker名>.<サブドメイン>.workers.dev`（B-5 で決める）。astro.config.mjs が config/site.yaml の仮の URL より優先して読む | ビルド |
+| `SITE_URL` | Variable | 本番の URL `https://<Worker名>.<サブドメイン>.workers.dev`（B-5 で決める）（→ D-11 で変更予定・未実装）。astro.config.mjs が config/site.yaml の仮の URL より優先して読む | ビルド |
 | `SCHEDULE_ENABLED` | Variable | `true` で schedule の回を動かす。最初の公開（6-8）が済むまで入れない | 日次 |
 | `R2_PREFIX` | Variable | 試しの置き場所（例 `test/`）。写しで日次を1周するときだけ作り、済んだら消す（docs/workflows.md 13） | 日次・手動 |
 
@@ -199,7 +199,7 @@ Workers の静的アセットでも、同じ `dist/` をそのまま出せる。
 
 これで変わること: この文書の 1-B・3・4・5 を Workers の手順に直した（2026-10-26）。CLAUDE.md・コード・設定で直す箇所は 6-10。
 
-### 6-2. 独自ドメインを使うか — **決定: 使わない。workers.dev で公開する**（2026-10-26 ユーザー決定）
+### 6-2. 独自ドメインを使うか — **決定: 使わない。workers.dev で公開する**（2026-10-26 ユーザー決定）（→ D-11 で変更予定・未実装）
 
 - 2026-10-07 の「広告の審査が pages.dev のサブドメインで通るかは未確認」は、**AdSense にサイトとして登録はできる**まで確かめた（2026-10-23）。
   AdSense が足せるのは「ドメイン」と「Public Suffix List（PSL）に載っている基盤のサブドメイン」で、`pages.dev`・`workers.dev`・`r2.dev` は PSL の Cloudflare の節に載っている
@@ -259,7 +259,7 @@ R2 の無料枠は保存 10GB-月（Standard のみ）。DB は gzip で約0.06G
 
 プレビューにアップロード → ユーザーが確認 → 本番にアップロード → Search Console に登録 → schedule を有効にする（Variable の `SCHEDULE_ENABLED` を `true`）、の順。
 
-Search Console の所有権の確認: workers.dev は自分のドメインでないので DNS のレコードを置けず、**「ドメイン」のプロパティは使えない**。
+Search Console の所有権の確認: workers.dev は自分のドメインでないので DNS のレコードを置けず、**「ドメイン」のプロパティは使えない**（→ D-11 で変更予定・未実装）。
 「URL プレフィックス」のプロパティ（`https://<Worker名>.<サブドメイン>.workers.dev/`）で、HTML ファイル（`site/public/` に置く）か HTML タグ（meta タグ。レイアウトの head に入れる）で確かめる
 （Google のヘルプ: ドメインのプロパティは DNS だけ、URL プレフィックスは HTML ファイル・HTML タグなども使える。2026-10-27 に確かめた）。
 **置き場所**（2026-11-13）: HTML タグなら、Search Console が出す meta タグの `content` の値を config/site.yaml の `search_console_verification` に書く（空ならタグを出さない。トップのページ `/` の head にだけ入る。site/layouts/Base.astro）。
@@ -289,7 +289,7 @@ GitHub の規約は、GitHub のランナーを「そのリポジトリのソフ
 足すもの:
 
 - 404 は `wrangler.jsonc` の `not_found_handling: "404-page"`（3章）。Pages の「自動」に頼っていた所は無い（404.html はビルドが作っている）。済（2026-11-13。dist/404.html が無ければ check-dist が止める）
-- 公開の URL は `<Worker名>.<アカウントのサブドメイン>.workers.dev`（6-2）。Worker 名は wrangler.jsonc の `name`（仮に `simulwatch`）
+- 公開の URL は `<Worker名>.<アカウントのサブドメイン>.workers.dev`（6-2）。Worker 名は wrangler.jsonc の `name`（仮に `simulwatch`）（→ D-11 で変更予定・未実装）
 - Search Console の所有権は HTML ファイルか meta タグ（6-8。DNS は使えない）。済（2026-11-13。config/site.yaml の `search_console_verification`）
 - CLAUDE.md の 2時間ごと・「これから始まる枠」の記述（2026-10-27 の決定）は、このセッションの範囲外（docs/workflows.md・UI の側で一覧にする。一覧は docs/decisions.md の D-01・docs/phase4-plan.md の塊 A）
 

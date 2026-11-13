@@ -1,6 +1,6 @@
 # サイト（Phase 3）の設定。ジョブの書き出し（site:data）と Astro のビルドの両方が読む
 
-# サイトの URL（canonical・sitemap・og:url に入る）。**仮**。公開先は Workers の workers.dev（D-02）で、URL は https://<Worker名>.<アカウントのサブドメイン>.workers.dev。
+# サイトの URL（canonical・sitemap・og:url に入る）。**仮**。公開先は Workers の workers.dev（D-02）で、URL は https://<Worker名>.<アカウントのサブドメイン>.workers.dev。（→ D-11 で変更予定・未実装）
 # Actions では Variable の SITE_URL が優先する（astro.config.mjs）。サブドメインと Worker 名（wrangler.jsonc の name）が決まったらここも本番の URL に替える
 site_url: "https://simulwatch.example"
 # Google Search Console の所有権の確認（HTML タグの方法）。Search Console で「URL プレフィックス」のプロパティを作り、

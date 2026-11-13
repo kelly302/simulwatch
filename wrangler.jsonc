@@ -1,7 +1,7 @@
 // Cloudflare Workers の静的アセット（docs/deploy.md の 3・6-1。2026-10-26 決定 D-02）。Worker のコードは無く、dist/ をそのまま出す。
 // アップロードは日次・手動のワークフローの cloudflare/wrangler-action（本番は deploy、プレビューは versions upload --preview-alias preview）
 {
-  // Worker 名。公開の URL は https://<name>.<アカウントのサブドメイン>.workers.dev になる（docs/deploy.md 1-B-5。最初の公開の前に決める。仮）
+  // Worker 名。公開の URL は https://<name>.<アカウントのサブドメイン>.workers.dev になる（docs/deploy.md 1-B-5。最初の公開の前に決める。仮）（→ D-11 で変更予定・未実装）
   "name": "simulwatch",
   // 使う wrangler（4.155.0）より前の日付にする
   "compatibility_date": "2026-10-28",
