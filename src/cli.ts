@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import { createCtx, finishCtx, runStep } from "./lib/context.ts";
 import type { Ctx } from "./lib/context.ts";
 import { openDb } from "./lib/db.ts";
-import { loadDetectConfig, loadCrawlConfig } from "./lib/config.ts";
+import { loadDetectConfig, loadCrawlConfig, loadRosterConfig } from "./lib/config.ts";
 import { syncRoster } from "./roster/sync.ts";
 import { crawlHourly, crawlDaily, refreshAll, fetchOrphans } from "./crawl/jobs.ts";
 import { detectReport, quotaReport, rerunDetect } from "./report/reports.ts";
@@ -34,6 +34,7 @@ import { candidatesDryRun } from "./candidates/select.ts";
 import { candidatesSelect, fetchCandidates } from "./candidates/store.ts";
 import { refreshSeen, actCutoff } from "./retention/seen.ts";
 import { clearCandidates, purgeGoneEvents } from "./retention/purge.ts";
+import { clearExcludedChannels } from "./retention/excluded.ts";
 import { retentionStatus, formatRetentionStatus } from "./retention/status.ts";
 import { listDataFiles, deleteEntries, formatFiles, FILE_CATEGORIES } from "./retention/files.ts";
 import type { FileCategory } from "./retention/files.ts";
@@ -101,7 +102,8 @@ const HELP = `
                   判定に回す候補（ready・hold）で詳細が retention.act_after_days より古い・無いものも取り直す（30日の決まり。D-12）
 
 コマンド（30日の決まり。YouTube の API の規約 III.E.4。決定 D-12。config/crawl.yaml の retention）:
-  retention       （日次）videos_seen の題名を古いものから videos.list で取り直す（返ってこない動画は題名を消す）・終わった候補の詳細を消す・
+  retention       （日次）巡回しないチャンネル（roster.yaml の excluded_channels）の動画の題名と候補を取り直さずに消す・
+                  videos_seen の題名を古いものから videos.list で取り直す（返ってこない動画は題名を消す）・終わった候補の詳細を消す・
                   アーカイブが消えて act_after_days を過ぎた枠の中身を消す [--max-units N（videos_seen の取り直しの上限をその回だけ変える）]
   retention:status  DB の中の古いものの件数（videos_seen・watch_events・candidates・streamers。API を使わない）
   retention:files 手元の data/ の、--days 日（既定 retention.max_age_days）より古いファイルの一覧（生レスポンス・DB の写し・AI の作業フォルダ・audit・review・analysis・ログ・
@@ -241,6 +243,13 @@ async function main(): Promise<number> {
       job: "daily",
       run: async (ctx) => {
         const maxUnits = values["max-units"] !== undefined ? Number(values["max-units"]) : undefined;
+        // 巡回しないチャンネル（excluded_channels。D-13）は取り直さずに消す（取り直しより先に。消した行は取り直しの対象から外れる）
+        const ex = await runStep(ctx, "retention: excluded_channels", async () =>
+          clearExcludedChannels(ctx.db, (ctx.rosterCfg.excluded_channels ?? []).map((c) => c.channel_id)));
+        if (ex) {
+          ctx.summary.retention_excluded = ex;
+          console.log(`excluded_channels: 巡回を止めた ${ex.channels.length}（まだ巡回中 ${ex.pending_roster.length}）・videos_seen の題名を消した ${ex.videos_seen}・候補を判定に回さなくした ${ex.candidates}`);
+        }
         const seen = await runStep(ctx, "retention: videos_seen", async () => {
           const r = await refreshSeen(ctx, maxUnits !== undefined ? { maxUnits } : {});
           ctx.summary.retention_seen = r;
@@ -451,7 +460,7 @@ async function main(): Promise<number> {
       console.log(quotaReport(openDb(), Number(values.days ?? 7)));
       return 0;
     case "retention:status":
-      console.log(formatRetentionStatus(retentionStatus(openDb(), loadCrawlConfig())));
+      console.log(formatRetentionStatus(retentionStatus(openDb(), loadCrawlConfig(), new Date(), (loadRosterConfig().excluded_channels ?? []).map((c) => c.channel_id))));
       return 0;
     // 手元のファイル（DB は開かない）。既定は一覧だけ。--delete のときだけ、中のファイルが全部古い項目を消す
     case "retention:files": {

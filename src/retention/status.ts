@@ -1,6 +1,7 @@
 import type { DB } from "../lib/db.ts";
 import type { CrawlConfig } from "../lib/config.ts";
 import { actCutoff, maxAgeCutoff, seenTarget } from "./seen.ts";
+import { excludedInactive } from "./excluded.ts";
 
 // retention:status。30日の決まり（D-12）で DB の中に古いものがどれだけ残っているか（API を使わない。DB は読むだけ）
 
@@ -12,9 +13,11 @@ export interface RetentionStatus {
   watch_events: { rows: number; gone: number; purge_due: number; purged: number; stale_checked: number };
   candidates: { state: string; rows: number; with_detail: number; stale_detail: number; over_detail: number; cleared: number }[];
   streamers: { rows: number; inactive: number; meta_unknown: number; meta_due: number; no_icon: number };
+  /** 巡回しないチャンネル（excluded_channels。D-13）。巡回を止めたもの・まだのもの・題名が残る videos_seen の行 */
+  excluded: { channels: number; inactive: number; pending: number; seen_with_title: number };
 }
 
-export function retentionStatus(db: DB, cfg: Pick<CrawlConfig, "retention">, now: Date = new Date()): RetentionStatus {
+export function retentionStatus(db: DB, cfg: Pick<CrawlConfig, "retention">, now: Date = new Date(), excludedIds: readonly string[] = []): RetentionStatus {
   const act = actCutoff(cfg, now);
   const over = maxAgeCutoff(cfg, now);
   const one = <T>(sql: string, ...p: (string | number)[]) => db.prepare(sql).get(...p) as T;
@@ -36,7 +39,10 @@ export function retentionStatus(db: DB, cfg: Pick<CrawlConfig, "retention">, now
   const st = one<RetentionStatus["streamers"]>(`SELECT COUNT(*) AS rows, COALESCE(SUM(is_active = 0), 0) AS inactive,
       COALESCE(SUM(channel_meta_at IS NULL), 0) AS meta_unknown, COALESCE(SUM(channel_meta_at < ?), 0) AS meta_due,
       COALESCE(SUM(icon_url IS NULL), 0) AS no_icon FROM streamers`, act);
+  const ex = excludedInactive(db, excludedIds);
+  const exSeen = excludedIds.length ? one<{ n: number }>(`SELECT COUNT(*) AS n FROM videos_seen WHERE gone_at IS NULL AND channel_id IN (${excludedIds.map(() => "?").join(",")})`, ...excludedIds).n : 0;
   return {
+    excluded: { channels: excludedIds.length, inactive: ex.inactive.length, pending: ex.pending.length, seen_with_title: exSeen },
     at: now.toISOString(), act_after_days: cfg.retention.act_after_days, max_age_days: cfg.retention.max_age_days,
     videos_seen: { rows: vs.rows, gone: vs.gone, live: plan.live, due: plan.due, over: vs.over, next_target: plan.target, next_units: Math.ceil(plan.target / 50) },
     watch_events: we, candidates: cands, streamers: st,
@@ -55,6 +61,8 @@ export function formatRetentionStatus(s: RetentionStatus): string {
       `アーカイブが見られるのに ${s.act_after_days}日以上 refresh で取り直していない ${n(w.stale_checked)}${w.stale_checked ? "（refresh が止まっている。決まりを超える前に直す）" : ""}`,
     `candidates: ${s.candidates.length ? s.candidates.map((c) => `${c.state} ${c.rows}（詳細あり ${c.with_detail}・${s.act_after_days}日を過ぎた ${c.stale_detail}・${s.max_age_days}日を過ぎた ${c.over_detail}・消した ${c.cleared}）`).join("、") : "行なし"}`,
     `streamers: 行 ${s.streamers.rows}（巡回を止めた ${s.streamers.inactive}）。チャンネルの情報を確かめた時刻が無い ${s.streamers.meta_unknown}・${s.act_after_days}日を過ぎた ${s.streamers.meta_due}・アイコンが無い ${s.streamers.no_icon}`,
+    `excluded_channels（D-13）: ${s.excluded.channels}（巡回を止めた ${s.excluded.inactive}・まだ巡回中か行が無い ${s.excluded.pending}）。題名が残る videos_seen ${s.excluded.seen_with_title}` +
+      (s.excluded.seen_with_title ? "（巡回を止めたものは次の retention で消す。まだ巡回中のものは roster のあと）" : ""),
   ];
   return lines.join("\n");
 }

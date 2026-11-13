@@ -11,6 +11,7 @@ import type { VideoItem, ChannelItem } from "../src/youtube/api.ts";
 import { QuotaExhausted } from "../src/lib/quota.ts";
 import { refreshSeen, seenTarget, actCutoff } from "../src/retention/seen.ts";
 import { clearCandidates, purgeGoneEvents } from "../src/retention/purge.ts";
+import { clearExcludedChannels } from "../src/retention/excluded.ts";
 import { retentionStatus } from "../src/retention/status.ts";
 import { listDataFiles, deleteEntries } from "../src/retention/files.ts";
 import { descriptionHitLines, detect, templateLines } from "../src/detect/detect.ts";
@@ -502,4 +503,51 @@ test("retention:files: 区分ごとに並べ、中のファイルが全部古い
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("巡回しないチャンネル（excluded_channels。D-13）: roster が巡回を止めたあと、videos_seen の題名と答える前の候補を取り直さずに消す。巡回中のままなら消さない", async () => {
+  const db = setup();
+  db.exec(`INSERT INTO streamers (id, name, affiliation, channel_id, tier, is_active, icon_url, channel_title, first_seen_at, updated_at) VALUES
+    (2, '外した', 'nijisanji', 'UCex', 1, 0, 'old', 'old', 'n', 'n'),
+    (3, 'まだ巡回中', 'nijisanji', 'UCpend', 1, 1, 'old', 'old', 'n', 'n'),
+    (4, '卒業', 'hololive', 'UCgrad', 1, 0, 'old', 'old', 'n', 'n')`);
+  seen(db, "ex1", { channel: "UCex", refreshed: daysAgo(1) });
+  seen(db, "ex2", { channel: "UCex", refreshed: daysAgo(40) });
+  seen(db, "pend", { channel: "UCpend", refreshed: daysAgo(1) });
+  seen(db, "grad", { channel: "UCgrad", refreshed: daysAgo(1) });
+  saveCandidates(db, [{ ...cand("ex1"), streamerId: 2 }, { ...cand("grad"), streamerId: 4 }], daysAgo(2));
+  await fetchCandidates({ db, yt: fakeYt({ ex1: item("ex1", { channel: "UCex" }), grad: item("grad", { channel: "UCgrad" }) }).yt, detectCfg });
+  const ids = ["UCex", "UCpend", "UCnone"];
+  const s = clearExcludedChannels(db, ids, NOW.toISOString());
+  assert.deepEqual(s, { channels: ["UCex"], pending_roster: ["UCpend", "UCnone"], videos_seen: 2, candidates: 1 });
+  for (const id of ["ex1", "ex2"]) {
+    assert.equal(vs(db, id).title, "");
+    assert.equal(vs(db, id).gone_at, NOW.toISOString());
+  }
+  assert.equal(vs(db, "pend").title, "雑談 pend");
+  assert.equal(vs(db, "grad").title, "雑談 grad"); // 卒業した配信者はふだんどおり取り直す
+  const c = cr(db, "ex1");
+  assert.equal(c.state, "unavailable");
+  assert.equal(c.fetch_note, "excluded_channel");
+  assert.equal(c.title_raw, null);
+  assert.ok(c.cleared_at);
+  assert.equal(cr(db, "grad").state, "ready");
+  // もう一度流しても数えない。取り直しの対象にも入らない
+  assert.deepEqual(clearExcludedChannels(db, ids, NOW.toISOString()), { channels: ["UCex"], pending_roster: ["UCpend", "UCnone"], videos_seen: 0, candidates: 0 });
+  const f = fakeYt({});
+  await refreshSeen({ db, yt: f.yt, detectCfg, crawlCfg }, { now: NOW, maxUnits: 10 });
+  assert.ok(!f.calls.flat().some((v) => v.startsWith("ex")));
+  const st = retentionStatus(db, crawlCfg, NOW, ids);
+  assert.deepEqual(st.excluded, { channels: 3, inactive: 1, pending: 2, seen_with_title: 1 });
+
+  // roster: 巡回を止めた外したチャンネルは channels.list で引かず、アイコンとチャンネル名を消す。巡回中なら引く
+  const calls: string[][] = [];
+  const yt = { channels: async (q: string[]) => { calls.push(q); return q.map((id) => ({ id, snippet: { title: id, thumbnails: { default: { url: `https://yt3/${id}` } } } })); } };
+  const r = await refreshChannelMeta({ db, yt, crawlCfg } as unknown as Ctx, NOW, new Set(ids));
+  assert.ok(!calls.flat().includes("UCex"));
+  assert.ok(calls.flat().includes("UCpend") && calls.flat().includes("UCgrad"));
+  assert.deepEqual(r.excluded_cleared, ["UCex"]);
+  const icon = (id: number) => (db.prepare("SELECT icon_url, channel_title FROM streamers WHERE id = ?").get(id) as { icon_url: string | null; channel_title: string | null });
+  assert.deepEqual({ ...icon(2) }, { icon_url: null, channel_title: null });
+  assert.equal(icon(4).icon_url, "https://yt3/UCgrad");
 });

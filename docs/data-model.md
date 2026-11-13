@@ -39,7 +39,7 @@ first_event_at / latest_event_at）は DB に持たず、サイト用のデー�
 
 YouTube の API の規約 III.E.4: ログインなしで取ったデータは30日を超えて持たない（過ぎたら消すか取り直す）。日次のジョブが取り直すか消す（docs/crawl.md の「30日の決まり」）。
 
-- `Streamer.channel_meta_at` channels.list がチャンネル名（channel_title）とアイコン（icon_url）を最後に返した時刻。roster は巡回を止めた配信者も取り直し、
+- `Streamer.channel_meta_at` channels.list がチャンネル名（channel_title）とアイコン（icon_url）を最後に返した時刻。roster は巡回を止めた配信者も取り直し（巡回しないチャンネル（excluded_channels。D-13）は引かずにアイコンとチャンネル名を消す）、
   返ってこないチャンネルはこれが25日（`retention.act_after_days`）より前ならアイコンとチャンネル名を NULL にする（名前は事務所の名簿の値なので残る）。NULL は「まだ確かめていない」
 - `WatchEvent.purged_at` アーカイブが消えて（archive_gone_at）25日を過ぎたので、題名（空文字。title_raw は NOT NULL）・概要欄・サムネの URL・再生数（view_count・view_count_fetched_at）を消した時刻。
   行・判定（ai_decisions・unresolved）・作品の結び付き（event_works）・時刻・状態は残す。消えた枠も refresh が毎日見に行き、見られるようになったら中身を入れ直してこれを NULL にする。
@@ -99,7 +99,7 @@ YouTube の API の規約 III.E.4: ログインなしで取ったデータは30�
                   RSS の差分検知と、語彙を変えたときの再判定に使う。概要欄は持たない。
                   refreshed_at: 題名を API で最後に確かめた時刻（巡回で同じ題名を見た・refresh が枠の動画を取り直した・retention が取り直した。D-12）。
                   日次の retention がこれの古いものから videos.list で取り直す（約25日で一周）。マイグレーション 13 で last_seen_at から始めた。
-                  gone_at: retention で videos.list に返ってこない・公開でなかったので、題名を空文字に・公開日（published_at）を NULL にした時刻。
+                  gone_at: retention で videos.list に返ってこない・公開でなかった（か、巡回しないチャンネル（excluded_channels。D-13）の動画な）ので、題名を空文字に・公開日（published_at）を NULL にした時刻。
                   行と判定の結果は残す。もう取り直さない（巡回でまた見えたら判定し直して入れ直す）。判定役に見せる動画・候補の選び方・detect:rerun には使わない
     crawl_state   チャンネルごとの巡回状態（RSS・playlistItems の最終取得、遡りの続きのページ）
     quota_usage   API 呼び出しごとのクォータ消費（太平洋時間の日付で集計）
@@ -122,7 +122,8 @@ YouTube の API の規約 III.E.4: ログインなしで取ったデータは30�
                       30日の決まり（D-12）: 判定に回す候補（ready・hold）は、詳細が25日より古い・無ければ candidates:fetch が取り直す（状態はそのまま。取れなければ unavailable）。
                       終わった候補（detected・framed・not_watchalong）は詳細を取ってから25日を過ぎたら、取れない候補（unavailable）はすぐに、
                       詳細（title_raw・description_raw・thumbnail_url・view_count・view_count_fetched_at）を NULL にして cleared_at を立てる（状態・時刻・答えは残す）。
-                      ai:report の採点の表に出す not_watchalong の題名は、消したあとは空になる
+                      ai:report の採点の表に出す not_watchalong の題名は、消したあとは「（題名は30日の決まりで消した。D-12）」になる。
+                      巡回しないチャンネル（excluded_channels。D-13）の答える前・保留の候補は、retention が unavailable（fetch_note = excluded_channel）にして詳細を消す
     site_pages        作品ページ・配信者ページの中身の指紋（再生数を除く）と、中身が変わった日（sitemap の lastmod）
 
 ### 間違えやすい点

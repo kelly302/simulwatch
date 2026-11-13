@@ -97,6 +97,7 @@ DB の中のものは、最後に API で確かめてから **25日**（config/c
 | videos_seen（巡回で見た全部の動画の題名・公開日） | 題名を最後に確かめた時刻（refreshed_at）の古いものから videos.list で取り直す。1日の本数は「題名を持つ行 ÷ 25」（約35.5万本で約14,200本＝約285ユニット）と「25日を過ぎた行」の多いほう（上限 `videos_seen_max_units` 1,500ユニット）。返ってこない・公開でない動画は題名を空文字に・公開日を NULL に（gone_at）。題名が変わったら下のとおり判定し直す | retention（巡回で同じ題名を見た・refresh で枠の動画を取り直したときも refreshed_at を進める） |
 | candidates（続きの回の候補） | 判定に回す候補（ready・hold）は、詳細が25日より古い・無ければ取り直す（状態はそのまま）。終わった候補（detected・framed・not_watchalong）は詳細を取ってから25日で、取れない候補（unavailable）はすぐに、題名・概要欄・サムネの URL・再生数を消す（cleared_at） | candidates:fetch・retention |
 | streamers（チャンネル名・アイコン） | 巡回を止めた配信者も含めて毎日 channels.list で取り直す。返ってこないチャンネルは、最後に返ってから25日を過ぎたらアイコンとチャンネル名を消す | roster |
+| 巡回しないチャンネル（config/roster.yaml の excluded_channels。D-13） | 今後使わないので**取り直さずに消す**。roster が is_active = 0 にしたあと、videos_seen の題名（gone_at）・答える前と保留の候補（unavailable・fetch_note = excluded_channel）・アイコンとチャンネル名。設定から外して巡回に戻すと、巡回で見た動画の題名は入り直す（遡りで見た古い動画と候補は戻らない） | retention・roster |
 | 手元の data/（生レスポンス・DB の写し・AI の作業フォルダ・audit・review・analysis・ログ・unresolved.json・site-data.json） | `retention:files` で30日を超えたものを一覧にする。消すのは `--delete` のときだけ（中のファイルが全部古い項目だけ）。自動では消さない | 人が起動する |
 | R2 の raw/ | ライフサイクルで消す（日数は docs/deploy.md 6-4・docs/youtube-policy.md の選択肢6） | R2 |
 

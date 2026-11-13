@@ -96,7 +96,8 @@ R2 を設定する前は `--remote <フォルダ>` でローカルのフォル�
     npm run cli -- candidates:select --dry-run                          # 表に入れず、層ごとの件数と一覧だけ（data/review/candidates-select.{json,md}。DB は読むだけ）
     npm run cli -- candidates:fetch                                     # 詳細がまだの候補と予定・配信中だった候補の videos.list（日次。50本で1ユニット。終わった動画だけ判定に回す）。
                                                                         # 判定に回す候補（ready・hold）で詳細が25日より古い・無いものも取り直す（30日の決まり。D-12）
-    npm run cli -- retention [--max-units N]                            # 30日の決まり（日次。D-12）: videos_seen の題名を古いものから取り直す・終わった候補の詳細と消えた枠の中身を消す
+    npm run cli -- retention [--max-units N]                            # 30日の決まり（日次。D-12）: 巡回しないチャンネル（excluded_channels）の題名と候補を消す・
+                                                                        # videos_seen の題名を古いものから取り直す・終わった候補の詳細と消えた枠の中身を消す
     npm run cli -- retention:status                                     # DB の中の古いもの（videos_seen・watch_events・candidates・streamers）の件数（API なし）
     npm run cli -- retention:files [--days 30] [--category raw,db,ai,…] [--out F]   # 手元の data/ の古いファイルの一覧（区分 raw・db・ai・audit・review・analysis・log・export・site。DB は開かない。既定は一覧だけ）
     npm run cli -- retention:files --category raw --delete              # 中のファイルが全部古い項目だけを消す（一部だけ古い項目・本体の db.sqlite・対象外は消さない）

@@ -102,6 +102,7 @@
 - 確かめたこと: 本体の DB の写し（VACUUM INTO）で roster を1回流し、streamers 282行のうちこの4行だけが is_active 1 → 0 になり、ほかの行の名前・区分・is_active が変わらないことを1行ずつ比べた（channels.list で約6ユニット）
 - 置き換えたもの: CLAUDE.md の対象範囲の「旧 KR（11人）・旧 ID（6人）は外さない」に例外を足した（2026-10-03 の決定の一部）
 - 残り: 本体の DB に効くのは次の roster（段6の日次）。この4チャンネルの videos_seen（2,526本）の題名の30日の扱いは塊 R に伝えた
+  → D-12 で「取り直さずに消す」側に入れた（roster が巡回を止めたあとの retention で、videos_seen の題名・答える前の候補・アイコンとチャンネル名を消す。2026-11-13）
 
 ### D-12 YouTube の30日の決まりを満たす（2026-11-13 ユーザー決定（塊として作る）。実装 2026-11-13、塊 R）
 
@@ -112,6 +113,9 @@
     題名が変わったら巡回と同じく判定し直す（枠の動画は題名だけ。語彙のバージョンだけの違いは detect:rerun に任せる）
   - candidates: 判定に回す候補（ready・hold）は詳細が25日より古い・無ければ candidates:fetch が取り直す。終わった候補（detected・framed・not_watchalong）は25日で、取れない候補（unavailable）はすぐに詳細を消す（cleared_at）
   - streamers: roster が巡回を止めた配信者のチャンネルも取り直す。返ってこないチャンネルは、最後に返ってから25日を過ぎたらアイコンとチャンネル名を消す（channel_meta_at）
+  - 巡回しないチャンネル（D-13 の excluded_channels）: 今後使わないので取り直さずに消す（親のセッションの提案を受けて Claude が決めた）。roster が is_active = 0 にしたあとの retention で、
+    videos_seen の題名（gone_at）と、答える前・保留の候補（unavailable・fetch_note = excluded_channel）を消し、roster の channels.list で引かずにアイコンとチャンネル名を消す。
+    卒業した配信者は過去の枠を出すので、ふだんどおり取り直す（src/retention/excluded.ts）
   - watch_events: アーカイブが消えて25日を過ぎた枠の題名・概要欄・サムネの URL・再生数を消す（purged_at）。行・判定・作品の結び付き・時刻・状態は残し、見られるようになったら refresh が入れ直す
   - 手元のファイル: `retention:files` が30日を超えたもの（生レスポンス・DB の写し・AI の作業フォルダ・audit・review・analysis・ログ・unresolved.json・site-data.json）を一覧にする。
     消すのは `--delete` のときだけ（中のファイルが全部古い項目だけ）。ジョブ・RawLog は手元のファイルを自動では消さない（経緯の記録に使っているものがある。日次のランナーは毎回まっさら）
