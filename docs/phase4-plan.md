@@ -63,7 +63,7 @@ og-cache は写して使う（本体の OG_CACHE を共有しない。ビルド�
   見るのは「同時視聴でない動画を同時視聴と答えた件数」とその95%上限、層ごとの当たりの割合
 - D3a（C のマージのあと、D2 と並行）: candidates の表のマイグレーション（詳細の列と答えの時刻まで最初に決める。行を消さない表として db:pack に入れる）・candidates:select の保存と candidates:fetch（job は daily）・
   ai:queue が候補を表から読み種の枠も見せる・ingest.ts と reports.ts で `ai_candidate` の枠を語彙で外さない・ai:revoke で AI が足した枠を外す（`ai_revoked`）・aiApply で枠を作ってから判定を入れる（is_members_only は candidates の値）
-- D3b（D2 の採点のあと）: 層・続きの語・弱い語の設定と GUIDE の文面。GUIDE の「そもそも作品を観ていない枠は not_a_work」と not_watchalong の重なりをここで整理する
+- D3b（D2 の採点のあと）: 層・続きの語・弱い語の設定と GUIDE の文面（弱い語は 2026-11-13 に「入れる」と決まった。D-04）。GUIDE の「そもそも作品を観ていない枠は not_a_work」と not_watchalong の重なりをここで整理する
 - 済んだの基準: DB の写しで select → fetch → queue → 用意した答え → ingest を通し、`ai_candidate` の枠ができる・is_members_only が正しい・detect:rerun で外れない・ai:revoke で外れる・publishState
 
 ### E Claude Code のワークフロー（公開のあと。D-05）

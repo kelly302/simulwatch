@@ -32,14 +32,14 @@
 
 ### D-04 題名に同時視聴の語が無い続きの回を「候補 → AI」で枠にする（2026-10-22・10-30）
 
-- 中身: 公開の前に作る。最初の候補は3層（弱い語は判定役の試しのあとに決める）。候補の表 candidates・答えの区分 not_watchalong・`detect_source = ai_candidate`
+- 中身: 公開の前に作る。最初の候補は3層（弱い語は判定役の試しのあとに決める）。**2026-11-13 ユーザー決定: 弱い語（weak_word）も候補に入れる**（D2 の試しで、同時視聴でない7本を同時視聴と答えたものは0。作品の同時視聴は 5/30）。候補の表 candidates・答えの区分 not_watchalong・`detect_source = ai_candidate`
 - 正の文書: docs/ai-ops.md の3章
 - 印を付けた本文: docs/backlog.md（題名に同時視聴の語が無い続きの回）、docs/crawl.md（detect の弱い語）。docs/data-model.md（detect_source）の印は 2026-11-13 に外した（表と detect_source を書いた）
 - 進み具合: 2026-11-08 に塊 D1（候補の選定と件数）を作った。3層の選び方（src/candidates/select.ts・config/candidates.yaml）・メン限の見出しの区間を除く決まり（neighbors.ts と共有）・
   `candidates:select --dry-run`（件数と一覧だけ）。巡回の前の DB で 201本・今の DB でも 201本（docs/ai-runs.md の 2026-11-08 の節）。
   残り: D3a（表と保存・fetch・反映）・D3b（層と語の設定・GUIDE）
 - 進み具合（2026-11-08）: 塊 D2（判定役の試し）を済ませた。110本で正解が「同時視聴でない」49本に yes は0（95%上限 5.9%）、取りこぼし0。結果と手順は docs/ai-runs.md の 2026-11-08 の節。
-  層を絞るか・弱い語を入れるかはまだ決めていない（塊 D3b でユーザーが決める）
+  層を絞るか・弱い語を入れるかはまだ決めていない（塊 D3b でユーザーが決める）→ 弱い語は 2026-11-13 に「入れる」と決まった（上の中身。実装は塊 D3b）
 - 進み具合（2026-11-13）: 塊 D3a の前半を作った。候補の表 candidates（マイグレーション 12。詳細の列・状態・答えの時刻まで。行を消さない）・
   `candidates:select` の保存（`--dry-run` は残した）・`candidates:fetch`（job は daily）・`detect_source = 'ai_candidate'` の枠を巡回と detect:rerun が語彙で外さない・
   候補から枠を作る関数と AI が足した枠を外す関数（src/candidates/frames.ts。`ai_revoked`）。docs/data-model.md に表と detect_source を書いた。

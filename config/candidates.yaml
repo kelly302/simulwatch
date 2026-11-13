@@ -4,7 +4,7 @@
 # 作品名の区間は判定役に見せる「同じ作品名の動画」と同じ決まり（src/report/neighbors.ts の videoKeys。
 # config/extract.yaml の ai_context.other_videos の ignore_keys・boilerplate_ratio・members_heading）。
 
-# 使う層（2026-10-23 の計測で当たりの多かった3層）。弱い語（weak_word）は判定役の試し（docs/ai-ops.md 6-2）のあとに入れるかを決める（決定 4）
+# 使う層（2026-10-23 の計測で当たりの多かった3層）。弱い語（weak_word）は判定役の試し（docs/ai-ops.md 6-2）のあとに入れるかを決める（決定 4）（→ 2026-11-13 に入れると決まった。D-04。実装は塊 D3b）
 #   same_work_members: 種の枠の作品名の区間を題名に含むメン限の動画
 #   continuation_word: メン限で、(種の枠の作品名の区間を含む か 同じ配信者のメン限の種の枠の前後 members_days 日) で、続きの語に当たる
 #   same_title_body:   同じチャンネルの種の枠と、題名の本体（NFKC・小文字。【】の中身・感嘆符・空白を除く）が同じ（本体 title_body_min_chars 文字以上）
