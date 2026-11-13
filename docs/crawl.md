@@ -99,7 +99,7 @@ DB の中のものは、最後に API で確かめてから **25日**（config/c
 | streamers（チャンネル名・アイコン） | 巡回を止めた配信者も含めて毎日 channels.list で取り直す。返ってこないチャンネルは、最後に返ってから25日を過ぎたらアイコンとチャンネル名を消す | roster |
 | 巡回しないチャンネル（config/roster.yaml の excluded_channels。D-13） | 今後使わないので**取り直さずに消す**。roster が is_active = 0 にしたあと、videos_seen の題名（gone_at）・答える前と保留の候補（unavailable・fetch_note = excluded_channel）・アイコンとチャンネル名。設定から外して巡回に戻すと、巡回で見た動画の題名は入り直す（遡りで見た古い動画と候補は戻らない） | retention・roster |
 | 手元の data/（生レスポンス・DB の写し・AI の作業フォルダ・audit・review・analysis・ログ・unresolved.json・site-data.json） | `retention:files` で30日を超えたものを一覧にする。消すのは `--delete` のときだけ（中のファイルが全部古い項目だけ）。自動では消さない | 人が起動する |
-| R2 の raw/ | ライフサイクルで消す（日数は docs/deploy.md 6-4・docs/youtube-policy.md の選択肢6） | R2 |
+| R2 の raw/ | ライフサイクルで30日で消す（2026-11-13 ユーザー決定。docs/deploy.md 6-4・D-02） | R2 |
 
 - **videos_seen の題名が変わったとき**: 巡回（judgeCandidates）と同じく判定し直す。同時視聴の枠がある動画は判定し直さず題名だけ今のものにする（巡回も枠は判定し直さず、refresh が枠を取り直す）。
   判定は題名と概要欄。概要欄の定型文は、その回に取った同じチャンネルの動画の概要欄から作る（巡回は uploads の先頭の約50本で作る。数が違うので定型文の見つかり方は少し違う）。

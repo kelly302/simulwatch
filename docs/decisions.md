@@ -123,8 +123,9 @@
 - 置き換えたもの: なし（docs/youtube-policy.md の「30日の決まりで取り直す・消すもの」の直し方の案1〜5を、案1の「取り直す」側で実装した）
 - 実装: src/retention/（seen・purge・status・files）、マイグレーション 13（videos_seen.refreshed_at・gone_at、watch_events.purged_at、candidates.cleared_at、streamers.channel_meta_at）、
   src/crawl/ingest.ts・refresh.ts・src/roster/sync.ts・src/candidates/store.ts、detect:rerun と判定役に見せる前後の枠・候補の種の枠は中身を消した行を使わない。経緯と写しでの確かめは docs/ai-runs.md の 2026-11-13（塊 R）の節
-- 決めていないこと: R2 の raw/ の日数（29日か30日か。docs/youtube-policy.md の選択肢6）、手元の今あるファイルのどれを消すか（ユーザーが一覧を見て決める）、
+- 決めていないこと: 手元の今あるファイルのどれを消すか（ユーザーが一覧を見て決める）、
   unresolved・ai_decisions・event_works・候補の答えの根拠に入る題名の断片（自前の判定の記録。API のデータそのものかは灰色）、枠と候補の時刻・状態（消していない）
+- R2 の raw/ の日数は塊 R では扱わない（2026-11-13 ユーザー決定で30日。D-02 の進み具合）
 - 正の文書: docs/crawl.md の「30日の決まり」・docs/data-model.md・docs/workflows.md 3-1・7
 
 ### D-10 YouTube の規約の読み直しのあとも、作品ページの「観た配信者」は再生数の順が既定のまま・最高再生数と合計再生数は残す（2026-11-13。コードは今のまま）
