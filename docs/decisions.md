@@ -34,7 +34,7 @@
 
 - 中身: 公開の前に作る。最初の候補は3層（弱い語は判定役の試しのあとに決める）。**2026-11-13 ユーザー決定: 弱い語（weak_word）も候補に入れる**（D2 の試しで、同時視聴でない7本を同時視聴と答えたものは0。作品の同時視聴は 5/30）。候補の表 candidates・答えの区分 not_watchalong・`detect_source = ai_candidate`
 - 正の文書: docs/ai-ops.md の3章
-- 印を付けた本文: docs/backlog.md（題名に同時視聴の語が無い続きの回）、docs/crawl.md（detect の弱い語）。docs/data-model.md（detect_source）の印は 2026-11-13 に外した（表と detect_source を書いた）
+- 印を付けた本文: docs/backlog.md（題名に同時視聴の語が無い続きの回。日次から呼ぶ所が残る）。docs/data-model.md（detect_source）・docs/crawl.md（detect の弱い語）・docs/ai-judging.md（答えの区分）・docs/ai-ops.md 3-1 の印は 2026-11-13 に外した
 - 進み具合: 2026-11-08 に塊 D1（候補の選定と件数）を作った。3層の選び方（src/candidates/select.ts・config/candidates.yaml）・メン限の見出しの区間を除く決まり（neighbors.ts と共有）・
   `candidates:select --dry-run`（件数と一覧だけ）。巡回の前の DB で 201本・今の DB でも 201本（docs/ai-runs.md の 2026-11-08 の節）。
   残り: D3a（表と保存・fetch・反映）・D3b（層と語の設定・GUIDE）
@@ -54,6 +54,12 @@
   - ai:revoke: ai_candidate の枠は外し（`ai_revoked`）、候補を ready に戻す。候補の表の答え（not_watchalong・hold）も取り消す（answer_revoked_at。answered_at は残す）。ルールの枠は今までどおり名寄せし直す
   - 今の DB の写しで select（201本）→ fetch（5ユニット）→ queue（10本）→ 用意した答え → ai:push → ai:ingest → settle を通した（結果は D3a の報告。答えは判定役のものではない）
   - 残り（D3b）: 層・続きの語・弱い語・GUIDE の文面（not_watchalong と「そもそも作品を観ていない枠は not_a_work」の整理）。ai:report は not_watchalong の答え（候補の表）を採点の表に出していない
+- 進み具合（2026-11-13）: 塊 D3b を作った。
+  - 弱い語の層（weak_word。config/candidates.yaml の weak_words。10-23 の式のまま）を足した。公開・メン限とも、種の枠の無い配信者も入る。今の DB の写しで候補 481本（弱い語 292・弱い語だけ 280）、巡回の前の DB で 478本（弱い語 289 は 10-23 と動画の ID まで同じ）
+  - メン限の見出しの区間だけの層は落としたまま（D1 の決まり）。続きの語は変えない（語ごとの当たりと外れは docs/ai-runs.md の 2026-11-13 の節）
+  - GUIDE に「続きの回の候補」の節（同時視聴の定義・not_watchalong と not_a_work の分け方・見分ける手がかり）。CLAUDE.md の「作品かどうかの境目」に「作品ではない」と「同時視聴ではない」を分ける1段落を足した
+  - ai:report が候補の表の答え（not_watchalong・枠の無い hold）も採点の表に出す
+  - 残り: 本番の答えの形での試し直し（cand-retrial-1113。待ち行列まで作った。判定役はユーザーの確認のあと）・日次のジョブから candidates:select・candidates:fetch を呼ぶ（塊 F）
 
 ### D-05 Phase 4 の進め方（2026-10-30）
 

@@ -190,7 +190,8 @@ export function candidateQueueRows(db: DB, opts: { includeHold?: boolean; videos
     const vid = String(r.video_id);
     if (opts.videos ? !opts.videos.includes(vid) : !states.includes(String(r.state))) continue;
     const t0 = r.started_at ? Date.parse(String(r.started_at)) : NaN;
-    const ids = [...new Set((JSON.parse(String(r.seeds)) as { seed: number }[]).map((h) => h.seed))];
+    // 弱い語（weak_word）の理由は種の枠を持たない（seed が無い）。種の枠の無い候補は「なし」と見せる
+    const ids = [...new Set((JSON.parse(String(r.seeds)) as { seed?: number }[]).flatMap((h) => (typeof h.seed === "number" ? [h.seed] : [])))];
     const seeds = ids.flatMap((id) => {
       const s = seedOf.get(id) as { started_at: string | null; title_raw: string } | undefined;
       return s ? [{ at: s.started_at ? Date.parse(s.started_at) : NaN, date: jstDate(s.started_at), title: s.title_raw }] : [];

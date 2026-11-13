@@ -81,3 +81,28 @@ test("使う層は設定で絞れる。題名の本体は【】の中身・感�
   assert.deepEqual(got.map((c) => c.videoId), ["vsan"]);
   assert.equal(titleBody("【雑談】バーチャルさんは みている！ 第9話"), "バーチャルさんはみている第9話");
 });
+
+test("弱い語（weak_word）: detect の正規化のあとの題名で見る。公開・メン限とも、種の枠の無い配信者も入る。種の枠は持たず語の名前を持つ", () => {
+  const norm = { nfkc: true, lowercase: true, strip_chars: " \t　・･-_‐－―" };
+  const c = channel();
+  c.videos.push(
+    video("w1", "2025-03-01T12:00:00Z", "【映画】みんなで 観よう！", false),
+    video("w2", "2025-03-02T12:00:00Z", "LET'S  WATCH Movie Together", true),
+    video("w3", "2025-03-03T12:00:00Z", "一緒に・見る雑談", false),
+    video("w4", "2025-03-04T12:00:00Z", "一緒に視聴者参加型", false), // 「一緒に視聴」は弱い語に無い
+  );
+  const noSeeds: StreamerInput = { id: 2, name: "種の無い配信者", frames: [], seeds: [], videos: [video("w5", "2025-03-05T12:00:00Z", "PV視聴会", false), video("x5", "2025-03-06T12:00:00Z", "雑談", false)] };
+  const got = selectCandidates([...input(c), noSeeds], cfg, ccfg, norm);
+  const by = new Map(got.map((x) => [x.videoId, x]));
+  assert.deepEqual(["w1", "w2", "w3", "w5"].map((v) => by.get(v)?.reasons), [["weak_word"], ["weak_word"], ["weak_word"], ["weak_word"]]);
+  assert.ok(!by.has("w4") && !by.has("x5"));
+  assert.deepEqual(by.get("w1")!.hits, [{ reason: "weak_word", word: "みんなで観る" }]);
+  assert.equal(by.get("w2")!.hits[0]!.word, "letswatch");
+  assert.equal(by.get("w5")!.streamerId, 2);
+  // 3層は弱い語を入れても変わらない
+  assert.deepEqual(by.get("arc4")!.reasons, ["same_work_members", "continuation_word"]);
+  // 層から外すと入らない
+  const off = selectCandidates([...input(channel()), noSeeds], cfg, { ...ccfg, layers: ["same_work_members", "continuation_word", "same_title_body"] }, norm);
+  assert.ok(!off.some((x) => x.reasons.includes("weak_word")));
+  assert.ok(!off.some((x) => x.streamerId === 2));
+});

@@ -274,3 +274,38 @@ test("ai:check: not_watchalong は待ち行列で候補にした動画だけ（�
   writeFileSync(join(dir, "answers", "01.json"), JSON.stringify({ batch: "chk1", model: "m", finished_at: "2026-11-01T00:00:00Z", answers: vids.map((v) => ans(v, "not_watchalong", { works: [{ key: "annict:1" }] })) }), "utf8");
   assert.match(ai.aiCheck(join(dir, "answers")).text, /not_watchalong（同時視聴ではない）に works・title は書かない/);
 });
+
+test("ai:report: 候補の表の答え（not_watchalong・枠の無い hold）も採点の表に出す。あとで枠を作った候補の前の答えは取り消し済み", async () => {
+  const ctx = setup();
+  await ai.aiApply(ctx, cfg, answerFile("2026-11-01T10:00:00Z", [ans("c1", "identified"), ans("c2", "not_watchalong"), ans("c5", "hold", { confidence: "low" })], "01.json", "rep-b"), deps);
+  const text = ai.aiReport(ctx, "rep-b", { includeHigh: true });
+  assert.match(text, /3 件/);
+  const dir = join(DATA, "ai", "rep-b");
+  const md = readFileSync(join(dir, "report.md"), "utf8");
+  assert.match(md, /## \d+\. c2　テスト配信者[^\n]*\n[\s\S]*?- 判定: \*\*同時視聴ではない\*\*（確度 high）/);
+  assert.match(md, /件数（取り消していないもの）: 同定 1・同時視聴ではない 1・保留 1/);
+  const html = readFileSync(join(dir, "report.html"), "utf8");
+  for (const v of ["c1", "c2", "c5"]) assert.ok(html.includes(`"id":"${v}"`), v);
+  assert.match(html, /同時視聴の配信なのに/);
+  // 確度 high の not_watchalong は、--include-high が無ければ抜き取りに回る（確度 high 以外・保留は出す）
+  ai.aiReport(ctx, "rep-b", {});
+  const html2 = readFileSync(join(dir, "report.html"), "utf8");
+  assert.ok(!html2.includes('"id":"c2"') && html2.includes('"id":"c5"'));
+  // あとの回で c2 に枠を作ると、前の回の not_watchalong は取り消し済み（採点の表に出さない）
+  await ai.aiApply(ctx, cfg, answerFile("2026-11-02T10:00:00Z", [ans("c2", "identified")], "01.json", "rep-c"), deps);
+  ai.aiReport(ctx, "rep-b", { includeHigh: true });
+  assert.match(readFileSync(join(dir, "report.md"), "utf8"), /c2　テスト配信者[^\n]*（取り消し済み）/);
+  assert.ok(!readFileSync(join(dir, "report.html"), "utf8").includes('"id":"c2"'));
+});
+
+test("ai:queue: 弱い語だけの候補（種の枠が無い）は「候補にした同時視聴の枠: なし」", async () => {
+  const ctx = setup();
+  ctx.db.prepare(`UPDATE candidates SET reasons = '["weak_word"]', seeds = '[{"reason":"weak_word","word":"一緒に観る"}]' WHERE video_id = 'c6'`).run();
+  await ai.aiQueueRoutes(ctx, cfg, { batch: "cq-weak", seed: "s", candidatesOnly: true, videos: ["c6"] });
+  const md = readFileSync(join(DATA, "ai", "cq-weak", "queue", "01.md"), "utf8");
+  assert.match(md, /- 候補にした同時視聴の枠: なし/);
+  assert.ok(!/weak_word|一緒に観る」/.test(md));
+  const guide = readFileSync(join(DATA, "ai", "cq-weak", "GUIDE.md"), "utf8");
+  assert.match(guide, /## 続きの回の候補/);
+  assert.match(guide, /- not_watchalong: 同時視聴ではない。\*\*候補の動画だけ\*\*/);
+});

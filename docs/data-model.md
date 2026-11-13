@@ -95,7 +95,7 @@ first_event_at / latest_event_at）は DB に持たず、サイト用のデー�
     split_cours       分割クールでまとめた後半の作品（Annict の ID）と、まとめ先の前半の作品。名寄せのたびに作り直す（公開キーの転送に使う）
     work_public_keys  一度出した作品の公開キーと、そのときの外部DBの ID。同じ作品には同じキーを付け直し、行がまとまったら古いキーから 301
     candidates        題名に同時視聴の語が無い続きの回の候補（2026-11-13。D-04・docs/ai-ops.md 3章）。1動画1行で、**行を消さない**（db:pack が行の減少で止める）。
-                      列: 候補の理由（reasons。層の並び）・種の枠（seeds。[{ reason, seed（watch_events.id）, key（作品名の区間）}]）・最初と最後に選んだ時刻・
+                      列: 候補の理由（reasons。層の並び）・種の枠（seeds。[{ reason, seed（watch_events.id）, key（作品名の区間）}]。弱い語（weak_word）は seed が無く word（当たった弱い語の名前））・最初と最後に選んだ時刻・
                       状態（state と state_at）・詳細（videos.list。watch_events と同じ列・同じ意味。description_raw は公開しない）と取った時刻・取れなかった理由（fetch_note）・
                       枠を作らない答え（answer_status = not_watchalong / hold・answer_batch・answer_detail・答えの時刻 answered_at・answer_revoked_at）・作った枠（watch_event_id）
                       state = selected（選んだ。詳細はまだ）/ waiting（予定・配信中。次の日にもう一度詳細を取る）/ ready（終わった。判定に回す）/
