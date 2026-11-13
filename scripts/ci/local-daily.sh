@@ -6,7 +6,8 @@
 #
 #   R2_LOCAL_DIR  R2 に見立てるフォルダ（先に db/db.sqlite.gz と db/db.sqlite.gz.meta.json を置く。R2_PREFIX があればその下）
 #   DATA_DIR      この回の作業のフォルダ（空のフォルダ。ランナーと同じく DB はここに落とす。本体の data/ を指さない）
-#   CRAWL         true で roster・crawl:daily・refresh・candidates を流す（YouTube のクォータを使う。既定 false）
+#   CRAWL         true で roster・crawl:daily・refresh・candidates を流し、retention で videos_seen を取り直す（YouTube のクォータを使う。既定 false。
+#                 false でも retention は流す（YouTube のキーを空にして、API を使わない候補と枠の消去だけ。daily.yml の crawl: false と同じ）
 #   TARGET        既定 preview（ローカルからはアップロードしない）
 #   WRITER        既定 daily
 #   OG_CACHE      og:image のキャッシュ（既定 $DATA_DIR/site/og-cache。写しを置けばビルドが速い）
@@ -50,8 +51,10 @@ run pull false pull
 if [ "${outcome[pull]}" = success ]; then
   if [ "$CRAWL" = true ]; then
     run roster true roster; run crawl true crawl; run refresh true refresh; run candidates true candidates
+    run retention true retention
   else
     for s in roster crawl refresh candidates; do skip "$s"; done
+    YOUTUBE_API_KEY="" run retention true retention
   fi
   run ai-ingest true ai-ingest
   run resolve true resolve
@@ -70,7 +73,7 @@ if [ "${outcome[pull]}" = success ]; then
 fi
 run summary false summary
 echo ""; echo "=== 結果"
-for k in start pull roster crawl refresh candidates ai-ingest resolve site-data push settle raw fingerprint build check-dist summary; do
+for k in start pull roster crawl refresh candidates retention ai-ingest resolve site-data push settle raw fingerprint build check-dist summary; do
   printf '%-12s %s\n' "$k" "${outcome[$k]:-skipped}"
 done
 echo "ワークフローの色: $([ $red = 0 ] && echo 緑 || echo 赤)"

@@ -94,6 +94,7 @@ export function quotaReport(db: DB, days: number): string {
  * 3. 既存の WatchEvent をタイトルと保存済みの概要欄で再判定する。当たらなくなった枠は
  *    行を消さずに excluded_at を立てて外す。ルールを戻して再び当たれば外した印を消す。
  *    AI が候補から足した枠（detect_source = 'ai_candidate'。題名に同時視聴の語が無い）は判定し直さない（docs/ai-ops.md 3-4。外すのは ai:revoke）
+ * 30日の決まり（D-12）で題名を消した動画（videos_seen.gone_at）・中身を消した枠（watch_events.purged_at）は判定し直さない（空の題名で外さない）
  */
 export function rerunDetect(db: DB, cfg: DetectConfig): Record<string, number> {
   const r = {
@@ -104,7 +105,7 @@ export function rerunDetect(db: DB, cfg: DetectConfig): Record<string, number> {
   // ライブでない・非公開などの除外は語彙と無関係なので、ここでは再判定しない（2 で別に扱う）
   const rows = db
     .prepare(`SELECT video_id, title, detect_result FROM videos_seen
-      WHERE detect_version != ? AND (detect_result = 'miss' OR detect_note LIKE 'title_exclude:%')`)
+      WHERE detect_version != ? AND (detect_result = 'miss' OR detect_note LIKE 'title_exclude:%') AND gone_at IS NULL`)
     .all(cfg.version) as { video_id: string; title: string; detect_result: string }[];
   const upd = db.prepare("UPDATE videos_seen SET detect_result = ?, detect_note = ?, detect_version = ? WHERE video_id = ?");
   tx(db, () => {
@@ -135,7 +136,7 @@ export function rerunDetect(db: DB, cfg: DetectConfig): Record<string, number> {
 
     const evs = db
       .prepare(`SELECT id, title_raw, description_raw, excluded_reason FROM watch_events
-        WHERE (excluded_at IS NULL OR excluded_reason LIKE 'detect_rule%') AND detect_source != 'ai_candidate'`)
+        WHERE (excluded_at IS NULL OR excluded_reason LIKE 'detect_rule%') AND detect_source != 'ai_candidate' AND purged_at IS NULL`)
       .all() as { id: number; title_raw: string; description_raw: string | null; excluded_reason: string | null }[];
     const exclude = db.prepare("UPDATE watch_events SET excluded_at = ?, excluded_reason = ?, updated_at = ? WHERE id = ?");
     const restore = db.prepare("UPDATE watch_events SET excluded_at = NULL, excluded_reason = NULL, detect_source = ?, detect_keyword = ?, updated_at = ? WHERE id = ?");

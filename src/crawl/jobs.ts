@@ -80,6 +80,7 @@ export async function fetchOrphans(ctx: Ctx): Promise<void> {
   ctx.summary.orphan_upsert = up;
 }
 
-export async function refreshAll(ctx: Ctx): Promise<void> {
-  ctx.summary.refresh_all = await runStep(ctx, "refresh all events", () => refreshEvents(ctx, "all"));
+export async function refreshAll(ctx: Ctx, videoIds?: string[]): Promise<void> {
+  if (videoIds) ctx.summary.refresh_videos = await runStep(ctx, `refresh ${videoIds.length} videos`, () => refreshEvents(ctx, "all", videoIds));
+  else ctx.summary.refresh_all = await runStep(ctx, "refresh all events", () => refreshEvents(ctx, "all"));
 }

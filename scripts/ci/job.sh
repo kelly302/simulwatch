@@ -161,6 +161,8 @@ case "$STEP" in
   crawl)        cli crawl:daily ;;
   refresh)      cli refresh ;;
   candidates)   cli candidates:select; cli candidates:fetch ;;
+  # 30日の決まり（D-12）。videos_seen の取り直し（YOUTUBE_API_KEY が無ければ飛ばす）・終わった候補の詳細と、アーカイブが消えた枠の中身を消す（API なし）
+  retention)    cli retention ;;
   # 6 の 1〜3（受け箱から移すのは settle。DB の書き戻しのあと）
   ai-ingest)
     rm -f "$JOB_DIR/ai-result.json"

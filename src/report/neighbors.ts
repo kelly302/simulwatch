@@ -35,10 +35,10 @@ export interface FrameContext {
 
 const JST = (t: string | null) => (t ? new Date(Date.parse(t) + 9 * 3_600_000).toISOString().slice(0, 10) : "?");
 
-/** 配信者ごとの同時視聴枠（日付順）。判定から外した枠（excluded_at）は除く */
+/** 配信者ごとの同時視聴枠（日付順）。判定から外した枠（excluded_at）と、アーカイブが消えて中身を消した枠（purged_at。D-12）は除く */
 export function streamerFrames(ctx: Pick<Ctx, "db">): (streamerId: number) => Frame[] {
   const memo = new Map<number, Frame[]>();
-  const q = ctx.db.prepare("SELECT id, started_at, title_raw FROM watch_events WHERE streamer_id = ? AND excluded_at IS NULL ORDER BY started_at, id");
+  const q = ctx.db.prepare("SELECT id, started_at, title_raw FROM watch_events WHERE streamer_id = ? AND excluded_at IS NULL AND purged_at IS NULL ORDER BY started_at, id");
   return (sid) => {
     let v = memo.get(sid);
     if (!v) {
@@ -113,11 +113,11 @@ export interface OtherVideos {
   members: Video[];
 }
 
-/** 配信者ごとの、同時視聴枠にならなかった動画（日付順）。判定から外した枠（excluded_at）はこちらに入る */
+/** 配信者ごとの、同時視聴枠にならなかった動画（日付順）。判定から外した枠（excluded_at）はこちらに入る。題名を消した動画（gone_at。D-12）は除く */
 export function streamerVideos(ctx: Pick<Ctx, "db">, cfg: ExtractConfig): (streamerId: number) => Video[] {
   const memo = new Map<number, Video[]>();
   const q = ctx.db.prepare(`SELECT v.video_id, v.published_at, v.title, v.is_members_hint FROM videos_seen v JOIN streamers s ON s.channel_id = v.channel_id
-    WHERE s.id = ? AND v.published_at IS NOT NULL
+    WHERE s.id = ? AND v.published_at IS NOT NULL AND v.gone_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM watch_events e WHERE e.video_id = v.video_id AND e.excluded_at IS NULL)
     ORDER BY v.published_at, v.video_id`);
   return (sid) => {

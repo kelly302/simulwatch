@@ -171,23 +171,42 @@ function nameSharedChannels(ctx: Ctx): { renamed: string[] } {
   return out;
 }
 
-/** channels.list でアイコンとチャンネル名を更新する（50件で1ユニット） */
-async function refreshChannelMeta(ctx: Ctx): Promise<{ updated: number; missing: string[] }> {
-  const out = { updated: 0, missing: [] as string[] };
+/**
+ * channels.list でアイコンとチャンネル名を更新する（50件で1ユニット）。
+ * 巡回を止めた（卒業した）配信者も取り直す（過去の枠と一緒にアイコンを出すので、30日の決まりで取り直す。D-12）。
+ * 返ってこないチャンネルは、最後に返ってきた時刻（channel_meta_at）が act_after_days を過ぎていればアイコンとチャンネル名を消す（名前は事務所の名簿の値なので残る）。
+ * 1バッチ（10件以上）の半分超が返ってこなければ API の異常とみなして消さない（refresh と同じ）
+ */
+export async function refreshChannelMeta(ctx: Pick<Ctx, "db" | "yt" | "crawlCfg">, now: Date = new Date()): Promise<{ updated: number; inactive_updated: number; missing: string[]; cleared: string[] }> {
+  const out = { updated: 0, inactive_updated: 0, missing: [] as string[], cleared: [] as string[] };
   if (!ctx.yt) return out;
-  const rows = ctx.db.prepare("SELECT id, channel_id FROM streamers WHERE is_active = 1").all() as { id: number; channel_id: string }[];
-  const upd = ctx.db.prepare("UPDATE streamers SET icon_url = COALESCE(?, icon_url), channel_title = COALESCE(?, channel_title), updated_at = ? WHERE channel_id = ?");
+  const rows = ctx.db.prepare("SELECT id, channel_id, is_active, channel_meta_at FROM streamers ORDER BY is_active DESC, id").all() as
+    { id: number; channel_id: string; is_active: number; channel_meta_at: string | null }[];
+  const byChannel = new Map(rows.map((r) => [r.channel_id, r]));
+  const before = new Date(now.getTime() - ctx.crawlCfg.retention.act_after_days * 86_400_000).toISOString();
+  const { min_batch_for_ratio: minBatch, max_missing_ratio: maxMissing } = ctx.crawlCfg.refresh;
+  const upd = ctx.db.prepare("UPDATE streamers SET icon_url = COALESCE(?, icon_url), channel_title = COALESCE(?, channel_title), channel_meta_at = ?, updated_at = ? WHERE channel_id = ?");
+  const clear = ctx.db.prepare("UPDATE streamers SET icon_url = NULL, channel_title = NULL, updated_at = ? WHERE channel_id = ? AND (icon_url IS NOT NULL OR channel_title IS NOT NULL)");
   for (const ids of chunk(rows.map((r) => r.channel_id), 50)) {
     const items = await ctx.yt.channels(ids);
     const got = new Set(items.map((i) => i.id));
-    const now = nowIso();
+    const at = nowIso();
+    const guard = ids.length >= minBatch && (ids.length - items.length) / ids.length > maxMissing;
+    if (guard) log.warn(`channels.list の欠落が多すぎるため、アイコンとチャンネル名を消しません (${ids.length - items.length}/${ids.length})`);
     tx(ctx.db, () => {
       for (const it of items) {
-        upd.run(bestThumbnail(it.snippet?.thumbnails), it.snippet?.title ?? null, now, it.id);
+        upd.run(bestThumbnail(it.snippet?.thumbnails), it.snippet?.title ?? null, at, at, it.id);
         out.updated++;
+        if (byChannel.get(it.id)?.is_active === 0) out.inactive_updated++;
+      }
+      for (const id of ids) {
+        if (got.has(id)) continue;
+        out.missing.push(id);
+        const r = byChannel.get(id);
+        if (guard || !r || (r.channel_meta_at !== null && r.channel_meta_at >= before)) continue;
+        if (clear.run(at, id).changes > 0) out.cleared.push(id);
       }
     });
-    for (const id of ids) if (!got.has(id)) out.missing.push(id);
   }
   return out;
 }

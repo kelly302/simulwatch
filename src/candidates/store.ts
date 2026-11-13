@@ -81,9 +81,13 @@ export function candidatesSelect(db: DB, cfg: ExtractConfig, maxDaysAhead: numbe
 
 export interface FetchStats {
   targets: number;
+  /** 対象のうち、判定に回す候補（ready・hold）の取り直し（30日の決まり。D-12） */
+  refetched: number;
   requested: number;
   /** 終わった（判定に回す） */
   ready: number;
+  /** 保留のまま詳細を取り直した */
+  hold: number;
   /** 予定・配信中（次の日にもう一度取る） */
   waiting: number;
   /** 非公開・限定公開・ライブでない */
@@ -98,26 +102,44 @@ export interface FetchCtx {
   detectCfg: DetectConfig;
 }
 
+/** 詳細の列（videos.list から写した YouTube のデータ）のうち、終わった候補で消すもの（30日の決まり。D-12。src/retention/purge.ts と同じ） */
+export const CLEAR_DETAIL_SQL = "title_raw = NULL, description_raw = NULL, thumbnail_url = NULL, view_count = NULL, view_count_fetched_at = NULL";
+
 /**
  * candidates:fetch。詳細がまだの候補（selected）と予定・配信中だった候補（waiting）の videos.list を引き、watch_events と同じ列に入れる。
- * 終わった動画だけを判定に回す（ready）。50本ごとに書くので、途中でクォータが尽きても取れたぶんは残る（残りは次の日）
+ * 終わった動画だけを判定に回す（ready）。50本ごとに書くので、途中でクォータが尽きても取れたぶんは残る（残りは次の日）。
+ * refetchBefore を渡すと、判定に回す候補（ready・hold）のうち、詳細をその時刻より前に取った・詳細が無い（取り消しで ready に戻った候補）ものも取り直す
+ * （30日の決まり。D-12。状態はそのまま。取れなければ unavailable）。取れない候補（unavailable）は詳細を消す
  */
-export async function fetchCandidates(ctx: FetchCtx, opts: { limit?: number } = {}): Promise<FetchStats> {
+export async function fetchCandidates(ctx: FetchCtx, opts: { limit?: number; refetchBefore?: string } = {}): Promise<FetchStats> {
   const { db } = ctx;
-  const ids = (db.prepare(`SELECT video_id FROM candidates WHERE state IN ('selected', 'waiting') ORDER BY id${opts.limit ? " LIMIT ?" : ""}`)
-    .all(...(opts.limit ? [opts.limit] : [])) as { video_id: string }[]).map((r) => r.video_id);
-  const s: FetchStats = { targets: ids.length, requested: 0, ready: 0, waiting: 0, unavailable: 0, missing: 0 };
+  const stale = opts.refetchBefore
+    ? " OR (state IN ('ready', 'hold') AND (title_raw IS NULL OR fetched_at IS NULL OR fetched_at < ?))"
+    : "";
+  const targets = db.prepare(`SELECT video_id, state FROM candidates WHERE state IN ('selected', 'waiting')${stale} ORDER BY id${opts.limit ? " LIMIT ?" : ""}`)
+    .all(...(opts.refetchBefore ? [opts.refetchBefore] : []), ...(opts.limit ? [opts.limit] : [])) as { video_id: string; state: string }[];
+  const ids = targets.map((r) => r.video_id);
+  const prior = new Map(targets.map((r) => [r.video_id, r.state]));
+  const s: FetchStats = {
+    targets: ids.length, refetched: targets.filter((r) => r.state === "ready" || r.state === "hold").length,
+    requested: 0, ready: 0, hold: 0, waiting: 0, unavailable: 0, missing: 0,
+  };
   if (!ids.length) return s;
   if (!ctx.yt) {
     log.warn(`APIキーが無いため候補 ${ids.length} 本の詳細取得を保留します（次の日に取る）`);
     return s;
   }
   const hint = db.prepare("SELECT is_members_hint FROM videos_seen WHERE video_id = ?");
-  const setDetail = db.prepare(`UPDATE candidates SET state = ?, state_at = ?,
+  // state_at は状態が変わったときだけ新しくする（判定に回す候補の取り直しで状態がそのままなら前の時刻を残す）
+  const setDetail = db.prepare(`UPDATE candidates SET state_at = CASE WHEN ? = 1 THEN state_at ELSE ? END, state = ?,
       title_raw = ?, description_raw = ?, thumbnail_url = ?, started_at = ?, started_at_source = ?, scheduled_start_at = ?, ended_at = ?, status = ?,
       is_members_only = MAX(is_members_only, ?), view_count = ?, view_count_fetched_at = ?, fetched_at = ?, fetch_note = NULL
     WHERE video_id = ?`);
-  const setGone = db.prepare("UPDATE candidates SET state = 'unavailable', state_at = ?, fetched_at = ?, fetch_note = ? WHERE video_id = ?");
+  // 取れない（削除・非公開・ライブでない）。前に取った詳細があれば消す（もう判定に回さない。D-12）
+  const setGone = db.prepare(`UPDATE candidates SET state = 'unavailable', state_at = ?, fetched_at = ?, fetch_note = ?,
+      cleared_at = CASE WHEN title_raw IS NOT NULL OR description_raw IS NOT NULL OR thumbnail_url IS NOT NULL OR view_count IS NOT NULL THEN ? ELSE cleared_at END,
+      ${CLEAR_DETAIL_SQL}
+    WHERE video_id = ?`);
   const opt = { allowNonLive: !ctx.detectCfg.reject.require_live };
   for (const part of chunk(ids, 50)) {
     s.requested += part.length;
@@ -128,27 +150,30 @@ export async function fetchCandidates(ctx: FetchCtx, opts: { limit?: number } = 
       for (const v of items) {
         const c = classifyVideo(v, opt);
         if (c.kind === "not_live") {
-          setGone.run(now, now, "not_live", v.id);
+          setGone.run(now, now, "not_live", now, v.id);
           s.unavailable++;
           continue;
         }
         if (c.kind === "unavailable") {
-          setGone.run(now, now, c.reason, v.id);
+          setGone.run(now, now, c.reason, now, v.id);
           s.unavailable++;
           continue;
         }
         // メン限の印: 候補の表の値（選んだときの videos_seen の is_members_hint）・今の is_members_hint・題名のメン限の語（巡回の upsertEvent と同じ）
         const h = (hint.get(v.id) as { is_members_hint: number } | undefined)?.is_members_hint === 1;
         const members = h || isMembersTitle(c.title, ctx.detectCfg) ? 1 : 0;
-        const state = c.status === "completed" ? "ready" : "waiting";
-        setDetail.run(state, now, c.title, c.description, c.thumbnail_url, c.started_at, c.started_at_source, c.scheduled_start_at, c.ended_at, c.status,
+        // 判定に回す候補（ready・hold）の取り直しは状態をそのままにする（hold を ready に戻さない）
+        const was = prior.get(v.id);
+        const state = c.status !== "completed" ? "waiting" : was === "hold" ? "hold" : "ready";
+        const keep = (was === "ready" || was === "hold") && was === state ? 1 : 0;
+        setDetail.run(keep, now, state,
+          c.title, c.description, c.thumbnail_url, c.started_at, c.started_at_source, c.scheduled_start_at, c.ended_at, c.status,
           members, c.view_count, c.view_count === null ? null : now, now, v.id);
-        if (state === "ready") s.ready++;
-        else s.waiting++;
+        s[state]++;
       }
       for (const id of part) {
         if (returned.has(id)) continue;
-        setGone.run(now, now, "missing_in_videos_list", id);
+        setGone.run(now, now, "missing_in_videos_list", now, id);
         s.missing++;
       }
     });
@@ -184,7 +209,8 @@ export function candidateQueueRows(db: DB, opts: { includeHold?: boolean; videos
     WHERE c.status = 'completed' AND c.title_raw IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM watch_events e WHERE e.video_id = c.video_id AND e.excluded_at IS NULL)
     ORDER BY c.id`).all() as Record<string, string | number | null>[];
-  const seedOf = db.prepare("SELECT started_at, title_raw FROM watch_events WHERE id = ?");
+  // アーカイブが消えて中身を消した枠（purged_at。D-12）は種の枠として見せない
+  const seedOf = db.prepare("SELECT started_at, title_raw FROM watch_events WHERE id = ? AND purged_at IS NULL");
   const out: CandidateQueueRow[] = [];
   for (const r of rows) {
     const vid = String(r.video_id);

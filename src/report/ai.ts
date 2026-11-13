@@ -715,7 +715,9 @@ export function aiCheck(path: string, opts: { now?: number } = {}): { ok: boolea
 
 /** 判定の根拠の一覧（採点用の表）。batch をカンマでつなぐと、複数の回を1つの表にまとめる（出力は data/ai/<回を _ でつないだ名前>/） */
 export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?: string; excludeScored?: string[]; videos?: string[]; includeHigh?: boolean } = {}): string {
-  const rows = ctx.db.prepare(`SELECT a.status, a.works, a.confidence, a.evidence, a.rationale, a.seconds, a.revoked_at, e.video_id, e.title_raw, e.started_at, s.name AS streamer
+  // アーカイブが消えて中身を消した枠（purged_at。D-12）は題名が空なので、消したことを出す
+  const rows = ctx.db.prepare(`SELECT a.status, a.works, a.confidence, a.evidence, a.rationale, a.seconds, a.revoked_at, e.video_id,
+      CASE WHEN e.purged_at IS NOT NULL THEN '${PURGED_TITLE}' ELSE e.title_raw END AS title_raw, e.started_at, s.name AS streamer
     FROM ai_decisions a JOIN watch_events e ON e.id = a.watch_event_id JOIN streamers s ON s.id = e.streamer_id
     WHERE a.batch IN (${batch.split(",").map(() => "?").join(",")}) ORDER BY a.id`).all(...batch.split(",")) as Record<string, string | number | null>[];
   rows.push(...candidateAnswerRows(ctx.db, batch.split(",")));
@@ -857,6 +859,9 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
   return `${rows.length} 件 → ${path}・採点用 ${html}（${items.length} 件: ${byStatus}。確度 high 以外・保留・特定できない・指定の枠 ${must.length}${opts.includeHigh ? "（確度 high も全部）" : opts.sample ? `、確度 high から抜き取り ${opts.sample}` : ""}${scored.size ? `、採点済みで除いた ${scored.size}` : ""}）`;
 }
 
+/** 30日の決まり（D-12）で題名を消した枠・候補の、採点の表での題名 */
+const PURGED_TITLE = "（題名は30日の決まりで消した。D-12）";
+
 /**
  * 続きの回の候補（D-04）で、枠を作らない答え（not_watchalong と、一覧に出る枠の無い候補の hold）は ai_decisions に無く、候補の表に持つ。
  * ai:report の表に ai_decisions の行と同じ形で出す。候補の表は動画ごとに最後の答えだけを持つので、その batch の答えがあとの答えで置き換わっていれば出ない。
@@ -871,7 +876,7 @@ export function candidateAnswerRows(db: DB, batches: string[]): Record<string, s
     return {
       status: r.status, works: null, confidence: d.confidence ?? "low", evidence: JSON.stringify(d.evidence ?? { looked: [] }), rationale: d.rationale ?? "", seconds: d.seconds ?? null,
       revoked_at: r.answer_revoked_at ?? (r.state !== r.status ? r.answered_at : null),
-      video_id: r.video_id, title_raw: r.title_raw, started_at: r.started_at, streamer: r.streamer,
+      video_id: r.video_id, title_raw: r.title_raw ?? PURGED_TITLE, started_at: r.started_at, streamer: r.streamer,
     };
   });
 }
