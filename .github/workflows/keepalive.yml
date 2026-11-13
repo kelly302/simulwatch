@@ -1,0 +1,33 @@
+# 公開リポジトリは60日コミットが無いと schedule が止まるので、月1回軽いコミットを push する（docs/workflows.md 3-3）。
+# SCHEDULE_ENABLED を見ないので、公開の前でもリモートの main が進む。ローカルから push する前に `git pull --rebase` する（触るのは .github/keepalive だけ）
+name: keepalive
+
+on:
+  schedule:
+    - cron: "41 3 3 * *"   # 毎月3日 03:41 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: commit and push
+        run: |
+          date -u +%Y-%m-%d > .github/keepalive
+          if git diff --quiet -- .github/keepalive && git ls-files --error-unmatch .github/keepalive >/dev/null 2>&1; then
+            echo "今日はもう書いてある"; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/keepalive
+          git commit -m "keepalive: $(date -u +%Y-%m-%d)（schedule の60日の停止を防ぐ。docs/workflows.md 3-3）"
+          git push

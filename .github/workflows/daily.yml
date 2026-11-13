@@ -1,0 +1,247 @@
+# 日次のジョブ（docs/workflows.md 3-1）。DB を取って検査 → 巡回 → 候補 → AI の答えの取り込み → 名寄せ → site:data → DB を書き戻す → 変わっていればビルドしてアップロード。
+# ステップの中身は scripts/ci/job.sh（ローカルで同じ順に通すのは scripts/ci/local-daily.sh）。
+#
+# - schedule は Variable の SCHEDULE_ENABLED が true のときだけ動く（最初の公開の前に動かさない。5-2）。ボタン（workflow_dispatch）はいつでも動く
+# - 試しの置き場所: Variable の R2_PREFIX（例 test/）があれば R2 のすべてのキーの先頭に付け、アップロードは preview だけにする（本物の DB を置く前に写しで1周する）
+name: daily
+
+on:
+  schedule:
+    - cron: "23 20 * * *"   # 日本時間 05:23（日次。2026-10-30 ユーザー決定）
+    - cron: "23 2 * * *"    # 日本時間 11:23（保険。日次が20時間以内に書いていれば何もせずに終わる）
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "アップロード先（R2_PREFIX があるときは preview だけ）"
+        type: choice
+        options: [production, preview]
+        default: production
+      crawl:
+        description: "roster・crawl:daily・refresh・candidates:fetch を流す（false で YouTube を呼ばずに1周する試し）"
+        type: boolean
+        default: true
+
+# DB を書く2本（daily・publish）は同じ組。保険の回は待ち、日次が終わってから「もう済んだか」を見る（5-1）
+concurrency:
+  group: simulwatch-db
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_CLI_VERSION: "2.39.1"
+  # 新しい AWS CLI が既定で付けるチェックサムを、必要なときだけにする（R2 で合わないことがあると言われる。docs/workflows.md 2-2。段6 で外して試す）
+  AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+  AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+  R2_BUCKET: ${{ vars.R2_BUCKET }}
+  R2_PREFIX: ${{ vars.R2_PREFIX }}
+  TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.target || 'production' }}
+  WRITER: daily
+  FORCE: "false"
+
+jobs:
+  daily:
+    if: vars.SCHEDULE_ENABLED == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: setup-node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+      - name: npm ci
+        timeout-minutes: 10
+        run: npm ci
+      - name: AWS CLI
+        timeout-minutes: 5
+        run: bash scripts/ci/install-aws.sh
+      - name: start
+        id: start
+        run: bash scripts/ci/job.sh start
+
+      # 保険の cron だけ: R2 の DB のメタデータを見て、日次が20時間以内に書いていれば以降を飛ばす
+      - name: due
+        id: due
+        timeout-minutes: 2
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "${{ github.event.schedule }}" = "23 2 * * *" ]; then
+            bash scripts/ci/job.sh due
+          else
+            echo "due=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 2-3 取得と検査。外れたらここで止まる（何も書かない）
+      - name: pull
+        id: pull
+        if: steps.due.outputs.due == 'true'
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: bash scripts/ci/job.sh pull
+
+      # 3〜9 は失敗しても次へ（CLI はステップの失敗を runs に partial で残して終了コード 0。プロセスが落ちた・タイムアウトもここで吸収する）
+      - name: roster
+        if: steps.pull.outcome == 'success' && (github.event_name != 'workflow_dispatch' || inputs.crawl)
+        continue-on-error: true
+        timeout-minutes: 10
+        run: bash scripts/ci/job.sh roster
+      - name: crawl:daily
+        if: steps.pull.outcome == 'success' && (github.event_name != 'workflow_dispatch' || inputs.crawl)
+        continue-on-error: true
+        timeout-minutes: 40
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: bash scripts/ci/job.sh crawl
+      - name: refresh
+        if: steps.pull.outcome == 'success' && (github.event_name != 'workflow_dispatch' || inputs.crawl)
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: bash scripts/ci/job.sh refresh
+      - name: candidates
+        if: steps.pull.outcome == 'success' && (github.event_name != 'workflow_dispatch' || inputs.crawl)
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: bash scripts/ci/job.sh candidates
+      - name: ai:ingest
+        if: steps.pull.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          ANNICT_TOKEN: ${{ secrets.ANNICT_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: bash scripts/ci/job.sh ai-ingest
+      - name: resolve
+        if: steps.pull.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 45
+        env:
+          ANNICT_TOKEN: ${{ secrets.ANNICT_TOKEN }}
+        run: bash scripts/ci/job.sh resolve
+      - name: site:data
+        if: steps.pull.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bash scripts/ci/job.sh site-data
+
+      # 2-4 書き戻し。前のステップが失敗しても、取得と検査が通っていれば必ず。行を消さない表が減っていたら書かずに赤
+      - name: push
+        id: push
+        if: always() && steps.pull.outcome == 'success'
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: bash scripts/ci/job.sh push
+      # 6 の 4〜5。書き戻しが通ったときだけ受け箱から移す
+      - name: ai:ingest --settle
+        if: always() && steps.push.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: bash scripts/ci/job.sh settle
+      - name: raw
+        if: always() && steps.pull.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: bash scripts/ci/job.sh raw
+
+      # 2-6 指紋（site-data.json が無ければ失敗 = site:data が失敗した回はビルドしない）
+      # success() を書いておく（push が赤ならここから先は動かない。4章）
+      - name: fingerprint
+        id: fp
+        if: success() && steps.pull.outcome == 'success'
+        timeout-minutes: 2
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: bash scripts/ci/job.sh fingerprint
+
+      # 2-5・2-7 og:image のキャッシュを戻す → ビルド → dist/ の確認
+      - name: og-cache restore
+        if: steps.fp.outputs.build == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: data/site/og-cache
+          key: og-${{ github.run_id }}
+          restore-keys: og-
+      - name: build
+        if: steps.fp.outputs.build == 'true'
+        timeout-minutes: 20
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: bash scripts/ci/job.sh build
+      - name: check dist
+        if: steps.fp.outputs.build == 'true'
+        timeout-minutes: 2
+        run: bash scripts/ci/job.sh check-dist
+
+      # 2-8 アップロード（本番は deploy、プレビューは版を上げて preview の別名を付ける）
+      - name: upload
+        id: upload
+        if: steps.fp.outputs.build == 'true'
+        timeout-minutes: 10
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.155.0"
+          command: ${{ env.TARGET == 'production' && 'deploy' || 'versions upload --preview-alias preview' }}
+      - name: upload の URL
+        if: steps.upload.outcome == 'success'
+        env:
+          URL: ${{ steps.upload.outputs.deployment-url }}
+        run: |
+          echo "アップロード先 ${TARGET}: ${URL:-（出力に URL が無い。上のログの Version Preview URL を見る）}"
+          echo "- アップロード（${TARGET}）: ${URL:-ログを見る}" >> "$GITHUB_STEP_SUMMARY"
+      - name: last-deploy
+        if: steps.upload.outcome == 'success' && env.TARGET == 'production'
+        timeout-minutes: 2
+        env:
+          FINGERPRINT: ${{ steps.fp.outputs.fingerprint }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: bash scripts/ci/job.sh last-deploy
+      # 中身が変わったときだけ保存（同じキーがあれば保存しない）
+      - name: og-cache save
+        if: always() && steps.fp.outputs.build == 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: data/site/og-cache
+          key: og-${{ hashFiles('data/site/og-cache/**') }}
+
+      # 2-9 結果（数・状態・エラーの文だけ。概要欄・判定の根拠は出さない）
+      - name: summary
+        if: always() && steps.pull.outcome != 'skipped' && steps.start.outcome == 'success'
+        timeout-minutes: 2
+        env:
+          JOB_STARTED_AT: ${{ steps.start.outputs.started_at }}
+        run: bash scripts/ci/job.sh summary

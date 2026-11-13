@@ -7,8 +7,8 @@
 
 未実装の決定（中身・置き換えるもの・正の文書は docs/decisions.md）:
 
-- D-02 公開先は Cloudflare Workers・workers.dev・生レスポンスは R2 に30日・コミットの作者は noreply（2026-10-26）
-- D-03 AI の判定は人が起動した回でだけ作り、日次のジョブは答えのファイルを `ai:ingest` で取り込むだけ。すでにある判定より古い答えは取り込まない（2026-10-26〜30。取り込む側のコマンドは 2026-11-13 に作った。ジョブから呼ぶのは塊 F）
+- D-02 公開先は Cloudflare Workers・workers.dev・生レスポンスは R2 に30日・コミットの作者は noreply（2026-10-26。設定とワークフローは 2026-11-13 に作った（塊 F）。R2 に置く・アップロードするのは段6）
+- D-03 AI の判定は人が起動した回でだけ作り、日次のジョブは答えのファイルを `ai:ingest` で取り込むだけ。すでにある判定より古い答えは取り込まない（2026-10-26〜30。取り込む側のコマンドは 2026-11-13 に作り、同じ日に日次のワークフローから呼ぶ形にした（塊 F）。R2 との往復は段6）
 - D-04 題名に同時視聴の語が無い続きの回を「候補 → AI」で枠にする仕組みを公開の前に作る（2026-10-22・10-30）
 - D-05 Phase 4 の進め方（段0〜6 は docs/phase4-plan.md。Claude Code のワークフローは公開のあと。そのとき判定役には CLAUDE.md を読ませない）
 - D-08 unresolved の JSON は R2 に置かない（2026-11-04）
@@ -103,7 +103,7 @@ AI の判定役に渡す GUIDE（src/report/blind.ts）と同じ内容にそろ�
 | フロント | Astro の SSG。ソートとフィルターはブラウザ側で処理する |
 | データの置き場 | SQLite。R2 の非公開領域に置き、ジョブの開始時に取得して終了時に書き戻す |
 | 生レスポンス | R2 の非公開領域 |
-| ホスティング | Cloudflare Pages。Actions からの直接アップロードでデプロイする（Pages のビルド機能は使わない）（→ D-02 で Workers の静的アセットに変更予定・未実装） |
+| ホスティング | Cloudflare Workers の静的アセット（workers.dev。独自ドメインなし）。Actions から wrangler でアップロードする（本番は `deploy`、プレビューは `versions upload --preview-alias preview`。設定は wrangler.jsonc。2026-11-13 に作った。まだアップロードしていない） |
 | 定期実行 | GitHub Actions の schedule |
 | 秘密情報 | APIキー類は GitHub Actions の Secrets に置く。リポジトリにコミットしない |
 

@@ -72,6 +72,8 @@ export function loadDetectConfig(): DetectConfig {
 export interface SiteConfig {
   site_url: string;
   site_name: string;
+  /** Search Console の所有権の確認の meta タグの content（空ならタグを出さない。docs/deploy.md 6-8） */
+  search_console_verification?: string;
   /** 予定枠・配信中の枠をサイト用のデータに入れるか（D-01 で false） */
   publish_upcoming: boolean;
   upcoming_stale_hours: number;

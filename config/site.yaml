@@ -1,7 +1,12 @@
 # サイト（Phase 3）の設定。ジョブの書き出し（site:data）と Astro のビルドの両方が読む
 
-# サイトの URL（canonical・sitemap・og:url に入る）。**仮**。Pages か Workers か・独自ドメインは公開の前に決める（2026-10-19 の決定 D）
+# サイトの URL（canonical・sitemap・og:url に入る）。**仮**。公開先は Workers の workers.dev（D-02）で、URL は https://<Worker名>.<アカウントのサブドメイン>.workers.dev。
+# Actions では Variable の SITE_URL が優先する（astro.config.mjs）。サブドメインと Worker 名（wrangler.jsonc の name）が決まったらここも本番の URL に替える
 site_url: "https://simulwatch.example"
+# Google Search Console の所有権の確認（HTML タグの方法）。Search Console で「URL プレフィックス」のプロパティを作り、
+# 出てきた meta タグの content の値だけをここに書く（秘密ではない。確認のあとも消さない）。空ならタグを出さない。トップのページの head に入る（docs/deploy.md 6-8）
+# HTML ファイルの方法にするなら、渡された google*.html を site/public/ に置く（dist/ の直下に出る）
+search_console_verification: ""
 # サイトの名前（2026-10-22 ユーザー決定）。title・ヘッダー・フッター・og:image はここから作る
 site_name: "VTuber 同時視聴まとめ"
 

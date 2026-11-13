@@ -12,7 +12,7 @@
 | 1 | A・B・D1・D2・G（並行） | A・B・D1・D2 は済（2026-11-08。11-11 に main へマージ）。G はユーザーの手作業で、途中 |
 | 2 | C・D3a（並行） | 済（2026-11-13。C を先にマージし、D3a は ai.ts に触らない前半のあと C を取り込んで後半を足した。どちらも main にマージ済み） |
 | 3 | D3b（D2 の採点のあと） | |
-| 4 | F（早めに push して手で起動して試す） | |
+| 4 | F（早めに push して手で起動して試す） | 作った（2026-11-13。ローカルで1周と失敗の試しまで）。GitHub での起動は G と push のあと |
 | 5 | DB の写しでローカルのフォルダを1周 → 本体の写しを取る → 本体に過去の候補と判定待ちの枠を `ai:ingest` で入れる | |
 | 6 | もう一度 refresh → R2 に置いて往復で確かめ、ローカルの DB を止める → プレビューをユーザーが確認 → 本番 → 日次を手で1回 → Search Console → SCHEDULE_ENABLED | |
 | 公開のあと | E（Claude Code のワークフロー）→ 手で数回 → 予定タスクに移すか決める | |
@@ -79,6 +79,8 @@ og-cache は写して使う（本体の OG_CACHE を共有しない。ビルド�
 - Search Console の所有権の確認の HTML ファイルか meta タグ（本番より前）。og-cache は Actions のキャッシュ（docs/workflows.md 2-5）
 - keepalive は SCHEDULE_ENABLED を見ないので、公開前に動くとリモートの main が進む（push の前に pull）
 - 済んだの基準: CLI のステップを並べたシェルを写しでローカルに通す、GitHub で preview への手動起動、失敗をわざと起こす（メタデータの不一致で止まる・行の減少で書き戻さない）
+- 状態: 実装済み（2026-11-13。ブランチ claude/p4-f-actions-edf6ab）。ローカルの1周と失敗の試し・actionlint・wrangler の dry-run は済（docs/workflows.md 13-3）。
+  **GitHub での preview への手動起動は残り**（リポジトリ・Secrets（G）と push のあと。手順は docs/workflows.md 13-4）
 
 ### G ユーザーの手作業
 

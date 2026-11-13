@@ -13,7 +13,8 @@ CLAUDE.md の決定（Cloudflare Pages へ Actions から直接アップロー�
 | --- | --- |
 | 取得・名寄せのジョブ（CLI） | ある（ローカルで実行している） |
 | サイトのビルド（集計・Astro。出力は `dist/`） | ある（2026-10-19。`npm run cli -- site:data` → `npm run site:build`。2026-10-26 21:40 のビルドで3,807ファイル・約97MB（og:image の PNG・HTML が大半。docs/workflows.md 2-7 も 3,807）。og:image のキャッシュが無いと約3分） |
-| ワークフロー（`.github/workflows/`） | 無い（Phase 4） |
+| ワークフロー（`.github/workflows/`） | ある（2026-11-13。塊 F。daily.yml・publish.yml・keepalive.yml。中身は scripts/ci/job.sh。GitHub ではまだ動かしていない） |
+| Workers の設定（`wrangler.jsonc`） | ある（2026-11-13。Worker 名は仮の `simulwatch`） |
 | GitHub のリポジトリ | 無い（git の remote が未設定。予定は `kelly302/simulwatch`） |
 | Cloudflare（Workers・R2） | 未設定 |
 
@@ -83,6 +84,7 @@ Pages のプロジェクトを作る手順（`wrangler pages project create`）�
 | `R2_BUCKET` | Variable | B-3 のバケット名（例 `simulwatch-data`） | 同上 |
 | `SITE_URL` | Variable | 本番の URL `https://<Worker名>.<サブドメイン>.workers.dev`（B-5 で決める）。astro.config.mjs が config/site.yaml の仮の URL より優先して読む | ビルド |
 | `SCHEDULE_ENABLED` | Variable | `true` で schedule の回を動かす。最初の公開（6-8）が済むまで入れない | 日次 |
+| `R2_PREFIX` | Variable | 試しの置き場所（例 `test/`）。写しで日次を1周するときだけ作り、済んだら消す（docs/workflows.md 13） | 日次・手動 |
 
 上の2つは今の `.env` と同じ名前。Cloudflare の2つは公式の例の名前。前の下書きにあった `PAGES_PROJECT` は Workers に決めたので要らない（6-1。docs/workflows.md 8章からも外してある）。
 
@@ -91,7 +93,13 @@ Pages のプロジェクトを作る手順（`wrangler pages project create`）�
 ローカルの `data/db.sqlite`（2026-10-19 に 338MB。ルールと AI の判定が入っている最新）が本番の最初の DB になる。置いたあとは **R2 の DB が正**で、ローカルは写し（→ 6-7）。
 
 - wrangler の `r2 object put` は1ファイル 315MB まで。**DB はそのままでは上限を超えている**（2026-10-19 に 338MB）
-- gzip すると 58MB（2026-10-07 に計測。そのときは 319MB）。**R2 には gzip した DB を置く**（docs/workflows.md の 1章。キーは `db/db.sqlite.gz`。検査用の値は別のファイルにせず、このオブジェクトのメタデータに持つ（docs/workflows.md 2-3・11-3。2026-10-30 決定）。2026-10-22 の写しで 332MB → 57MB）。コマンドは R2 の出し入れを実装するときに確定する
+- gzip すると 58MB（2026-10-07 に計測。そのときは 319MB）。**R2 には gzip した DB を置く**（docs/workflows.md の 1章。キーは `db/db.sqlite.gz`。検査用の値は別のファイルにせず、このオブジェクトのメタデータに持つ（docs/workflows.md 2-3・11-3。2026-10-30 決定）。2026-10-22 の写しで 332MB → 57MB）
+- **置き方**（2026-11-13。ローカルの AWS CLI と `.env` の R2 の4つで。Git Bash）: 本体の DB を `VACUUM INTO` で `data/db.before-r2.sqlite` に写してから
+
+      SEED_DB=data/db.before-r2.sqlite DATA_DIR=data/seed bash scripts/ci/job.sh seed
+
+  `db:pack --initial` で梱包し（checkpoint・quick_check・gzip を展開して照合）、メタデータ（docs/workflows.md 2-3）を付けて `db/db.sqlite.gz` に置き、置いたメタデータの sha256 を読み直して確かめる。
+  もう置いてあれば止まる（`SEED_OVERWRITE=true` で上書き）。`R2_PREFIX=test/` を付ければ試しの置き場所に置く。R2 の代わりに `R2_LOCAL_DIR=<フォルダ>` でも同じ手順が通る（2026-11-13 にこの形で試した）
 
 ## 2. Claude が作るもの（Phase 3〜4）
 
@@ -100,7 +108,7 @@ Pages のプロジェクトを作る手順（`wrangler pages project create`）�
 | サイトのビルド | 集計 → 画面ごとの JSON と HTML → `dist/`。`_headers`（JSON に `X-Robots-Tag: noindex`）・`_redirects`（作品の URL が変わったときの 301）・404 ページ |
 | 日次のワークフロー | DB を取得 → `roster` → `crawl:daily` → `refresh` → 候補の選定と詳細 → AI の答えの取り込み（`ai:ingest`）→ `resolve` → `site:data` → DB を書き戻す → 取り込んだ答えを受け箱から移す → 生レスポンスを R2 へ → 中身が変わっていればビルド → アップロード（細部は docs/workflows.md の日次の節が正） |
 | 手動のワークフロー | ボタンで「ビルドとアップロードだけ」を実行する（`workflow_dispatch`）。入力 `resolve_all: true` で `resolve --all` も流す（ルールを直してコミット・push したあと、本番の DB で名寄せし直す。docs/workflows.md 3-2） |
-| keepalive のワークフロー | 月1回の軽いコミット（schedule が60日で止まるのを防ぐ） |
+| keepalive のワークフロー | 月1回の軽いコミット（schedule が60日で止まるのを防ぐ）。**`SCHEDULE_ENABLED` を見ないので、公開の前でも既定のブランチに置いた時点から動き、リモートの main が進む。ローカルから push する前に `git pull --rebase` する**（docs/workflows.md 3-3） |
 
 2時間ごとのワークフローは 2026-10-27 にやめた（ユーザー決定。トップの「これから始まる枠」もやめた）。
 
@@ -119,27 +127,26 @@ Pages のプロジェクトを作る手順（`wrangler pages project create`）�
 
 ## 3. 毎回のアップロード（自動）
 
-ワークフローの最後のステップ（6-1 で Workers に決めた。2026-10-26）。リポジトリの直下に設定ファイルを1つ置く（下書き。中身はワークフローを書くときに確定する）。
+ワークフローの最後のステップ（6-1 で Workers に決めた。2026-10-26）。リポジトリの直下の `wrangler.jsonc`（2026-11-13 に置いた）:
 
-    // wrangler.jsonc
     {
-      "name": "<Worker名>",
-      "compatibility_date": "<その時点の日付>",
-      "assets": { "directory": "./dist", "not_found_handling": "404-page" }
+      "name": "simulwatch",                      // 仮。公開の URL の一部になる（1-B-5）
+      "compatibility_date": "2026-10-28",
+      "workers_dev": true,
+      "preview_urls": true,                      // 版の URL・preview の別名の URL を出す
+      "assets": { "directory": "./dist", "not_found_handling": "404-page", "html_handling": "auto-trailing-slash" }
     }
 
-    - uses: cloudflare/wrangler-action@v4
-      with:
-        apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        wranglerVersion: "<4.34.0 以上の、出て2週間以上たった版>"
-        command: deploy
+アップロードは daily.yml・publish.yml の `cloudflare/wrangler-action`（コミットの SHA で v4.1.3 に固定。`wranglerVersion: "4.155.0"`）。本番は `deploy`、プレビューは `versions upload --preview-alias preview`
+（docs/workflows.md 2-8）。Worker のコードは無く、`dist/` を静的アセットとしてそのまま出す。
 
-- `cloudflare/wrangler-action@v4` は実在する（2026-10-27 に GitHub の API で確かめた。タグ `v4` があり、最新は v4.1.3（2026-09-24））。v4 は既定で wrangler v4 を使い、
-  `wranglerVersion` で版を固定できる（README）。実装のときは `@v4` ではなく版（v4.1.3 など）かコミットで固定する
+- `cloudflare/wrangler-action` の最新は 2026-11-13 も v4.1.3（2026-09-24）。`wranglerVersion` で版を固定できる（README）
 - 20,000ファイルを使うには wrangler 4.34.0 以上（公式）。`_headers`・`_redirects` は `dist/` に置けばそのまま効く（公式）
 - `not_found_handling: "404-page"` で、いちばん近い `404.html` を 404 で返す（公式）
-- プレビュー（本番に出さずに確かめる URL）は、`wrangler versions upload --preview-alias preview` の版の URL を使う（2026-10-27 に Cloudflare の文書の Previews で確かめた。docs/workflows.md 2-8。Actions から動かしたときの出力は未確認）
+- プレビュー（本番に出さずに確かめる URL）は、`wrangler versions upload --preview-alias preview` の版の URL を使う（2026-10-27 に Cloudflare の文書の Previews で確かめた。docs/workflows.md 2-8。Actions から動かしたときの出力は未確認）。
+  URL は `preview-<Worker名>.<サブドメイン>.workers.dev`。別名は英小文字・数字・ダッシュで、`別名-Worker名` が63文字まで（2026-11-13 に文書で確かめた）。`preview_urls: true` を設定に書いた（無いと workers_dev の設定に従う）
+- 末尾スラッシュ: 既定の `html_handling: "auto-trailing-slash"` は、`/works/x/index.html` がある `/works/x` を 307 で `/works/x/` に送る（公式の表）。ファイルが無いときの動きは表に無い。
+  `_redirects` は「アセットがあってもなくても常に」先に効く（公式）ので、無くなったページの 301 は今の `_redirects`（両方の形）で効く見込み。段6 のプレビューで確かめる
 
 ## 4. 手でアップロードする（ローカルから）
 
@@ -255,6 +262,8 @@ R2 の無料枠は保存 10GB-月（Standard のみ）。DB は gzip で約0.06G
 Search Console の所有権の確認: workers.dev は自分のドメインでないので DNS のレコードを置けず、**「ドメイン」のプロパティは使えない**。
 「URL プレフィックス」のプロパティ（`https://<Worker名>.<サブドメイン>.workers.dev/`）で、HTML ファイル（`site/public/` に置く）か HTML タグ（meta タグ。レイアウトの head に入れる）で確かめる
 （Google のヘルプ: ドメインのプロパティは DNS だけ、URL プレフィックスは HTML ファイル・HTML タグなども使える。2026-10-27 に確かめた）。
+**置き場所**（2026-11-13）: HTML タグなら、Search Console が出す meta タグの `content` の値を config/site.yaml の `search_console_verification` に書く（空ならタグを出さない。トップのページ `/` の head にだけ入る。site/layouts/Base.astro）。
+HTML ファイルなら、渡された `google….html` を `site/public/` に置く（dist/ の直下に出る）。どちらもコミットして push し、本番にアップロードしてから Search Console で「確認」を押す。確認のあとも消さない
 
 ### 6-9. GitHub Actions の規約（知っておくこと。2026-10-08 に確認）
 
@@ -266,22 +275,22 @@ GitHub の規約は、GitHub のランナーを「そのリポジトリのソフ
 
 ### 6-10. Workers に決めたことで CLAUDE.md・コード・設定で直す箇所（一覧。実装と同じコミットで直す）
 
-2026-10-27 に grep で探した（行番号はその時点。2026-11-04 に CLAUDE.md の細部を docs/ に移したので、「どこ」を節の名前に直した）。このセッションでは直していない。
+2026-10-27 に grep で探した（行番号はその時点。2026-11-04 に CLAUDE.md の細部を docs/ に移したので、「どこ」を節の名前に直した）。**2026-11-13 に塊 F で直した**（下の「状態」）。
 
-| どこ | 今 | 直し方 |
-| --- | --- | --- |
-| CLAUDE.md の技術スタック（もとの 94行） | 「Cloudflare Pages。Actions からの直接アップロード」 | Cloudflare Workers の静的アセット。Actions から `wrangler deploy` |
-| docs/ui.md の「Phase 3 の UI・SEO の決定」（もとの CLAUDE.md 162行） | 「Cloudflare Pages の無料プランは1サイト20,000ファイルまで」 | Workers の無料プランも1版20,000ファイル（wrangler 4.34.0 以上）。中身はそのまま |
-| docs/ui.md の「Phase 3 の UI・SEO の決定」・docs/backlog.md の未確定（もとの CLAUDE.md 163行・738行） | 「未決事項（Pages か Workers か・独自ドメイン・生レスポンスの保存期間など）は docs/deploy.md」 | 決定（Workers・workers.dev・30日）を書き、残りの未決だけを指す（docs/backlog.md の側は「決まった」に直してある） |
-| CLAUDE.md のフェーズ（もとの 771行） | 「Phase 4 公開と定期実行（Actions・R2・Pages）」 | Pages → Workers（直してある。今は「Actions・R2・Workers」） |
-| astro.config.mjs 56行のコメント | 「無くなったページには Pages のスラッシュの付け直しが効かないため」 | Workers の静的アセットの末尾スラッシュの扱い（`html_handling`）で同じことが起きるかを確かめてから直す（**未確認**。文書を読んでいない） |
-| config/site.yaml 3行 | 仮の URL と「Pages か Workers か・独自ドメインは公開の前に決める」 | 本番の URL（`https://<Worker名>.<サブドメイン>.workers.dev`）。Actions では Variable の `SITE_URL` が優先 |
+| どこ | 今 | 直し方 | 状態 |
+| --- | --- | --- | --- |
+| CLAUDE.md の技術スタック（もとの 94行） | 「Cloudflare Pages。Actions からの直接アップロード」 | Cloudflare Workers の静的アセット。Actions から `wrangler deploy` | 済（2026-11-13） |
+| docs/ui.md の「Phase 3 の UI・SEO の決定」（もとの CLAUDE.md 162行） | 「Cloudflare Pages の無料プランは1サイト20,000ファイルまで」 | Workers の無料プランも1版20,000ファイル（wrangler 4.34.0 以上）。中身はそのまま | 済（2026-11-13） |
+| docs/ui.md の「Phase 3 の UI・SEO の決定」・docs/backlog.md の未確定（もとの CLAUDE.md 163行・738行） | 「未決事項（Pages か Workers か・独自ドメイン・生レスポンスの保存期間など）は docs/deploy.md」 | 決定（Workers・workers.dev・30日）を書き、残りの未決だけを指す | 済（ui.md は 2026-11-13。backlog.md は前から） |
+| CLAUDE.md のフェーズ（もとの 771行） | 「Phase 4 公開と定期実行（Actions・R2・Pages）」 | Pages → Workers | 済（前から） |
+| astro.config.mjs 56行のコメント | 「無くなったページには Pages のスラッシュの付け直しが効かないため」 | Workers の `html_handling` の文書を読んで直した（ファイルがある所だけ付け直す。`_redirects` は常に先に効く）。実際の動きは段6 のプレビューで | 済（コメント。2026-11-13） |
+| config/site.yaml 3行 | 仮の URL と「Pages か Workers か・独自ドメインは公開の前に決める」 | 本番の URL（`https://<Worker名>.<サブドメイン>.workers.dev`）。Actions では Variable の `SITE_URL` が優先 | コメントは直した（2026-11-13）。URL はサブドメインと Worker 名が決まってから |
 
 足すもの:
 
-- 404 は `wrangler.jsonc` の `not_found_handling: "404-page"`（3章）。Pages の「自動」に頼っていた所は無い（404.html はビルドが作っている）
-- 公開の URL は `<Worker名>.<アカウントのサブドメイン>.workers.dev`（6-2）
-- Search Console の所有権は HTML ファイルか meta タグ（6-8。DNS は使えない）
+- 404 は `wrangler.jsonc` の `not_found_handling: "404-page"`（3章）。Pages の「自動」に頼っていた所は無い（404.html はビルドが作っている）。済（2026-11-13。dist/404.html が無ければ check-dist が止める）
+- 公開の URL は `<Worker名>.<アカウントのサブドメイン>.workers.dev`（6-2）。Worker 名は wrangler.jsonc の `name`（仮に `simulwatch`）
+- Search Console の所有権は HTML ファイルか meta タグ（6-8。DNS は使えない）。済（2026-11-13。config/site.yaml の `search_console_verification`）
 - CLAUDE.md の 2時間ごと・「これから始まる枠」の記述（2026-10-27 の決定）は、このセッションの範囲外（docs/workflows.md・UI の側で一覧にする。一覧は docs/decisions.md の D-01・docs/phase4-plan.md の塊 A）
 
 ## 確かめた事実と出典（2026-10-07）
