@@ -33,6 +33,7 @@ const ld = (o: unknown) => JSON.stringify(o).replace(/</g, "\\u003c");
 <meta name="description" content={description}>
 {withCanonical && <link rel="canonical" href={canonical}>}
 {noindex && <meta name="robots" content="noindex">}
+{path === "/" && cfg.search_console_verification && <meta name="google-site-verification" content={cfg.search_console_verification}>}
 <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#221A29" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">

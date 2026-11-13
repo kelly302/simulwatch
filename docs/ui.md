@@ -61,8 +61,8 @@ SEO・実装:
 - og:image はビルドで作る自作の画像（作品ページ・配信者ページごと。YouTube・AniList の画像を使わない）。ほかのページはサイト共通の1枚
 - 英語の名前: にじさんじは名簿で読んでいる API の応答の enName（追加の取得なし）。ホロライブは /en/talents?gp=<group>（今の parseHololiveGroup のまま読める。
   取得が17回増える。[Affiliate]・[Alum] を外す）。Streamer に列 name_en を足す（下の決定 C）
-- Cloudflare Pages の無料プランは1サイト20,000ファイルまで（→ D-02 で Workers に変更予定・未実装。Workers の静的アセットも1版20,000ファイル）。**作品ページごとの JSON は作らず、HTML に持たせる**
-- 公開の手順の下書きと未決事項（Pages か Workers か・独自ドメイン・生レスポンスの保存期間など）は docs/deploy.md（→ D-02 で決まった・未実装）
+- 公開先の Cloudflare Workers の静的アセット（D-02）の無料プランは1版20,000ファイルまで（wrangler 4.34.0 以上。決めたころの Pages も1サイト20,000ファイル）。**作品ページごとの JSON は作らず、HTML に持たせる**
+- 公開の手順と公開の基盤の決定は docs/deploy.md（D-02 で Workers の静的アセット・workers.dev・生レスポンス30日に決まった。設定とワークフローは 2026-11-13 に作った（wrangler.jsonc・.github/workflows/）。残りの未決は docs/deploy.md の6章）
 - 公開後: Search Console で、配信者1人の作品ページとそれ以外のインデックス状況を分けて見る
 
 ### Phase 3 の初めの決定（2026-10-19。A〜D）
@@ -74,7 +74,7 @@ UI の会話が出した4つの推奨を、Phase 3 の会話でユーザーが�
 - B **シリーズが分かれた作品群（名探偵コナン・ポケモンの劇場版と TV 版）は Phase 3 では寄せない**。「同じシリーズの作品」は series_id のまま
 - C 列の名前は `works.public_key`・`streamers.name_en`。**URL は `/works/annict-1234/`・`/works/anilist-5678/`・`/works/wikidata-Q123/`、配信者は `/streamers/<channel_id>/`**。
   works の行は名寄せで作り直されるので、一度出した公開キーは別の表に覚えておき、行がまとまって変わったときの 301 をそこから作る
-- D Pages か Workers か・独自ドメイン・コミットの作者のメールアドレスは、公開の前（Phase 4 の最初のアップロードの前）に決める（docs/deploy.md の 6-1・6-2・6-6）（→ D-02 で決まった・未実装）。
+- D Pages か Workers か・独自ドメイン・コミットの作者のメールアドレスは、公開の前（Phase 4 の最初のアップロードの前）に決める（docs/deploy.md の 6-1・6-2・6-6）（→ D-02 で決まった: Workers の静的アセット・workers.dev・noreply。設定は 2026-11-13 に作った）。
   Phase 3 のビルドは仮のサイトの URL を設定に置いて進める
 
 ### Phase 3 の実装（2026-10-19）

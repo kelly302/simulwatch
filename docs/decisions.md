@@ -13,6 +13,10 @@
 
 - 置き換えるもの: 技術スタックの「Cloudflare Pages」／決定 D（2026-10-19。「公開の前に決める」→ 決まった）
 - 進み具合: コミットの作者を noreply にするところは済（2026-11-04。履歴の書き換えと user.email）。Workers・R2 は塊 F・段6
+- 進み具合（2026-11-13。塊 F）: Workers の設定（wrangler.jsonc。Worker 名は仮の `simulwatch`）と、日次・手動・keepalive のワークフロー（.github/workflows/・scripts/ci/job.sh）を作った。
+  R2 の出し入れは AWS CLI（2.39.1 に固定）、アップロードは wrangler-action（v4.1.3・wrangler 4.155.0）。試しの置き場所 `R2_PREFIX`（例 `test/`）と、日次の手動の入力 `target: preview`・`crawl: false`。
+  CLAUDE.md の技術スタック・docs/ui.md の印を直した（docs/deploy.md 6-10）。DB の写しでローカルのフォルダを使って日次を通した（docs/workflows.md 13）。
+  残り: リポジトリ・Cloudflare・Secrets（ユーザーの手作業 G）と push のあとの GitHub での起動、R2 との実際の往復・本番へのアップロード（段6）、Worker 名とサブドメインの決定
 - 正の文書: docs/deploy.md の6章（直す箇所の一覧は 6-10）
 - 印を付けた本文: CLAUDE.md の技術スタック、docs/ui.md（Pages の20,000ファイル・決定 D）
 
@@ -27,7 +31,7 @@
 - 進み具合（2026-11-13。塊 C）: 取り込む側を作った。aiApply の古い答えの決まり（瞬間で比べ、UTC で入れる）と問題の種類分け、
   `ai:ingest`（受け箱の batch を5つまで・結果と移す先を JSON に・`--settle` で移す）・`ai:check`・`ai:pull`・`ai:push`（ローカルのフォルダと AWS CLI の R2 を `--remote` で切り替える層。src/report/inbox.ts）、
   `ai:queue` のローカルのクォータのファイル（data/ai/quota.json）・同じシードの2回目・`--max-files`・返す値。
-  残り: 日次のワークフローから呼ぶこと（塊 F）・R2 との実際の往復（段6）・Claude Code のワークフロー（塊 E）。候補の答えの反映は塊 D3a で入れた（2026-11-13。D-04 の進み具合）。
+  残り: ~~日次のワークフローから呼ぶこと（塊 F）~~（2026-11-13 に daily.yml の ai:ingest・settle のステップにした）・R2 との実際の往復（段6）・Claude Code のワークフロー（塊 E）。候補の答えの反映は塊 D3a で入れた（2026-11-13。D-04 の進み具合）。
   経緯と検証は docs/ai-runs.md の 2026-11-13 の節
 
 ### D-04 題名に同時視聴の語が無い続きの回を「候補 → AI」で枠にする（2026-10-22・10-30）
@@ -62,7 +66,7 @@
   - ai:report が候補の表の答え（not_watchalong・枠の無い hold）も採点の表に出す
   - 本番の答えの形での試し直し（cand-retrial-1113。110本。長さ・メン限の行が無い待ち行列）を回した。作品でない動画をサイトに出る答えは 0/73（95%上限 4.0%）・取りこぼし 0/56。結果は docs/ai-runs.md の 2026-11-13 の節
   - 待ち行列に「メン限」「配信の長さ」の行を足した（上の 2026-11-13 ユーザー決定。src/report/blind.ts の streamLength。枠は watch_events、候補は candidates の started_at_source・ended_at から）。GUIDE に長さの使い方を書いた
-  - 残り: 日次のジョブから candidates:select・candidates:fetch を呼ぶ（塊 F）
+  - 日次のジョブから candidates:select・candidates:fetch を呼ぶところは塊 F で入った（daily.yml の candidates のステップ・scripts/ci/job.sh）。残り: 段5の本番の判定（過去の候補 約481本）で長さ・メン限の行の効果を見る
 
 ### D-05 Phase 4 の進め方（2026-10-30）
 
@@ -77,6 +81,13 @@
 - 印を付けた本文: docs/crawl.md（unresolved の確認方法）、docs/dev.md（unresolved:export）
 
 ## 実装済み
+
+### D-10 YouTube の規約の読み直しのあとも、作品ページの「観た配信者」は再生数の順が既定のまま・最高再生数と合計再生数は残す（2026-11-13。コードは今のまま）
+
+- 中身: 規約と画面の突き合わせ（docs/youtube-policy.md）で、作品ページの既定の並び（別々の配信者を再生数で並べる）は手引きの「チャンネルの間で再生数を順位づけ」に一番近い（重さ 中〜高）と見立てたが、既定は変えない。
+  最高再生数・合計再生数（チャンネルをまたいだ集計）は手引きの「許される指標」（まとまりの合計再生数）に沿うとして残す（規約 III.E.2.a の文面とのずれは承知のうえ）
+- 置き換えたもの: なし（Claude の勧め「既定を最終視聴日に」は採らなかった）
+- 残り: ランキングの見出し・自前の数の表示・広告の置き場所・生レスポンスの日数は未決（docs/youtube-policy.md の「決め方の選択肢」）
 
 ### D-01 日次だけにする・「これから始まる枠」をやめる（2026-10-27。実装 2026-11-08、塊 A）
 
