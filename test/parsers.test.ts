@@ -101,6 +101,20 @@ test("1つのチャンネルで配信する組（FUWAMOCO）は1配信者にま�
   assert.equal(entries[0]!.nameEn, "Fuwawa Abyssgard & Mococo Abyssgard");
 });
 
+test("excluded_channels のチャンネルは一覧に載っていても inactive にする（卒業と同じ。D-13）", async () => {
+  const { applyExcluded } = await import("../src/roster/sync.ts");
+  const e = (key: string, channelId: string | null, inactive = false) =>
+    ({ sourceKey: key, name: key, affiliation: "nijisanji" as const, channelId, handle: null, inactive, branch: "kr" as const, nameEn: null });
+  const entries = [e("a", "UCa"), e("b", "UCb"), e("c", null), e("d", "UCd", true)];
+  const out = applyExcluded(entries, new Set(["UCb", "UCd", "UCx"]));
+  assert.deepEqual(out, ["b"]);
+  assert.deepEqual(entries.map((x) => [x.sourceKey, x.inactive]), [["a", false], ["b", true], ["c", false], ["d", true]]);
+  // 設定が空なら何もしない
+  const again = [e("a", "UCa")];
+  assert.deepEqual(applyExcluded(again, new Set()), []);
+  assert.equal(again[0]!.inactive, false);
+});
+
 test("ホロライブの英語版の一覧の名前から先頭の印を外す", async () => {
   const { hololiveEnName } = await import("../src/roster/sources.ts");
   assert.equal(hololiveEnName("[Affiliate] Watson Amelia"), "Watson Amelia");
