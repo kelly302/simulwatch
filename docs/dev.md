@@ -23,6 +23,7 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
       detect/           キーワード判定（純粋関数）
       crawl/            巡回ジョブ（取得元・判定と保存・状態の取り直し）
       candidates/       続きの回の候補（D-04）。選び方（select）・表への保存と videos.list（store）・候補から枠を作る・AI が足した枠を外す（frames）
+      retention/        30日の決まり（D-12）。videos_seen の取り直し（seen）・終わった候補の詳細と消えた枠の中身を消す（purge）・古いものの件数（status）・手元のファイルの一覧（files）
       resolve/          名寄せ（extract・照合・期と部の表記（markers）・視聴系列の期（series）・分割クールのまとめ（splitcour）・AI の判定の反映（ai）・同定の型（route）・型の記録と出し方（routing）・
                         作品の属性（enrich）・Wikidata のアニメのまとめ（link）・Annict / AniList / Wikipedia のクライアント・保存）
       report/           ローカル確認用のレポート・同定の検証用の抽出・外部DBの照会（lookup）・AI の判定の道具（ai）・
@@ -58,7 +59,7 @@ R2 を設定する前は `--remote <フォルダ>` でローカルのフォル�
     npm run cli -- roster          # Tier 1 の同期
     npm run cli -- crawl:hourly    # こまめな巡回（定期実行では流さない。D-01。戻すときのために残す。名前は毎時のころのまま）
     npm run cli -- crawl:daily     # 日次の巡回と遡り
-    npm run cli -- refresh         # 再生数・状態の取り直しとアーカイブ死活チェック
+    npm run cli -- refresh         # 再生数・状態の取り直しとアーカイブ死活チェック（--video ID,... でその動画の枠だけ）
     npm run cli -- report:detect   # 判定結果、誤検出・取りこぼしの候補
     npm run cli -- report:quota    # クォータ使用量
     npm run cli -- detect:rerun    # 語彙を変えたあとの再判定（API なし）
@@ -93,7 +94,13 @@ R2 を設定する前は `--remote <フォルダ>` でローカルのフォル�
     npm run cli -- ai:status                                            # サイトでの出し方ごとの件数と、AI の判定待ちの型の内訳
     npm run cli -- candidates:select                                    # 続きの回の候補（docs/ai-ops.md 3-1）を選んで候補の表（candidates）に入れる（日次。API なし）
     npm run cli -- candidates:select --dry-run                          # 表に入れず、層ごとの件数と一覧だけ（data/review/candidates-select.{json,md}。DB は読むだけ）
-    npm run cli -- candidates:fetch                                     # 詳細がまだの候補と予定・配信中だった候補の videos.list（日次。50本で1ユニット。終わった動画だけ判定に回す）
+    npm run cli -- candidates:fetch                                     # 詳細がまだの候補と予定・配信中だった候補の videos.list（日次。50本で1ユニット。終わった動画だけ判定に回す）。
+                                                                        # 判定に回す候補（ready・hold）で詳細が25日より古い・無いものも取り直す（30日の決まり。D-12）
+    npm run cli -- retention [--max-units N]                            # 30日の決まり（日次。D-12）: 巡回しないチャンネル（excluded_channels）の題名と候補を消す・
+                                                                        # videos_seen の題名を古いものから取り直す・終わった候補の詳細と消えた枠の中身を消す
+    npm run cli -- retention:status                                     # DB の中の古いもの（videos_seen・watch_events・candidates・streamers）の件数（API なし）
+    npm run cli -- retention:files [--days 30] [--category raw,db,ai,…] [--out F]   # 手元の data/ の古いファイルの一覧（区分 raw・db・ai・audit・review・analysis・log・export・site。DB は開かない。既定は一覧だけ）
+    npm run cli -- retention:files --category raw --delete              # 中のファイルが全部古い項目だけを消す（一部だけ古い項目・本体の db.sqlite・対象外は消さない）
     npm run cli -- works:enrich [--all]                                 # 作品の属性（映像の種類・制作国・シリーズの名前）を外部DBから埋める
     npm run cli -- audit:types                     # 同定の型ごとの件数と目印の重なり（data/audit/types.md。DB は変えない）
     npm run cli -- audit:sample --seed audit-1     # 型ごとの抽出。AI に見せる待ち行列と封をしたルールの答え（data/audit/<batch>/）
@@ -122,3 +129,6 @@ R2 を設定する前は `--remote <フォルダ>` でローカルのフォル�
 - 生レスポンスは `data/raw/<日付>/<run_id>.jsonl.gz` に1ジョブ1ファイルで保存する（APIキーは伏せる）。
   日次ジョブは数百MBになるため、16MB ごとに gzip して追記する（メモリに溜めない）。
   生レスポンスの保存に失敗しても DB の書き戻しは必ず行う
+- **手元のファイルの30日の決まり**（D-12）: data/raw・DB の写し（data/db.*.sqlite）・AI の判定の作業フォルダ（data/ai/<batch>/。題名・概要欄・コメント欄・サムネイルの画像）・
+  data/audit・review・analysis・ログ・unresolved.json・site/site-data.json は YouTube の API のデータを含む。`retention:files` で30日を超えたものを一覧にし、確かめてから `--delete` で消す（自動では消さない。
+  ジョブや RawLog が手元のファイルを勝手に消すと、経緯の記録に使っているものまで消える）。日次のジョブのランナーは毎回まっさらで、R2 の raw/ はライフサイクルで消える

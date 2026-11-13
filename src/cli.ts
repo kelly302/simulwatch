@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import { createCtx, finishCtx, runStep } from "./lib/context.ts";
 import type { Ctx } from "./lib/context.ts";
 import { openDb } from "./lib/db.ts";
-import { loadDetectConfig, loadCrawlConfig } from "./lib/config.ts";
+import { loadDetectConfig, loadCrawlConfig, loadRosterConfig } from "./lib/config.ts";
 import { syncRoster } from "./roster/sync.ts";
 import { crawlHourly, crawlDaily, refreshAll, fetchOrphans } from "./crawl/jobs.ts";
 import { detectReport, quotaReport, rerunDetect } from "./report/reports.ts";
@@ -32,6 +32,12 @@ import type { UnresolvedReason } from "./resolve/types.ts";
 import { DatabaseSync } from "node:sqlite";
 import { candidatesDryRun } from "./candidates/select.ts";
 import { candidatesSelect, fetchCandidates } from "./candidates/store.ts";
+import { refreshSeen, actCutoff } from "./retention/seen.ts";
+import { clearCandidates, purgeGoneEvents } from "./retention/purge.ts";
+import { clearExcludedChannels } from "./retention/excluded.ts";
+import { retentionStatus, formatRetentionStatus } from "./retention/status.ts";
+import { listDataFiles, deleteEntries, formatFiles, FILE_CATEGORIES } from "./retention/files.ts";
+import type { FileCategory } from "./retention/files.ts";
 
 // 使い方: npm run cli -- <command> [options]
 
@@ -41,7 +47,7 @@ const HELP = `
   crawl:hourly    RSS の差分 + playlistItems の一部 + 予定枠・配信中の状態更新（定期実行では流さない。D-01 で日次だけにした。戻すときのために残す）
   crawl:daily     全チャンネルの uploads 先頭 + メン限プレイリスト + 過去分の遡り（日次）
                   [--backfill-units N] で遡りの予算をその回だけ変える
-  refresh         全枠の再生数・状態の取り直しとアーカイブ死活チェック（日次）
+  refresh         全枠の再生数・状態の取り直しとアーカイブ死活チェック（日次）。[--video ID,...] でその動画の枠だけ
   report:detect   判定結果の集計と、誤検出・取りこぼしの候補を表示する [--limit N]
   report:quota    クォータ使用量を表示する [--days N]
   detect:rerun    語彙を変えたあと、保存済みタイトルで再判定する（API を使わない）
@@ -92,7 +98,17 @@ const HELP = `
   ai:status       サイトでの出し方（作品を付けて出す・枠として出す・出さない・AI の判定待ち）ごとの件数と、判定待ちの型の内訳
   candidates:select  題名に同時視聴の語が無い続きの回の候補（docs/ai-ops.md 3-1。config/candidates.yaml）を選び、候補の表（candidates）に入れる（日次。API なし）
                   [--dry-run（表に入れず、層ごとの件数と一覧を data/review/candidates-select.{json,md} に書く。DB は読むだけ）]
-  candidates:fetch  詳細がまだの候補と予定・配信中だった候補の videos.list を引いて表に入れる（日次。50本で1ユニット。終わった動画だけを判定に回す）
+  candidates:fetch  詳細がまだの候補と予定・配信中だった候補の videos.list を引いて表に入れる（日次。50本で1ユニット。終わった動画だけを判定に回す）。
+                  判定に回す候補（ready・hold）で詳細が retention.act_after_days より古い・無いものも取り直す（30日の決まり。D-12）
+
+コマンド（30日の決まり。YouTube の API の規約 III.E.4。決定 D-12。config/crawl.yaml の retention）:
+  retention       （日次）巡回しないチャンネル（roster.yaml の excluded_channels）の動画の題名と候補を取り直さずに消す・
+                  videos_seen の題名を古いものから videos.list で取り直す（返ってこない動画は題名を消す）・終わった候補の詳細を消す・
+                  アーカイブが消えて act_after_days を過ぎた枠の中身を消す [--max-units N（videos_seen の取り直しの上限をその回だけ変える）]
+  retention:status  DB の中の古いものの件数（videos_seen・watch_events・candidates・streamers。API を使わない）
+  retention:files 手元の data/ の、--days 日（既定 retention.max_age_days）より古いファイルの一覧（生レスポンス・DB の写し・AI の作業フォルダ・audit・review・analysis・ログ・
+                  unresolved.json・site-data.json）。[--category raw,db,ai,audit,review,analysis,log,export,site] [--out F（Markdown に書く）]
+                  [--delete（中のファイルが全部古い項目だけを消す。一部だけ古い項目と対象外は消さない。既定は一覧だけ）]
 
 コマンド（公開。Phase 3）:
   site:data       サイト用のデータ（集計・作品の公開キー・ページの更新日）を data/site/site-data.json に書き出す。
@@ -171,6 +187,9 @@ async function main(): Promise<number> {
       result: { type: "string" },
       settle: { type: "string" },
       "skip-failed": { type: "boolean" },
+      "max-units": { type: "string" },
+      category: { type: "string" },
+      delete: { type: "boolean" },
     },
   });
   const cmd = positionals[0];
@@ -197,7 +216,7 @@ async function main(): Promise<number> {
     "roster": { job: "daily", run: syncRoster },
     "crawl:hourly": { job: "hourly", run: crawlHourly },
     "crawl:daily": { job: "daily", run: crawlDaily },
-    "refresh": { job: "daily", run: refreshAll },
+    "refresh": { job: "daily", run: (ctx) => refreshAll(ctx, values.video ? values.video.split(",") : undefined) },
     "detect:fetch": { job: "daily", run: fetchOrphans },
     "candidates:select": {
       job: "daily",
@@ -212,10 +231,44 @@ async function main(): Promise<number> {
     "candidates:fetch": {
       job: "daily",
       run: async (ctx) => {
-        const r = await runStep(ctx, "candidates:fetch", () => fetchCandidates(ctx));
+        const r = await runStep(ctx, "candidates:fetch", () => fetchCandidates(ctx, { refetchBefore: actCutoff(ctx.crawlCfg) }));
         if (r) {
           ctx.summary.candidates_fetch = r;
-          console.log(`候補の詳細: 対象 ${r.targets}・引いた ${r.requested}・終わった（判定に回す）${r.ready}・予定と配信中 ${r.waiting}・非公開など ${r.unavailable}・返らなかった ${r.missing}`);
+          console.log(`候補の詳細: 対象 ${r.targets}（判定に回す候補の取り直し ${r.refetched}）・引いた ${r.requested}・終わった（判定に回す）${r.ready}・保留のまま ${r.hold}・予定と配信中 ${r.waiting}・非公開など ${r.unavailable}・返らなかった ${r.missing}`);
+        }
+      },
+    },
+    // 30日の決まり（D-12）。3つは別のステップ（1つが失敗しても次へ）
+    "retention": {
+      job: "daily",
+      run: async (ctx) => {
+        const maxUnits = values["max-units"] !== undefined ? Number(values["max-units"]) : undefined;
+        // 巡回しないチャンネル（excluded_channels。D-13）は取り直さずに消す（取り直しより先に。消した行は取り直しの対象から外れる）
+        const ex = await runStep(ctx, "retention: excluded_channels", async () =>
+          clearExcludedChannels(ctx.db, (ctx.rosterCfg.excluded_channels ?? []).map((c) => c.channel_id)));
+        if (ex) {
+          ctx.summary.retention_excluded = ex;
+          console.log(`excluded_channels: 巡回を止めた ${ex.channels.length}（まだ巡回中 ${ex.pending_roster.length}）・videos_seen の題名を消した ${ex.videos_seen}・候補を判定に回さなくした ${ex.candidates}`);
+        }
+        const seen = await runStep(ctx, "retention: videos_seen", async () => {
+          const r = await refreshSeen(ctx, maxUnits !== undefined ? { maxUnits } : {});
+          ctx.summary.retention_seen = r;
+          if (r.error) throw new Error(`videos_seen の取り直しが途中で止まった: ${r.error}`);
+          return r;
+        });
+        if (seen) console.log(`videos_seen: 題名を持つ ${seen.live_rows}・${ctx.crawlCfg.retention.act_after_days}日を過ぎた ${seen.due_rows}・この回 ${seen.target_rows} 本（${seen.units} ユニット）。` +
+          `確かめた ${seen.refreshed}（題名が変わった ${seen.title_changed}。判定し直し: hit ${seen.redetected.hit}・miss ${seen.redetected.miss}・rejected ${seen.redetected.rejected}）・題名を消した ${seen.gone}` +
+          `${seen.gone_skipped_by_guard ? `・欠落が多く消さなかった ${seen.gone_skipped_by_guard}` : ""}${seen.quota_stopped ? "・クォータで止めた（残りは次の日）" : ""}`);
+        const before = actCutoff(ctx.crawlCfg);
+        const cand = await runStep(ctx, "retention: candidates", async () => clearCandidates(ctx.db, before));
+        if (cand) {
+          ctx.summary.retention_candidates = cand;
+          console.log(`candidates: 詳細を消した ${Object.entries(cand.cleared).map(([k, v]) => `${k} ${v}`).join("・") || "0"}`);
+        }
+        const ev = await runStep(ctx, "retention: watch_events", async () => purgeGoneEvents(ctx.db, before));
+        if (ev) {
+          ctx.summary.retention_events = ev;
+          console.log(`watch_events: アーカイブが消えた枠 ${ev.gone}・この回に中身を消した ${ev.purged}・前に消した ${ev.already}`);
         }
       },
     },
@@ -406,6 +459,36 @@ async function main(): Promise<number> {
     case "report:quota":
       console.log(quotaReport(openDb(), Number(values.days ?? 7)));
       return 0;
+    case "retention:status":
+      console.log(formatRetentionStatus(retentionStatus(openDb(), loadCrawlConfig(), new Date(), (loadRosterConfig().excluded_channels ?? []).map((c) => c.channel_id))));
+      return 0;
+    // 手元のファイル（DB は開かない）。既定は一覧だけ。--delete のときだけ、中のファイルが全部古い項目を消す
+    case "retention:files": {
+      const days = Number(values.days ?? loadCrawlConfig().retention.max_age_days);
+      if (!Number.isFinite(days) || days < 1) {
+        console.error("--days は 1 以上");
+        return 1;
+      }
+      const cats = values.category ? values.category.split(",") : FILE_CATEGORIES;
+      const bad = cats.filter((c) => !FILE_CATEGORIES.includes(c as FileCategory));
+      if (bad.length) {
+        console.error(`知らない区分: ${bad.join(",")}（${FILE_CATEGORIES.join(",")}）`);
+        return 1;
+      }
+      const cutoff = Date.now() - days * 86_400_000;
+      const all = listDataFiles(DATA_DIR, cutoff);
+      const entries = values.category ? all.filter((e) => cats.includes(e.category)) : all;
+      const md = formatFiles(entries, { days, cutoff, dataDir: DATA_DIR });
+      if (values.out) writeFileSync(values.out, `${md}\n`, "utf8");
+      console.log(md);
+      if (values.delete) {
+        const r = deleteEntries(entries.filter((e) => cats.includes(e.category)));
+        console.log(`\n消した ${r.deleted.length} 項目（${(r.deleted.reduce((a, e) => a + e.bytes, 0) / 1_048_576).toFixed(1)}MiB）: ${r.deleted.map((e) => e.path).join("・") || "なし"}`);
+        for (const e of r.errors) console.error(`消せなかった: ${e}`);
+        return r.errors.length ? 1 : 0;
+      }
+      return 0;
+    }
     case "detect:rerun":
       console.log(rerunDetect(openDb(), loadDetectConfig()));
       return 0;

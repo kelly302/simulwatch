@@ -51,6 +51,15 @@ export interface CrawlConfig {
   daily: { playlist_page_size: number; members_playlist: boolean };
   backfill: { enabled: boolean; max_units_per_run: number; since: string | null };
   refresh: { max_missing_ratio: number; min_batch_for_ratio: number };
+  /** YouTube の API のデータを30日を超えて持たない（D-12。src/retention/） */
+  retention: {
+    /** 規約の上限の日数（retention:files の既定・retention:status の「上限を超えた」） */
+    max_age_days: number;
+    /** DB の中のものは、これを過ぎたら取り直すか消す（日次が数日止まっても上限を超えないための余白） */
+    act_after_days: number;
+    /** videos_seen の取り直しの1回の上限（ユニット。50本で1） */
+    videos_seen_max_units: number;
+  };
   http: {
     timeout_ms: number;
     retries: number;

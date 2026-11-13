@@ -126,6 +126,26 @@ export function templateLines(descriptions: (string | null)[], cfg: DetectConfig
   return out;
 }
 
+/**
+ * 概要欄のうち、定型文でなければ当たる行（正規化済み。1本の中の重複は1回）。detect の概要欄の判定と同じ条件。
+ * 定型文（templateLines）は当たる行だけが判定を変えるので、当たる行だけを数えて定型文を作れば detect の結果は同じになる
+ * （30日の決まりの取り直し（src/retention/seen.ts）が、多くの概要欄を持たずに定型文を作るのに使う）
+ */
+export function descriptionHitLines(description: string | null, cfg: DetectConfig): string[] {
+  if (!cfg.description.enabled || !description) return [];
+  const c = compile(cfg);
+  const out = new Set<string>();
+  for (const line of description.split(/\r?\n/)) {
+    const l = normalize(line, cfg.normalize);
+    if (l.length === 0 || out.has(l)) continue;
+    if (!firstMatch(c.descInclude, l) || firstMatch(c.descExclude, l)) continue;
+    if (c.lineRequire.length > 0 && !firstMatch(c.lineRequire, l)) continue;
+    if (firstMatch(c.lineExclude, l)) continue;
+    out.add(l);
+  }
+  return [...out];
+}
+
 /** タイトルからメン限枠かどうかを推定する */
 export function isMembersTitle(title: string, cfg: DetectConfig): boolean {
   return !!firstMatch(compile(cfg).members, normalize(title, cfg.normalize));

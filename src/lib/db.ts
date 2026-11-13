@@ -317,6 +317,21 @@ const MIGRATIONS: string[] = [
   CREATE INDEX candidates_state ON candidates(state);
   CREATE INDEX candidates_streamer ON candidates(streamer_id);
   `,
+  // 13: YouTube の API のデータを30日を超えて持たない（2026-11-13。規約 III.E.4・決定 D-12。src/retention/）。
+  //     - videos_seen.refreshed_at: 題名を API で最後に確かめた時刻（巡回で同じ題名を見た・refresh・retention の取り直し）。古いものから取り直す。今ある行は last_seen_at で始める
+  //     - videos_seen.gone_at: videos.list に返ってこない・公開でなかったので、題名（と公開日）を消した時刻。行と判定の結果は残す
+  //     - watch_events.purged_at: アーカイブが消えて日数がたったので、題名・概要欄・サムネの URL・再生数を消した時刻（行・判定・作品の結び付きは残す。復活したら refresh が入れ直す）
+  //     - candidates.cleared_at: 終わった候補（unavailable・detected・framed・not_watchalong）の詳細を消した時刻
+  //     - streamers.channel_meta_at: channels.list がチャンネル名・アイコンを最後に返した時刻
+  `
+  ALTER TABLE videos_seen ADD COLUMN refreshed_at TEXT;
+  UPDATE videos_seen SET refreshed_at = last_seen_at;
+  ALTER TABLE videos_seen ADD COLUMN gone_at TEXT;
+  CREATE INDEX videos_seen_refreshed ON videos_seen(refreshed_at);
+  ALTER TABLE watch_events ADD COLUMN purged_at TEXT;
+  ALTER TABLE candidates ADD COLUMN cleared_at TEXT;
+  ALTER TABLE streamers ADD COLUMN channel_meta_at TEXT;
+  `,
 ];
 
 export function openDb(path: string = DB_PATH): DB {

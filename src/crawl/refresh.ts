@@ -5,11 +5,14 @@ import { chunk } from "../youtube/api.ts";
 import { tx } from "../lib/db.ts";
 import { nowIso } from "../lib/time.ts";
 import { log } from "../lib/log.ts";
+import { confirmSeen } from "../retention/seen.ts";
 
 // 既知の WatchEvent を videos.list で取り直す。
 // - 状態（upcoming → live → completed）・開始時刻・再生数を上書きする
 // - videos.list に返ってこない・非公開になった枠はアーカイブ消失として一覧から消す（行は残す）
 // - 1バッチの大半が欠けたときは API 側の異常とみなし、消失判定を見送る
+// - 返ってきた枠の動画は、videos_seen の題名と確かめた時刻（refreshed_at）も新しくする（30日の決まりの取り直しで同じ動画をもう一度引かない。src/retention/seen.ts）
+// - アーカイブが消えて中身を消した枠（purged_at）が見られるようになったら、upsertEvent が中身を入れ直す
 
 export interface RefreshStats {
   targets: number;
@@ -22,20 +25,22 @@ export interface RefreshStats {
 
 export type RefreshScope = "active" | "all";
 
-export async function refreshEvents(ctx: Ctx, scope: RefreshScope): Promise<RefreshStats> {
+/** videoIds を渡すと、その動画の枠だけを取り直す（scope に関係なく。確かめ用。refresh --video） */
+export async function refreshEvents(ctx: Ctx, scope: RefreshScope, videoIds?: string[]): Promise<RefreshStats> {
   const stats: RefreshStats = { targets: 0, updated: 0, status_changed: {}, gone_marked: 0, revived: 0, gone_skipped_by_guard: 0 };
   if (!ctx.yt) return stats;
   const { db, crawlCfg } = ctx;
 
   // active: こまめな巡回（crawl:hourly。今は流さない）。予定枠と配信中の枠だけ
   // all:    日次。消失済みも含めて全件（一時的に非公開だった枠の復活を拾う）
-  const where =
-    scope === "active"
+  const where = videoIds
+    ? `video_id IN (${videoIds.map(() => "?").join(",") || "''"})`
+    : scope === "active"
       ? "archive_gone_at IS NULL AND status IN ('upcoming', 'live')"
       : "1 = 1";
   const rows = db
     .prepare(`SELECT id, video_id, streamer_id, status, archive_gone_at FROM watch_events WHERE ${where} ORDER BY id`)
-    .all() as { id: number; video_id: string; streamer_id: number; status: string; archive_gone_at: string | null }[];
+    .all(...(videoIds ?? [])) as { id: number; video_id: string; streamer_id: number; status: string; archive_gone_at: string | null }[];
   stats.targets = rows.length;
   const byVideo = new Map(rows.map((r) => [r.video_id, r]));
   const markGone = db.prepare("UPDATE watch_events SET archive_gone_at = COALESCE(archive_gone_at, ?), last_checked_at = ?, updated_at = ? WHERE id = ?");
@@ -69,6 +74,7 @@ export async function refreshEvents(ctx: Ctx, scope: RefreshScope): Promise<Refr
           stats.status_changed[k] = (stats.status_changed[k] ?? 0) + 1;
         }
         upsertEvent(ctx, id, row.streamer_id, c, null, now);
+        confirmSeen(db, id, c.title, v!.snippet?.publishedAt ?? null, now);
         stats.updated++;
       }
     });

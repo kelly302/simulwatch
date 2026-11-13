@@ -75,16 +75,20 @@ export function judgeCandidates(ctx: Ctx, rawCands: Candidate[], stats: IngestSt
   const now = nowIso();
   const getEvent = db.prepare("SELECT id, title_raw, is_members_only FROM watch_events WHERE video_id = ?");
   const getSeen = db.prepare("SELECT title, detect_version, detect_result FROM videos_seen WHERE video_id = ?");
-  const touchSeen = db.prepare("UPDATE videos_seen SET last_seen_at = ?, is_members_hint = MAX(is_members_hint, ?) WHERE video_id = ?");
+  // 同じ題名を見た = 題名を API で確かめた（refreshed_at。30日の決まりの取り直しはこれの古いものから。src/retention/seen.ts）
+  const touchSeen = db.prepare("UPDATE videos_seen SET last_seen_at = ?, refreshed_at = ?, is_members_hint = MAX(is_members_hint, ?) WHERE video_id = ?");
+  // 同時視聴の枠の動画は判定し直さないが、題名は今のものにする（題名を消した行も戻す）
+  const touchEventSeen = db.prepare("UPDATE videos_seen SET title = ?, last_seen_at = ?, refreshed_at = ?, gone_at = NULL, is_members_hint = MAX(is_members_hint, ?) WHERE video_id = ?");
   const upsertSeen = db.prepare(`
     INSERT INTO videos_seen (video_id, channel_id, title, published_at, first_seen_at, first_seen_via, last_seen_at,
-                             detect_result, detect_note, detect_version, is_members_hint)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             detect_result, detect_note, detect_version, is_members_hint, refreshed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(video_id) DO UPDATE SET
       title = excluded.title, published_at = COALESCE(excluded.published_at, published_at),
       last_seen_at = excluded.last_seen_at, detect_result = excluded.detect_result,
       detect_note = excluded.detect_note, detect_version = excluded.detect_version,
-      is_members_hint = MAX(is_members_hint, excluded.is_members_hint)`);
+      is_members_hint = MAX(is_members_hint, excluded.is_members_hint),
+      refreshed_at = excluded.refreshed_at, gone_at = NULL`);
   const setMembers = db.prepare("UPDATE watch_events SET is_members_only = 1, updated_at = ? WHERE id = ?");
 
   tx(db, () => {
@@ -96,7 +100,7 @@ export function judgeCandidates(ctx: Ctx, rawCands: Candidate[], stats: IngestSt
       if (ev) {
         stats.known_events_touched++;
         if (membersHint && !ev.is_members_only) setMembers.run(now, ev.id);
-        touchSeen.run(now, membersHint ? 1 : 0, c.videoId);
+        touchEventSeen.run(c.title, now, now, membersHint ? 1 : 0, c.videoId);
         if (ev.title_raw !== c.title) {
           // タイトルが変わった既知の枠は詳細を取り直す（判定根拠は前回のものを引き継ぐ）
           pending.set(c.videoId, { videoId: c.videoId, via: c.via, source: "title", keyword: "(known)", membersHint });
@@ -108,7 +112,7 @@ export function judgeCandidates(ctx: Ctx, rawCands: Candidate[], stats: IngestSt
       // "hit" なのに WatchEvent が無いのは、前回クォータ切れなどで詳細を取れなかったもの。取り直す
       if (seen && seen.title === c.title && seen.detect_version === detectCfg.version && seen.detect_result !== "hit") {
         stats.skipped_known++;
-        touchSeen.run(now, membersHint ? 1 : 0, c.videoId);
+        touchSeen.run(now, now, membersHint ? 1 : 0, c.videoId);
         continue;
       }
 
@@ -130,7 +134,7 @@ export function judgeCandidates(ctx: Ctx, rawCands: Candidate[], stats: IngestSt
       }
       upsertSeen.run(
         c.videoId, c.channelId, c.title, c.publishedAt, now, c.via, now,
-        result, note, detectCfg.version, membersHint ? 1 : 0,
+        result, note, detectCfg.version, membersHint ? 1 : 0, now,
       );
     }
   });
@@ -253,7 +257,10 @@ export function classifyOptions(ctx: Ctx): ClassifyOptions {
   return { allowNonLive: !ctx.detectCfg.reject.require_live };
 }
 
-/** WatchEvent の挿入・更新。更新時は取得できた値だけを上書きし、欠損で既存値を消さない */
+/**
+ * WatchEvent の挿入・更新。更新時は取得できた値だけを上書きし、欠損で既存値を消さない。
+ * アーカイブが消えて中身を消した枠（purged_at。src/retention/purge.ts）が見られるようになったら、ここで中身を入れ直して印を消す
+ */
 export function upsertEvent(ctx: Ctx, videoId: string, streamerId: number, c: EventFields, p: PendingHit | null, now: string): boolean {
   const { db } = ctx;
   const existing = db.prepare("SELECT id FROM watch_events WHERE video_id = ?").get(videoId) as { id: number } | undefined;
@@ -285,7 +292,7 @@ export function upsertEvent(ctx: Ctx, videoId: string, streamerId: number, c: Ev
       is_members_only = MAX(is_members_only, ?),
       view_count = COALESCE(?, view_count),
       view_count_fetched_at = CASE WHEN ? IS NULL THEN view_count_fetched_at ELSE ? END,
-      archive_gone_at = NULL,
+      archive_gone_at = NULL, purged_at = NULL,
       last_checked_at = ?, updated_at = ?
     WHERE id = ?`).run(
     c.title, c.description, c.thumbnail_url, c.started_at, c.started_at, c.started_at_source,

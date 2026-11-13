@@ -102,6 +102,31 @@
 - 確かめたこと: 本体の DB の写し（VACUUM INTO）で roster を1回流し、streamers 282行のうちこの4行だけが is_active 1 → 0 になり、ほかの行の名前・区分・is_active が変わらないことを1行ずつ比べた（channels.list で約6ユニット）
 - 置き換えたもの: CLAUDE.md の対象範囲の「旧 KR（11人）・旧 ID（6人）は外さない」に例外を足した（2026-10-03 の決定の一部）
 - 残り: 本体の DB に効くのは次の roster（段6の日次）。この4チャンネルの videos_seen（2,526本）の題名の30日の扱いは塊 R に伝えた
+  → D-12 で「取り直さずに消す」側に入れた（roster が巡回を止めたあとの retention で、videos_seen の題名・答える前の候補・アイコンとチャンネル名を消す。2026-11-13）
+
+### D-12 YouTube の30日の決まりを満たす（2026-11-13 ユーザー決定（塊として作る）。実装 2026-11-13、塊 R）
+
+- 中身: YouTube の API の規約 III.E.4（ログインなしで取ったデータは30日を超えて持たない。過ぎたら消すか取り直す）を満たす。DB の中のものは、最後に API で確かめてから
+  **25日**（config/crawl.yaml の `retention.act_after_days`。30日との差の5日は日次が止まった日の余白）を過ぎたら取り直すか消す。手元のファイルは一覧にして人が消す。
+  - videos_seen: 日次の `retention` が、題名を最後に確かめた時刻（refreshed_at。巡回で同じ題名を見た・refresh が枠の動画を取り直したときも進める）の古いものから videos.list で取り直す。
+    1日の本数は「題名を持つ行 ÷ 25」（約285ユニット）と「25日を過ぎた行」の多いほう、上限 1,500ユニット（初回は約5日で追いつく）。返ってこない・公開でない動画は題名を空文字に・公開日を NULL に（gone_at。行と判定の結果は残す）。
+    題名が変わったら巡回と同じく判定し直す（枠の動画は題名だけ。語彙のバージョンだけの違いは detect:rerun に任せる）
+  - candidates: 判定に回す候補（ready・hold）は詳細が25日より古い・無ければ candidates:fetch が取り直す。終わった候補（detected・framed・not_watchalong）は25日で、取れない候補（unavailable）はすぐに詳細を消す（cleared_at）
+  - streamers: roster が巡回を止めた配信者のチャンネルも取り直す。返ってこないチャンネルは、最後に返ってから25日を過ぎたらアイコンとチャンネル名を消す（channel_meta_at）
+  - 巡回しないチャンネル（D-13 の excluded_channels）: 今後使わないので取り直さずに消す（親のセッションの提案を受けて Claude が決めた）。roster が is_active = 0 にしたあとの retention で、
+    videos_seen の題名（gone_at）と、答える前・保留の候補（unavailable・fetch_note = excluded_channel）を消し、roster の channels.list で引かずにアイコンとチャンネル名を消す。
+    卒業した配信者は過去の枠を出すので、ふだんどおり取り直す（src/retention/excluded.ts）
+  - watch_events: アーカイブが消えて25日を過ぎた枠の題名・概要欄・サムネの URL・再生数を消す（purged_at）。行・判定・作品の結び付き・時刻・状態は残し、見られるようになったら refresh が入れ直す
+  - 手元のファイル: `retention:files` が30日を超えたもの（生レスポンス・DB の写し・AI の作業フォルダ・audit・review・analysis・ログ・unresolved.json・site-data.json）を一覧にする。
+    消すのは `--delete` のときだけ（中のファイルが全部古い項目だけ）。ジョブ・RawLog は手元のファイルを自動では消さない（経緯の記録に使っているものがある。日次のランナーは毎回まっさら）
+  - 日次のワークフローに `retention` のステップ（docs/workflows.md 3-1 の 6b）。`retention:status` が古いものの件数を出す
+- 置き換えたもの: なし（docs/youtube-policy.md の「30日の決まりで取り直す・消すもの」の直し方の案1〜5を、案1の「取り直す」側で実装した）
+- 実装: src/retention/（seen・purge・status・files）、マイグレーション 13（videos_seen.refreshed_at・gone_at、watch_events.purged_at、candidates.cleared_at、streamers.channel_meta_at）、
+  src/crawl/ingest.ts・refresh.ts・src/roster/sync.ts・src/candidates/store.ts、detect:rerun と判定役に見せる前後の枠・候補の種の枠は中身を消した行を使わない。経緯と写しでの確かめは docs/ai-runs.md の 2026-11-13（塊 R）の節
+- 決めていないこと: 手元の今あるファイルのどれを消すか（ユーザーが一覧を見て決める）、
+  unresolved・ai_decisions・event_works・候補の答えの根拠に入る題名の断片（自前の判定の記録。API のデータそのものかは灰色）、枠と候補の時刻・状態（消していない）
+- R2 の raw/ の日数は塊 R では扱わない（2026-11-13 ユーザー決定で30日。D-02 の進み具合）
+- 正の文書: docs/crawl.md の「30日の決まり」・docs/data-model.md・docs/workflows.md 3-1・7
 
 ### D-10 YouTube の規約の読み直しのあとも、作品ページの「観た配信者」は再生数の順が既定のまま・最高再生数と合計再生数は残す（2026-11-13。コードは今のまま）
 

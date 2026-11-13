@@ -1,4 +1,4 @@
-# 日次のジョブ（docs/workflows.md 3-1）。DB を取って検査 → 巡回 → 候補 → AI の答えの取り込み → 名寄せ → site:data → DB を書き戻す → 変わっていればビルドしてアップロード。
+# 日次のジョブ（docs/workflows.md 3-1）。DB を取って検査 → 巡回 → 候補 → 30日の決まり → AI の答えの取り込み → 名寄せ → site:data → DB を書き戻す → 変わっていればビルドしてアップロード。
 # ステップの中身は scripts/ci/job.sh（ローカルで同じ順に通すのは scripts/ci/local-daily.sh）。
 #
 # - schedule は Variable の SCHEDULE_ENABLED が true のときだけ動く（最初の公開の前に動かさない。5-2）。ボタン（workflow_dispatch）はいつでも動く
@@ -17,7 +17,7 @@ on:
         options: [production, preview]
         default: production
       crawl:
-        description: "roster・crawl:daily・refresh・candidates:fetch を流す（false で YouTube を呼ばずに1周する試し）"
+        description: "roster・crawl:daily・refresh・candidates:fetch・retention の取り直しを流す（false で YouTube を呼ばずに1周する試し）"
         type: boolean
         default: true
 
@@ -118,6 +118,14 @@ jobs:
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: bash scripts/ci/job.sh candidates
+      # 30日の決まり（D-12。docs/workflows.md 3-1 の 6b）。crawl: false の回もキーを渡さずに流す（API を使わない候補と枠の消去だけ）
+      - name: retention
+        if: steps.pull.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          YOUTUBE_API_KEY: ${{ (github.event_name != 'workflow_dispatch' || inputs.crawl) && secrets.YOUTUBE_API_KEY || '' }}
+        run: bash scripts/ci/job.sh retention
       - name: ai:ingest
         if: steps.pull.outcome == 'success'
         continue-on-error: true

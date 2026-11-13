@@ -55,6 +55,16 @@ refresh:
   # 上の判定を適用する最小バッチサイズ（少数のバッチは1件消えただけで割合が跳ねるため）
   min_batch_for_ratio: 10
 
+retention:
+  # YouTube の API の規約 III.E.4: ログインなしで取ったデータは30日を超えて持たない（過ぎたら消すか取り直す）。決定 D-12（2026-11-13）。
+  # 日次の retention・refresh・roster・candidates:fetch がこれで取り直す・消す（docs/crawl.md の「30日の決まり」）
+  max_age_days: 30
+  # DB の中のものは、最後に API で確かめてからこの日数を過ぎたら取り直すか消す。30日との差の5日は、日次が止まった日の余白
+  act_after_days: 25
+  # videos_seen（巡回で見た全部の動画）の取り直しの1回の上限（ユニット。50本で1）。
+  # ふだんは「題名を持つ行 ÷ act_after_days」を古いものから（約35.5万本で1日 約285）。act_after_days を過ぎた行がそれより多いときは、ここまで使って追いつく
+  videos_seen_max_units: 1500
+
 http:
   timeout_ms: 20000
   retries: 3

@@ -83,6 +83,13 @@ og-cache は写して使う（本体の OG_CACHE を共有しない。ビルド�
 - 状態: 実装済み・main にマージ済み（2026-11-13。ブランチ claude/p4-f-actions-edf6ab）。ローカルの1周と失敗の試し・actionlint・wrangler の dry-run は済（docs/workflows.md 13-3）。
   **GitHub での preview への手動起動は残り**（リポジトリ・Secrets（G）と push のあと。手順は docs/workflows.md 13-4）
 
+### R YouTube の30日の決まり（D-12。2026-11-13 ユーザー決定）
+
+- videos_seen の題名の取り直し（日次の retention）・候補の詳細の取り直しと消去・巡回を止めた配信者のチャンネルの取り直し・アーカイブが消えた枠の中身の消去・手元のファイルの一覧（retention:files）
+- 済んだの基準: 写しの DB で1周（API は 50ユニット以内）、テストと型チェック、文書、本体の data/ の一覧（読むだけ）
+- 状態: 実装済み（2026-11-13。ブランチ claude/p4-r-retention-af0224。写しでの確かめは docs/ai-runs.md の 2026-11-13（塊 R）の節。39ユニット）。
+  残り: 本体の DB の枠の取り直し（11-28 までに refresh。段6）・手元のファイルのどれを消すか（ユーザー）
+
 ### G ユーザーの手作業
 
 - GitHub のリポジトリと noreply、Cloudflare のアカウント・R2・トークン、Secrets と Variables、ローカルに AWS CLI

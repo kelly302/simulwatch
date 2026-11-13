@@ -5,7 +5,7 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
 ## データモデル
 
     Streamer   id, name, name_en, affiliation, branch, channel_id, platform, icon_url, tier,
-               is_active, source_key, channel_title,
+               is_active, source_key, channel_title, channel_meta_at,
                first_seen_at, last_listed_at, deactivated_at, updated_at
     Work       id, annict_id, anilist_id, wikidata_id, title, title_kana,
                media (tv / movie / ova / web), season_name, series_id,
@@ -21,7 +21,7 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
                detect_source (title / description / ai_candidate), detect_keyword,
                found_via (rss / playlist / members_playlist / backfill),
                started_at_source (actual_start / scheduled_start / published_at),
-               archive_gone_at, excluded_at, excluded_reason, last_checked_at, updated_at
+               archive_gone_at, purged_at, excluded_at, excluded_reason, last_checked_at, updated_at
     EventWork  watch_event_id, work_id, episode_id, confidence（多対多）,
                id, match_method, extracted_text, rule_version, created_at
     Unresolved watch_event_id, extracted_text, reason, resolved_at,
@@ -34,6 +34,17 @@ CLAUDE.md から移した（2026-11-04。文言は変えずにそのまま移し
 
 集計値（views_max / views_total / events_count / streamers_count /
 first_event_at / latest_event_at）は DB に持たず、サイト用のデータを書き出すたび（site:data）に作り直す（2026-10-19。再生数そのものは日次の refresh で取り直す）。
+
+### 30日の決まりで足した列の意味（2026-11-13。決定 D-12。マイグレーション 13）
+
+YouTube の API の規約 III.E.4: ログインなしで取ったデータは30日を超えて持たない（過ぎたら消すか取り直す）。日次のジョブが取り直すか消す（docs/crawl.md の「30日の決まり」）。
+
+- `Streamer.channel_meta_at` channels.list がチャンネル名（channel_title）とアイコン（icon_url）を最後に返した時刻。roster は巡回を止めた配信者も取り直し（巡回しないチャンネル（excluded_channels。D-13）は引かずにアイコンとチャンネル名を消す）、
+  返ってこないチャンネルはこれが25日（`retention.act_after_days`）より前ならアイコンとチャンネル名を NULL にする（名前は事務所の名簿の値なので残る）。NULL は「まだ確かめていない」
+- `WatchEvent.purged_at` アーカイブが消えて（archive_gone_at）25日を過ぎたので、題名（空文字。title_raw は NOT NULL）・概要欄・サムネの URL・再生数（view_count・view_count_fetched_at）を消した時刻。
+  行・判定（ai_decisions・unresolved）・作品の結び付き（event_works）・時刻・状態は残す。消えた枠も refresh が毎日見に行き、見られるようになったら中身を入れ直してこれを NULL にする。
+  detect:rerun と判定役に見せる前後の枠は、これの立った枠を使わない（空の題名で外さない・見せない）
+- `videos_seen.refreshed_at`・`gone_at`・`candidates.cleared_at` は下の「取得用の内部テーブル」
 
 ### Phase 3 で足した列の意味
 
@@ -85,7 +96,11 @@ first_event_at / latest_event_at）は DB に持たず、サイト用のデー�
 ### 取得用の内部テーブル（公開しない）
 
     videos_seen   巡回で見たすべての動画（ID・タイトル・判定結果・語彙のバージョン）。
-                  RSS の差分検知と、語彙を変えたときの再判定に使う。概要欄は持たない
+                  RSS の差分検知と、語彙を変えたときの再判定に使う。概要欄は持たない。
+                  refreshed_at: 題名を API で最後に確かめた時刻（巡回で同じ題名を見た・refresh が枠の動画を取り直した・retention が取り直した。D-12）。
+                  日次の retention がこれの古いものから videos.list で取り直す（約25日で一周）。マイグレーション 13 で last_seen_at から始めた。
+                  gone_at: retention で videos.list に返ってこない・公開でなかった（か、巡回しないチャンネル（excluded_channels。D-13）の動画な）ので、題名を空文字に・公開日（published_at）を NULL にした時刻。
+                  行と判定の結果は残す。もう取り直さない（巡回でまた見えたら判定し直して入れ直す）。判定役に見せる動画・候補の選び方・detect:rerun には使わない
     crawl_state   チャンネルごとの巡回状態（RSS・playlistItems の最終取得、遡りの続きのページ）
     quota_usage   API 呼び出しごとのクォータ消費（太平洋時間の日付で集計）
     runs          ジョブの実行記録（ステップごとの件数とエラー）
@@ -104,6 +119,11 @@ first_event_at / latest_event_at）は DB に持たず、サイト用のデー�
                       選び直しでは、答える前（selected・waiting・ready）の候補だけ理由と種の枠を新しくする。枠を作った答えは ai_decisions に入る（答えの時刻はそちらの decided_at）
                       答えの区分 not_watchalong（同時視聴ではない）は候補だけの答えで、枠を作らずここに持つ。保留（hold）も、一覧に出る枠の無い候補ならここに持つ。
                       取り消し（ai:revoke）は answer_revoked_at を立てて ready に戻す（answered_at は残し、古い答えの比べに使う）
+                      30日の決まり（D-12）: 判定に回す候補（ready・hold）は、詳細が25日より古い・無ければ candidates:fetch が取り直す（状態はそのまま。取れなければ unavailable）。
+                      終わった候補（detected・framed・not_watchalong）は詳細を取ってから25日を過ぎたら、取れない候補（unavailable）はすぐに、
+                      詳細（title_raw・description_raw・thumbnail_url・view_count・view_count_fetched_at）を NULL にして cleared_at を立てる（状態・時刻・答えは残す）。
+                      ai:report の採点の表に出す not_watchalong の題名は、消したあとは「（題名は30日の決まりで消した。D-12）」になる。
+                      巡回しないチャンネル（excluded_channels。D-13）の答える前・保留の候補は、retention が unavailable（fetch_note = excluded_channel）にして詳細を消す
     site_pages        作品ページ・配信者ページの中身の指紋（再生数を除く）と、中身が変わった日（sitemap の lastmod）
 
 ### 間違えやすい点

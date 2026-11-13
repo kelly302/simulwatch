@@ -60,8 +60,8 @@ const ev = (db: DB, id: string) => db.prepare("SELECT * FROM watch_events WHERE 
 
 test("マイグレーション 12: candidates の表ができ、行を消さない表として数える", () => {
   const db = setup();
-  assert.equal(schemaVersion(), 12);
-  assert.equal((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, 12);
+  assert.ok(schemaVersion() >= 12);
+  assert.equal((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version, schemaVersion());
   saveCandidates(db, [cand("v1")], T0);
   assert.equal(countKeepTables(db).candidates, 1);
   // 状態と詳細の status は決めた値だけ
@@ -109,7 +109,7 @@ test("candidates:fetch: 終わった動画は ready、予定・配信中は wait
     upload: item("upload", { live: false, views: "10" }), memtitle: item("memtitle", { title: "【メン限】ARCANE PART 3" }),
   });
   const s = await fetchCandidates({ db, yt: f.yt, detectCfg });
-  assert.deepEqual(s, { targets: 7, requested: 7, ready: 3, waiting: 2, unavailable: 1, missing: 1 });
+  assert.deepEqual(s, { targets: 7, refetched: 0, requested: 7, ready: 3, hold: 0, waiting: 2, unavailable: 1, missing: 1 });
   const d = row(db, "done");
   assert.equal(d.state, "ready");
   assert.equal(d.status, "completed");
