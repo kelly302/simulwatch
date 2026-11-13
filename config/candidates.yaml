@@ -4,14 +4,19 @@
 # 作品名の区間は判定役に見せる「同じ作品名の動画」と同じ決まり（src/report/neighbors.ts の videoKeys。
 # config/extract.yaml の ai_context.other_videos の ignore_keys・boilerplate_ratio・members_heading）。
 
-# 使う層（2026-10-23 の計測で当たりの多かった3層）。弱い語（weak_word）は判定役の試し（docs/ai-ops.md 6-2）のあとに入れるかを決める（決定 4）（→ 2026-11-13 に入れると決まった。D-04。実装は塊 D3b）
+# 使う層。2026-10-23 の計測で当たりの多かった3層に、弱い語（weak_word）を足した（2026-11-13 ユーザー決定。D-04。
+# 判定役の試し cand-trial-1104 で、弱い語の層の同時視聴でない7本を同時視聴と答えたものは0。docs/ai-runs.md の 2026-11-08 の節）
 #   same_work_members: 種の枠の作品名の区間を題名に含むメン限の動画
 #   continuation_word: メン限で、(種の枠の作品名の区間を含む か 同じ配信者のメン限の種の枠の前後 members_days 日) で、続きの語に当たる
 #   same_title_body:   同じチャンネルの種の枠と、題名の本体（NFKC・小文字。【】の中身・感嘆符・空白を除く）が同じ（本体 title_body_min_chars 文字以上）
+#   weak_word:         弱い語（下の weak_words）に当たる動画。公開・メン限とも。種の枠は要らない（同時視聴枠が1つも無い配信者も入る）
+# メン限の見出しの区間だけで当たる動画は入れない（same_work_members の作品名の区間から見出しを除く。config/extract.yaml の members_heading・ignore_keys。
+# cand-trial-1104 で、その10本に作品の同時視聴は0）
 layers:
   - same_work_members
   - continuation_word
   - same_title_body
+  - weak_word
 
 members_days: 30
 title_body_min_chars: 4
@@ -38,3 +43,12 @@ continuation_words:
   - '観ようよ'
   - '見ようよ'
   - 'みようよ'
+
+# 弱い語（名前: 正規表現）。題名を detect の正規化（config/detect.yaml の normalize。NFKC・小文字・空白と「・-_」などを除く）にしてから、大文字と小文字を区別せずに見る。
+# 2026-10-19 の計測の式（視聴会は「視聴会」だけ）。同時視聴の語（config/detect.yaml の title.include）に入れないのは、
+# 同時視聴でない動画（ゲーム・雑談を「一緒に」する配信）と作品ではない同時視聴（Direct・スポーツ）が多く混ざるため（2026-10-19。判定役が見分ける）
+weak_words:
+  letswatch: "let'?swatch"
+  一緒に観る: '(一緒|いっしょ)に(観|見|み)'
+  みんなで観る: '(みんな|皆)で(観|見|み)(る|よ|ま)'
+  視聴会: '視聴会'

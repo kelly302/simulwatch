@@ -5,6 +5,9 @@ import type { DB } from "../lib/db.ts";
 import { ROOT, DATA_DIR } from "../lib/paths.ts";
 import { activeEventSql, farFutureCutoff } from "../lib/events.ts";
 import type { ExtractConfig } from "../resolve/config.ts";
+import type { DetectConfig } from "../lib/config.ts";
+import { loadDetectConfig } from "../lib/config.ts";
+import { normalize } from "../detect/detect.ts";
 import { publishState } from "../resolve/route.ts";
 import { streamerFrames, streamerVideos, videoKeys, inTitle } from "../report/neighbors.ts";
 import type { Frame, Video } from "../report/neighbors.ts";
@@ -15,14 +18,16 @@ import type { Frame, Video } from "../report/neighbors.ts";
 // 層の中身と語は config/candidates.yaml。作品名の区間は判定役に見せる「同じ作品名の動画」と同じ決まり（neighbors.ts の videoKeys）。
 // 表（candidates）への保存と詳細の取得は src/candidates/store.ts。ここは選ぶだけ（--dry-run は件数と一覧だけ）
 
-export type CandidateReason = "same_work_members" | "continuation_word" | "same_title_body";
-export const CANDIDATE_REASONS: CandidateReason[] = ["same_work_members", "continuation_word", "same_title_body"];
+export type CandidateReason = "same_work_members" | "continuation_word" | "same_title_body" | "weak_word";
+export const CANDIDATE_REASONS: CandidateReason[] = ["same_work_members", "continuation_word", "same_title_body", "weak_word"];
 
 export interface CandidatesConfig {
   layers: CandidateReason[];
   members_days: number;
   title_body_min_chars: number;
   continuation_words: string[];
+  /** 弱い語（weak_word。名前 → 正規表現）。detect の正規化（config/detect.yaml の normalize）のあとの題名で見る。種の枠は要らない */
+  weak_words?: Record<string, string>;
 }
 
 export function loadCandidatesConfig(): CandidatesConfig {
@@ -48,11 +53,15 @@ export interface StreamerInput {
   videos: Video[];
 }
 
-/** 候補にした理由の1つ（どの種の枠から。same_work_members・continuation_word の作品名の区間は key） */
+/**
+ * 候補にした理由の1つ（どの種の枠から。same_work_members・continuation_word の作品名の区間は key）。
+ * weak_word は種の枠を持たず（seed が無い）、当たった弱い語の名前を word に持つ
+ */
 export interface CandidateHit {
   reason: CandidateReason;
-  seed: number;
+  seed?: number;
   key?: string;
+  word?: string;
 }
 
 export interface Candidate {
@@ -74,17 +83,24 @@ export function titleBody(t: string): string {
   return t.normalize("NFKC").toLowerCase().replace(/【[^】]*】/g, "").replace(/[!！]/g, "").replace(/\s+/g, "");
 }
 
-/** 候補を選ぶ（純粋関数）。並びは公開日時・動画の ID の順 */
-export function selectCandidates(streamers: StreamerInput[], cfg: ExtractConfig, ccfg: CandidatesConfig): Candidate[] {
+/**
+ * 候補を選ぶ（純粋関数）。並びは公開日時・動画の ID の順。
+ * norm は弱い語を見るときの題名の正規化（config/detect.yaml の normalize。省くと読み込む）
+ */
+export function selectCandidates(
+  streamers: StreamerInput[], cfg: ExtractConfig, ccfg: CandidatesConfig, norm: DetectConfig["normalize"] = loadDetectConfig().normalize,
+): Candidate[] {
   const on = new Set(ccfg.layers);
   const cont = ccfg.continuation_words.map((p) => new RegExp(p, "i"));
   const isCont = (t: string) => {
     const n = t.normalize("NFKC");
     return cont.some((re) => re.test(n));
   };
+  const weak = on.has("weak_word") ? Object.entries(ccfg.weak_words ?? {}).map(([name, p]) => [name, new RegExp(p, "i")] as const) : [];
   const out: Candidate[] = [];
   for (const s of streamers) {
-    if (!s.videos.length || !s.seeds.length) continue;
+    // 種の枠の無い配信者も、弱い語だけは見る
+    if (!s.videos.length || (!s.seeds.length && !weak.length)) continue;
     // 動画ごとに、作品名の区間で当たった種（s1）・前後のメン限の種（s3）・本体が同じ種を集める
     const s1 = new Map<Video, CandidateHit[]>();
     const s3 = new Map<Video, number[]>();
@@ -126,6 +142,10 @@ export function selectCandidates(streamers: StreamerInput[], cfg: ExtractConfig,
         else hits.push(...s3.get(v)!.map((seed) => ({ reason: "continuation_word" as const, seed })));
       }
       if (on.has("same_title_body")) hits.push(...(body.get(v) ?? []).map((seed) => ({ reason: "same_title_body" as const, seed })));
+      if (weak.length) {
+        const n = normalize(v.title, norm);
+        for (const [word, re] of weak) if (re.test(n)) hits.push({ reason: "weak_word", word });
+      }
       if (!hits.length) continue;
       out.push({
         videoId: v.id, streamerId: s.id, streamer: s.name, title: v.title, date: v.date, members: v.members,
@@ -174,7 +194,8 @@ export function loadSelectInput(db: DB, cfg: ExtractConfig, maxDaysAhead: number
  * （メン限の題名を含むのでコミットしない）
  */
 export function candidatesDryRun(db: DB, cfg: ExtractConfig, maxDaysAhead: number, now: Date = new Date()): string {
-  const list = selectCandidates(loadSelectInput(db, cfg, maxDaysAhead, now), cfg, loadCandidatesConfig());
+  const ccfg = loadCandidatesConfig();
+  const list = selectCandidates(loadSelectInput(db, cfg, maxDaysAhead, now), cfg, ccfg);
   const lastCrawl = (db.prepare("SELECT max(last_seen_at) AS m FROM videos_seen").get() as { m: string | null }).m;
   const dir = join(DATA_DIR, "review");
   mkdirSync(dir, { recursive: true });
@@ -182,18 +203,21 @@ export function candidatesDryRun(db: DB, cfg: ExtractConfig, maxDaysAhead: numbe
   const md = ["# 続きの回の候補（candidates:select --dry-run）", "", `- 最後の巡回 ${lastCrawl}・選んだ時刻 ${now.toISOString()}`, ...summarize(list).map((l) => `- ${l}`), "",
     "| 動画 | 配信者 | 公開日 | メン限 | 層 | 題名 | 種の枠（区間） |", "|---|---|---|---|---|---|---|",
     ...list.map((c) => `| ${c.videoId} | ${c.streamer} | ${c.date} | ${c.members ? "○" : ""} | ${c.reasons.join("+")} | ${c.title.replaceAll("|", "｜")} | ${
-      [...new Set(c.hits.map((h) => `${h.seed}${h.key ? `（${h.key}）` : ""}`))].slice(0, 3).join("・")} |`)];
+      [...new Set(c.hits.map(hitLabel))].slice(0, 3).join("・")} |`)];
   writeFileSync(join(dir, "candidates-select.md"), md.join("\n"), "utf8");
   const mh = cfg.ai_context?.other_videos?.members_heading;
   return [
-    `最後の巡回 ${lastCrawl}。メン限の見出し: ${mh ? `メン限の動画の ${mh.ratio} 超・${mh.min}本以上` : "見ない"}`,
+    `最後の巡回 ${lastCrawl}。使う層: ${ccfg.layers.join("・")}。メン限の見出し: ${mh ? `メン限の動画の ${mh.ratio} 超・${mh.min}本以上` : "見ない"}`,
     ...summarize(list),
     `videos.list の見積もり ${Math.ceil(list.length / 50)} ユニット（50本で1）`,
     `一覧 → ${join(dir, "candidates-select.{json,md}")}`,
   ].join("\n");
 }
 
-/** 件数のまとめ（層ごと・重なり・配信者の上位） */
+/** 一覧の「種の枠（区間）」の欄。弱い語は種の枠が無いので語の名前 */
+const hitLabel = (h: CandidateHit) => (h.seed === undefined ? `語「${h.word ?? "?"}」` : `${h.seed}${h.key ? `（${h.key}）` : ""}`);
+
+/** 件数のまとめ（層ごと・重なり・配信者の上位・弱い語の内訳） */
 export function summarize(list: Candidate[]): string[] {
   const top = (xs: Candidate[], n: number) => Object.entries(xs.reduce((m: Record<string, number>, c) => {
     m[c.streamer] = (m[c.streamer] ?? 0) + 1;
@@ -210,6 +234,11 @@ export function summarize(list: Candidate[]): string[] {
     return m;
   }, {})).sort((a, b) => b[1] - a[1]);
   lines.push(`  重なり: ${combos.map(([k, v]) => `${k} ${v}`).join("・")}`);
+  const words = Object.entries(list.reduce((m: Record<string, number>, c) => {
+    for (const w of new Set(c.hits.flatMap((h) => (h.word ? [h.word] : [])))) m[w] = (m[w] ?? 0) + 1;
+    return m;
+  }, {})).sort((a, b) => b[1] - a[1]);
+  if (words.length) lines.push(`  弱い語の内訳（重なりあり）: ${words.map(([k, v]) => `${k} ${v}`).join("・")}`);
   lines.push(`  上位の配信者: ${top(list, 10)}`);
   return lines;
 }

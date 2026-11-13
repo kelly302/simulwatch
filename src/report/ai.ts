@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, statSy
 import { join, basename, relative } from "node:path";
 import type { Ctx } from "../lib/context.ts";
 import { tx } from "../lib/db.ts";
+import type { DB } from "../lib/db.ts";
 import { DATA_DIR } from "../lib/paths.ts";
 import { nowIso, quotaDay } from "../lib/time.ts";
 import { activeEventSql, farFutureCutoff } from "../lib/events.ts";
@@ -717,7 +718,10 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
   const rows = ctx.db.prepare(`SELECT a.status, a.works, a.confidence, a.evidence, a.rationale, a.seconds, a.revoked_at, e.video_id, e.title_raw, e.started_at, s.name AS streamer
     FROM ai_decisions a JOIN watch_events e ON e.id = a.watch_event_id JOIN streamers s ON s.id = e.streamer_id
     WHERE a.batch IN (${batch.split(",").map(() => "?").join(",")}) ORDER BY a.id`).all(...batch.split(",")) as Record<string, string | number | null>[];
-  const label: Record<string, string> = { identified: "同定", not_a_work: "作品ではない", unidentifiable: "作品を特定できない", not_in_db: "作品だが外部DBに無い", hold: "保留" };
+  rows.push(...candidateAnswerRows(ctx.db, batch.split(",")));
+  const label: Record<string, string> = {
+    identified: "同定", not_a_work: "作品ではない", unidentifiable: "作品を特定できない", not_in_db: "作品だが外部DBに無い", hold: "保留", not_watchalong: "同時視聴ではない",
+  };
   // 作品名は DB の今の行から出す（判定の記録の作品名は判定のときのまま。日本語のラベルが無い項目は QID になっていた）
   const nowTitle = (key: string, fallback: string | undefined) => {
     const [src, id] = key.split(":");
@@ -777,7 +781,7 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
   writeFileSync(path, out.join("\n"), "utf8");
 
   // 採点用の HTML（正しい / 誤り / 判断できない とメモ。scores.md に書き出す）。取り消した判定は出さない
-  const order = ["identified", "not_a_work", "unidentifiable", "not_in_db", "hold"];
+  const order = ["identified", "not_a_work", "unidentifiable", "not_in_db", "hold", "not_watchalong"];
   // 採点の表に出す枠（2026-10-03 決定。AI の判定は正しそうなので、確度 high は見せない）:
   // 確度が high でない判定・保留・作品を特定できない・--video で指定した枠は全部出す。確度 high は出さない
   // （--sample N で high からシードで N 件を抜き取りで出す。--include-high で全部出す）
@@ -819,7 +823,11 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
     };
   };
   const sections = order.filter((k) => live.some((r) => r.status === k))
-    .map((k) => ({ key: k, label: label[k] ?? k, required: true, ...(k === "hold" ? { note: "決められたはずなのに保留にしたものを「誤り」にする（英語のタイトルの枠は無理に同定しないので、保留を誤りにしない）" } : {}) }));
+    .map((k) => ({
+      key: k, label: label[k] ?? k, required: true,
+      ...(k === "hold" ? { note: "決められたはずなのに保留にしたものを「誤り」にする（英語のタイトルの枠は無理に同定しないので、保留を誤りにしない）" } : {}),
+      ...(k === "not_watchalong" ? { note: "続きの回の候補の答え。同時視聴の配信なのに「同時視聴ではない」としたものを「誤り」にする（作品ではないものを観る同時視聴は not_a_work が正しい）" } : {}),
+    }));
   const items: ReviewItem[] = sections.flatMap((sec) => live.filter((r) => r.status === sec.key).map((r, i) => {
     const works = r.works ? (JSON.parse(String(r.works)) as AiWork[]) : [];
     const ev = JSON.parse(String(r.evidence)) as DecisionInput["evidence"];
@@ -847,6 +855,25 @@ export function aiReport(ctx: Ctx, batch: string, opts: { sample?: number; seed?
   writeReviewHtml(html, { mode: "score", batch: rest ? `${batch}（残り）` : batch, source: path, file, sections, items });
   const byStatus = [...new Set(items.map((x) => x.section))].map((k) => `${label[k] ?? k} ${items.filter((x) => x.section === k).length}`).join("・");
   return `${rows.length} 件 → ${path}・採点用 ${html}（${items.length} 件: ${byStatus}。確度 high 以外・保留・特定できない・指定の枠 ${must.length}${opts.includeHigh ? "（確度 high も全部）" : opts.sample ? `、確度 high から抜き取り ${opts.sample}` : ""}${scored.size ? `、採点済みで除いた ${scored.size}` : ""}）`;
+}
+
+/**
+ * 続きの回の候補（D-04）で、枠を作らない答え（not_watchalong と、一覧に出る枠の無い候補の hold）は ai_decisions に無く、候補の表に持つ。
+ * ai:report の表に ai_decisions の行と同じ形で出す。候補の表は動画ごとに最後の答えだけを持つので、その batch の答えがあとの答えで置き換わっていれば出ない。
+ * 取り消した答え（answer_revoked_at）と、あとで枠を作った候補（state が答えと違う）は取り消し済みとして出す
+ */
+export function candidateAnswerRows(db: DB, batches: string[]): Record<string, string | number | null>[] {
+  const rows = db.prepare(`SELECT c.answer_status AS status, c.answer_detail, c.answer_revoked_at, c.state, c.answered_at, c.video_id, c.title_raw, c.started_at, s.name AS streamer
+    FROM candidates c JOIN streamers s ON s.id = c.streamer_id
+    WHERE c.answer_status IS NOT NULL AND c.answer_batch IN (${batches.map(() => "?").join(",")}) ORDER BY c.answered_at, c.id`).all(...batches) as Record<"status" | "answer_detail" | "answer_revoked_at" | "state" | "answered_at" | "video_id" | "title_raw" | "started_at" | "streamer", string | null>[];
+  return rows.map((r) => {
+    const d = JSON.parse(String(r.answer_detail ?? "{}")) as { confidence?: string; rationale?: string; evidence?: unknown; seconds?: number };
+    return {
+      status: r.status, works: null, confidence: d.confidence ?? "low", evidence: JSON.stringify(d.evidence ?? { looked: [] }), rationale: d.rationale ?? "", seconds: d.seconds ?? null,
+      revoked_at: r.answer_revoked_at ?? (r.state !== r.status ? r.answered_at : null),
+      video_id: r.video_id, title_raw: r.title_raw, started_at: r.started_at, streamer: r.streamer,
+    };
+  });
 }
 
 /** 採点の書き出し（scores*.md）から、採点済みの枠（「採点: （未）」でないもの）の動画 ID。unscored なら採点していない枠 */

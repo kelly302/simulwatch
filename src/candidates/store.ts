@@ -179,7 +179,7 @@ const jstDate = (t: string | null) => (t ? new Date(Date.parse(t) + 9 * 3_600_00
 export function candidateQueueRows(db: DB, opts: { includeHold?: boolean; videos?: string[] } = {}): CandidateQueueRow[] {
   const states = opts.includeHold ? ["ready", "hold"] : ["ready"];
   const rows = db.prepare(`SELECT c.id, c.video_id, c.streamer_id, s.name AS streamer, c.state, c.reasons, c.seeds, c.title_raw, c.description_raw,
-      c.thumbnail_url, c.started_at, c.is_members_only, vs.is_members_hint
+      c.thumbnail_url, c.started_at, c.started_at_source, c.ended_at, c.is_members_only, vs.is_members_hint
     FROM candidates c JOIN streamers s ON s.id = c.streamer_id LEFT JOIN videos_seen vs ON vs.video_id = c.video_id
     WHERE c.status = 'completed' AND c.title_raw IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM watch_events e WHERE e.video_id = c.video_id AND e.excluded_at IS NULL)
@@ -190,7 +190,8 @@ export function candidateQueueRows(db: DB, opts: { includeHold?: boolean; videos
     const vid = String(r.video_id);
     if (opts.videos ? !opts.videos.includes(vid) : !states.includes(String(r.state))) continue;
     const t0 = r.started_at ? Date.parse(String(r.started_at)) : NaN;
-    const ids = [...new Set((JSON.parse(String(r.seeds)) as { seed: number }[]).map((h) => h.seed))];
+    // 弱い語（weak_word）の理由は種の枠を持たない（seed が無い）。種の枠の無い候補は「なし」と見せる
+    const ids = [...new Set((JSON.parse(String(r.seeds)) as { seed?: number }[]).flatMap((h) => (typeof h.seed === "number" ? [h.seed] : [])))];
     const seeds = ids.flatMap((id) => {
       const s = seedOf.get(id) as { started_at: string | null; title_raw: string } | undefined;
       return s ? [{ at: s.started_at ? Date.parse(s.started_at) : NaN, date: jstDate(s.started_at), title: s.title_raw }] : [];
@@ -202,6 +203,7 @@ export function candidateQueueRows(db: DB, opts: { includeHold?: boolean; videos
         id: -Number(r.id), video_id: vid, title_raw: String(r.title_raw), description_raw: r.description_raw as string | null,
         started_at: r.started_at as string | null, streamer_id: Number(r.streamer_id), thumbnail_url: r.thumbnail_url as string | null,
         streamer: String(r.streamer), is_members_only: Number(r.is_members_only) === 1 || Number(r.is_members_hint) === 1 ? 1 : 0,
+        started_at_source: r.started_at_source as string | null, ended_at: r.ended_at as string | null,
       },
       rule: null,
       candidate: { reasons: JSON.parse(String(r.reasons)) as string[], seeds: near.map(({ date, title }) => ({ date, title })) },
